@@ -51,6 +51,8 @@ class KoboSubmission(Base):
     suggestion_text: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    source_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     product_metrics: Mapped[list["KoboProductMetric"]] = relationship(
@@ -96,6 +98,7 @@ class KoboCompetitorMetric(Base):
 
     status: Mapped[str | None] = mapped_column(String(80))
     movement_score: Mapped[int | None] = mapped_column(Integer)
+    stock_status: Mapped[str | None] = mapped_column(String(80))
     buy_in_price: Mapped[float | None] = mapped_column(Float)
     sell_out_price: Mapped[float | None] = mapped_column(Float)
 

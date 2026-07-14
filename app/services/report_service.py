@@ -11,7 +11,7 @@ from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import sync_kobo
 from app.reports.aggregator import aggregate_submissions
-from app.reports.excel_report import create_single_report, create_all_dealer_report
+from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
@@ -67,6 +67,53 @@ def parse_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[str, s
     return dealer, date_str, report_type
 
 
+
+def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[list[str], str]:
+    """Parse a selected-dealer report command.
+
+    Supported examples:
+      /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
+      /report_multi CPH2,CA2,KDL1,CA1,CA7 2026-07-14
+
+    The last token must be the report date. Dealer codes may be separated by
+    spaces and/or commas. Duplicate dealer codes are removed while preserving
+    the requested order.
+    """
+    parts = [str(x).strip() for x in args if str(x).strip()]
+    if len(parts) < 2:
+        raise ValueError(
+            "Usage: /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14"
+        )
+
+    date_str = parts[-1]
+    parse_report_date(date_str)
+
+    dealer_tokens: list[str] = []
+    for token in parts[:-1]:
+        dealer_tokens.extend(piece.strip() for piece in token.split(",") if piece.strip())
+
+    dealers: list[str] = []
+    seen: set[str] = set()
+    for token in dealer_tokens:
+        dealer = token.upper()
+        if dealer not in seen:
+            seen.add(dealer)
+            dealers.append(dealer)
+
+    if not dealers:
+        raise ValueError("Enter at least one dealer before the date.")
+    if len(dealers) > 10:
+        raise ValueError("Maximum 10 dealers per command. For all dealers, use /report_today.")
+
+    invalid = [dealer for dealer in dealers if dealer not in ALL_DEALERS]
+    if invalid:
+        raise ValueError(
+            "Unknown dealer code(s): " + ", ".join(invalid) + ". Check the dealer list and retry."
+        )
+
+    return dealers, date_str
+
+
 def _is_channel_specialist_submission(s: KoboSubmission) -> bool:
     return (s.outlet_type or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
 
@@ -101,15 +148,37 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
 
 
 def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, report_type: ReportType | None = None) -> list:
-    # Real project behavior: if DB has no matching rows, pull Kobo once and retry.
-    # This prevents the common mistake of generating before /sync_kobo was run.
+    """Target the requested dealer/date and wait for any active background sync."""
     if submissions:
         return submissions
     try:
-        sync_kobo()
+        result = sync_kobo(
+            dealer=dealer,
+            report_date=d,
+            wait_if_running=True,
+            timeout_seconds=settings.report_sync_wait_seconds,
+        )
+        print(f"ℹ️ Report sync result: {result}")
     except Exception as e:
         print(f"⚠️ Auto sync before retry failed: {e}")
         return submissions
+
+    rows = get_submissions(dealer, d, report_type=report_type)
+    if rows:
+        return rows
+
+    # If we only waited for another sync and it did not import this dealer/date,
+    # run one targeted pass now that the lock is free.
+    if result.get("waited_for_existing_sync"):
+        try:
+            sync_kobo(
+                dealer=dealer,
+                report_date=d,
+                wait_if_running=True,
+                timeout_seconds=settings.report_sync_wait_seconds,
+            )
+        except Exception as e:
+            print(f"⚠️ Targeted retry failed: {e}")
     return get_submissions(dealer, d, report_type=report_type)
 
 
@@ -121,9 +190,12 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
         submissions = _sync_and_retry_if_empty(dealer, d, submissions, report_type=report_type)
     if not submissions:
         label = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
+        all_rows = get_submissions(dealer, d, report_type=None)
+        outlet_types = sorted({(row.outlet_type or "blank") for row in all_rows})
+        detail = f" DB rows for dealer/date: {len(all_rows)}; outlet types: {', '.join(outlet_types) or 'none'}."
         return None, (
-            f"No {label} submissions found for {dealer} on {d}. "
-            "Run /sync_kobo and check the dealer/date/outlet type in PostgreSQL."
+            f"No {label} submissions found for {dealer} on {d}." + detail +
+            " Run /sync_kobo once and retry."
         )
 
     agg = aggregate_submissions(submissions)
@@ -166,6 +238,96 @@ def generate_today_all_dealers_with_pngs(report_date_str: str | None = None):
     else:
         text = f"{text}; PNG ZIP not created. Install LibreOffice/PyMuPDF or check LIBREOFFICE_PATH."
     return path, png_zip, text
+
+
+
+def generate_multi_dealer_reports(
+    dealers: list[str] | tuple[str, ...],
+    report_date_str: str,
+    report_type: ReportType = "GENERAL",
+):
+    """Generate one workbook and one PNG ZIP for selected dealers.
+
+    The Kobo API is synchronized at most once for the requested date when any
+    selected dealer is missing from PostgreSQL. The output workbook always has
+    one sheet per requested dealer, in the same order as the command. Dealers
+    with no matching submissions receive a blank sheet and are listed in the
+    returned status message.
+    """
+    d = parse_report_date(report_date_str)
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in dealers:
+        dealer = str(raw).strip().upper()
+        if dealer and dealer not in seen:
+            seen.add(dealer)
+            normalized.append(dealer)
+
+    if not normalized:
+        raise ValueError("At least one dealer is required.")
+
+    invalid = [dealer for dealer in normalized if dealer not in ALL_DEALERS]
+    if invalid:
+        raise ValueError("Unknown dealer code(s): " + ", ".join(invalid))
+
+    submissions = get_submissions(None, d, report_type=report_type)
+    requested_rows = [row for row in submissions if (row.dealer or "").upper() in seen]
+    present = {(row.dealer or "").upper() for row in requested_rows}
+    missing_before_sync = [dealer for dealer in normalized if dealer not in present]
+
+    # One date-targeted sync is much faster and safer than running one full Kobo
+    # fetch independently for every dealer.
+    if settings.auto_sync_before_report or missing_before_sync:
+        try:
+            sync_kobo(
+                dealer=None,
+                report_date=d,
+                wait_if_running=True,
+                timeout_seconds=settings.report_sync_wait_seconds,
+            )
+        except Exception as exc:
+            print(f"⚠️ Multi-dealer targeted sync failed: {exc}")
+
+        submissions = get_submissions(None, d, report_type=report_type)
+        requested_rows = [row for row in submissions if (row.dealer or "").upper() in seen]
+
+    grouped: dict[str, list[KoboSubmission]] = {dealer: [] for dealer in normalized}
+    for row in requested_rows:
+        dealer = (row.dealer or "").upper()
+        if dealer in grouped:
+            grouped[dealer].append(row)
+
+    aggs: dict[str, dict] = {}
+    for dealer in normalized:
+        rows = grouped[dealer]
+        if not rows:
+            continue
+        agg = aggregate_submissions(rows)
+        agg["report_type"] = report_type
+        agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
+        aggs[dealer] = agg
+
+    path = create_selected_dealer_report(aggs, normalized, d)
+    png_zip = excel_workbook_to_png_zip(
+        path,
+        sheet_names=normalized,
+        zip_path=path.with_name(f"{path.stem}_PNG.zip"),
+    )
+
+    missing = [dealer for dealer in normalized if not grouped[dealer]]
+    total_rows = sum(len(rows) for rows in grouped.values())
+    status = (
+        f"Generated {len(normalized)} dealer sheets for {d}: "
+        f"{len(normalized) - len(missing)} with data, {total_rows} outlet submissions"
+    )
+    if missing:
+        status += "; no data: " + ", ".join(missing)
+    if png_zip:
+        status += f"; PNG previews: {len(normalized)}"
+    else:
+        status += "; PNG ZIP not created"
+
+    return path, png_zip, status
 
 
 def generate_region_dealer_summary(report_date_str: str | None = None):

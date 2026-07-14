@@ -15,6 +15,7 @@ from openpyxl.utils import get_column_letter
 
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
+from app.reports.aggregator import is_final_summary_outlet_name
 
 
 HEADER_FILL = "1F4E78"
@@ -49,7 +50,7 @@ def _safe_int(value) -> int | None:
 def build_summary_rows(submissions: Iterable) -> list[dict]:
     """Return one row for every configured dealer, including zero-submit dealers.
 
-    Total Submissions = number of Kobo rows.
+    Total Submissions = number of real outlet rows (summary-marker rows excluded).
     Total Outlets = distinct outlet_name count when available, otherwise row count.
     Status = No Submit / Partial / OK.
     """
@@ -63,16 +64,20 @@ def build_summary_rows(submissions: Iterable) -> list[dict]:
     for region, dealers in REGION_DEALERS.items():
         for dealer in dealers:
             dealer_rows = grouped.get(dealer, [])
-            total_submissions = len(dealer_rows)
+            outlet_rows = [
+                s for s in dealer_rows
+                if not is_final_summary_outlet_name(getattr(s, "outlet_name", None))
+            ]
+            total_submissions = len(outlet_rows)
 
             outlet_names = {
                 _clean(getattr(s, "outlet_name", "")).lower()
-                for s in dealer_rows
+                for s in outlet_rows
                 if _clean(getattr(s, "outlet_name", ""))
             }
             total_outlets = len(outlet_names) if outlet_names else total_submissions
 
-            targets = [_safe_int(getattr(s, "total_outlet_visit_target", None)) for s in dealer_rows]
+            targets = [_safe_int(getattr(s, "total_outlet_visit_target", None)) for s in outlet_rows]
             targets = [x for x in targets if x is not None]
             target = max(targets) if targets else None
 

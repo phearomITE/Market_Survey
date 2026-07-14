@@ -29,13 +29,13 @@ CHANNEL_SPECIALIST_OUTLET_COLS = {
 CHANNEL_SPECIALIST_TYPES = set(CHANNEL_SPECIALIST_OUTLET_COLS)
 OUTLET_COLS = GENERAL_OUTLET_COLS
 FRESHNESS_START_ROW = 7
-FRESHNESS_END_ROW = 23
-MOVEMENT_HEADER_ROW = 25
-MOVEMENT_START_ROW = 26
-MOVEMENT_END_ROW = 40
-RING_PULL_START_ROW = 43
-ISSUE_START_ROW = 43
-SUGGESTION_START_ROW = 43
+FRESHNESS_END_ROW = 24
+MOVEMENT_HEADER_ROW = 26
+MOVEMENT_START_ROW = 27
+MOVEMENT_END_ROW = 42
+RING_PULL_START_ROW = 45
+ISSUE_START_ROW = 45
+SUGGESTION_START_ROW = 45
 
 # Report logo rendering. Increase these values if the logo still appears small in the PNG preview.
 REPORT_LOGO_WIDTH_PX = 110
@@ -53,18 +53,39 @@ SUMMARY_MAX_ROW_HEIGHT = 72
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
+    "CBC LITE ORD": "CB LITE ORD",
+    "CB LITE ORD": "CB LITE ORD",
+    "CBC 4.4": "CBC 4.4 NCP",
+    "CBC 4.4 NCP": "CBC 4.4 NCP",
+    "CB Original": "CB Original NCP",
+    "CB Original NCP": "CB Original NCP",
+    "CB LITE": "CB LITE NCP",
+    "CB LITE NCP": "CB LITE NCP",
+    "CB BLACK": "CB BLACK NCP",
+    "CB BLACK NCP": "CB BLACK NCP",
     "CAMBODIA COLA 330ml": "CAMBODIA COLA",
     "CAMBODIA COLA 330ML": "CAMBODIA COLA",
+    "CAMBODIA ED": "CAMBODIA ED",
+    "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED",
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
+    "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
     "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL",
-    "CAMBODIA Sport 300ml": "CAMBODIA Sport 300mL",
-    "CAMBODIA Sport 300ML": "CAMBODIA Sport 300mL",
-    "Greet Lite": "Great Lite",
+    "CAMBODIA Sport 300mL": "CAMBODIA Sport 300mL",
+    "CAMBODIA Sport 300ml": "CAMBODIA Sport 300ml",
+    "CAMBODIA Sport 300ML": "CAMBODIA Sport 300ml",
+    "GB Original": "GB Original NCP",
+    "GB  Original": "GB Original NCP",
+    "GB Original NCP": "GB Original NCP",
+    "GB SNOW": "GB SNOW NCP",
+    "Hanuman Lite": "Hanuman LITE NCP",
+    "Krud": "Krud NCP",
+    "Krud Lite": "Krud LITE NCP",
+    "Greet Lite": "Greet LITE NCP",
+    "Great Lite": "Greet LITE NCP",
+    "Hanuman Black": "Hanuman Black NCP",
     "Ganzberg  500ml": "Ganzberg 500ml",
-    "GB  Original": "GB Original",
-    "GB Original": "GB Original",
     "CBC, CBL Can and CBB Can": "CBL NCP 6 Can",
     "Wurkz NCP 5 USD": "CBL NCP 5 USD",
 }
@@ -259,7 +280,7 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
             candidates.append(val)
 
     # 3) Fuzzy contains match for renamed/legacy GB Original keys.
-    if target == "gboriginal":
+    if target in {"gboriginal", "gboriginalncp"}:
         for key, val in competitors.items():
             if not isinstance(val, dict):
                 continue
@@ -281,7 +302,7 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
 
     best = max(unique, key=_metric_mov_score)
 
-    if target == "gboriginal":
+    if target in {"gboriginal", "gboriginalncp"}:
         print(
             "✅ Excel GB Original lookup candidates:",
             [_metric_value(c, "mov", "movement_score", "final_mov", "final_movement") for c in unique],
@@ -753,17 +774,17 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
 
     # Final safety pass: remove stale values from competitor blocks.
     _force_rewrite_competitor_blocks(ws, agg)
-    _force_specific_competitor_value(ws, agg, "GB Original")
+    _force_specific_competitor_value(ws, agg, "GB Original NCP")
 
     # Hard production guard for GB Original. If aggregator contains any GB Original
     # alias with final movement 10, force the Excel movement cell to that value.
     # This prevents copied template cells from keeping a stale value like 2.
-    gb_metrics = _lookup_competitor_metrics(agg, "GB Original")
+    gb_metrics = _lookup_competitor_metrics(agg, "GB Original NCP")
     if gb_metrics:
         gb_mov = _final_movement_from_metrics(gb_metrics)
         for rr in range(MOVEMENT_START_ROW, MOVEMENT_END_ROW + 1):
             for cc in [8, 13, 18, 23]:
-                if _norm_lookup_key(ws.cell(rr, cc).value) == "gboriginal":
+                if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
                     print("✅ FORCE WRITE GB Original to Excel:", gb_mov, "cell", ws.cell(rr, cc + 1).coordinate)
 
@@ -794,7 +815,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.print_area = "A1:AA46"
+    ws.print_area = "A1:AA48"
 
 
 
@@ -874,3 +895,20 @@ def create_all_dealer_report(aggs_by_dealer: dict[str, dict], report_date) -> Pa
     aggs = [aggs_by_dealer.get(dealer) or _blank_agg(dealer, report_date) for dealer in ALL_DEALERS]
     out = settings.export_path / f"Market_Improvement_All_Dealers_{report_date}.xlsx"
     return create_report_workbook(aggs, out)
+
+
+def create_selected_dealer_report(
+    aggs_by_dealer: dict[str, dict],
+    dealers: list[str] | tuple[str, ...],
+    report_date,
+) -> Path:
+    """Create one workbook containing only the requested dealer sheets."""
+    ordered = [str(dealer).strip().upper() for dealer in dealers if str(dealer).strip()]
+    aggs = [aggs_by_dealer.get(dealer) or _blank_agg(dealer, report_date) for dealer in ordered]
+    dealer_part = "_".join(ordered)
+    # Keep Windows paths manageable while preserving a useful file name.
+    if len(dealer_part) > 90:
+        dealer_part = f"{len(ordered)}_Dealers"
+    out = settings.export_path / f"Market_Improvement_{dealer_part}_{report_date}.xlsx"
+    return create_report_workbook(aggs, out)
+

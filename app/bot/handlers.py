@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+
 from telegram import Update, InputFile
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
 from app.db.database import init_db
 from app.kobo.sync import sync_kobo
-from app.services.report_service import generate_dealer_report, generate_today_all_dealers_with_pngs, generate_region_dealer_summary, parse_report_command_args
+from app.services.report_service import (
+    generate_dealer_report,
+    generate_multi_dealer_reports,
+    generate_today_all_dealers_with_pngs,
+    generate_region_dealer_summary,
+    parse_multi_report_command_args,
+    parse_report_command_args,
+)
 from app.services.render_service import excel_to_png, excel_to_pdf
 
 HELP_TEXT = """
@@ -18,12 +27,14 @@ Commands:
 /debug_kobo
 /status
 /report KRG7 2026-06-06
+/report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today
 /report_today 2026-06-06
 /summary 2026-07-05
 /help
 
 /report = generate one dealer report and send large PNG file preview first, then Excel only.
+/report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 
@@ -68,8 +79,8 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sync_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.effective_message.reply_text("🔄 Syncing Kobo submissions...")
     try:
-        result = sync_kobo()
-        await msg.edit_text(f"✅ Kobo sync completed. Fetched: {result.get('fetched', 0)} | Synced: {result['synced']} | Skipped: {result.get('skipped', 0)}")
+        result = await asyncio.to_thread(sync_kobo)
+        await msg.edit_text(f"✅ Kobo sync completed. Fetched: {result.get('fetched', 0)} | Matched: {result.get('matched', 0)} | Synced: {result.get('synced', 0)} | Hash initialized: {result.get('hash_backfilled', 0)} | Unchanged: {result.get('unchanged', 0)} | Skipped: {result.get('skipped', 0)}")
     except Exception as e:
         await msg.edit_text(f"❌ Kobo sync failed: {e}")
 
@@ -78,7 +89,7 @@ async def _maybe_sync_before_report(message) -> None:
     if not settings.auto_sync_before_report:
         return
     await message.reply_text("🔄 Auto-syncing Kobo first...")
-    result = sync_kobo()
+    result = await asyncio.to_thread(sync_kobo)
     await message.reply_text(f"✅ Kobo sync completed. Synced: {result['synced']} | Skipped: {result.get('skipped', 0)}")
 
 
@@ -103,14 +114,14 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, text = generate_dealer_report(dealer, rdate, report_type=report_type)
+        path, text = await asyncio.to_thread(generate_dealer_report, dealer, rdate, report_type)
         if not path:
             await wait.edit_text(f"⚠️ {text}")
             return
 
         await wait.edit_text(f"✅ {text}\n🖼 Creating PNG preview...")
 
-        png = excel_to_png(path)
+        png = await asyncio.to_thread(excel_to_png, path)
         if png:
             # Send PNG as document, not photo. This keeps full resolution and shows
             # a small preview thumbnail in Telegram, like the user's requested example.
@@ -130,6 +141,50 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(f"❌ Report failed: {e}")
 
 
+
+async def report_multi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        dealers, rdate = parse_multi_report_command_args(context.args)
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ {exc}")
+        return
+
+    dealer_text = ", ".join(dealers)
+    wait = await update.effective_message.reply_text(
+        f"📊 Generating selected dealer reports for {rdate}...\n"
+        f"Dealers ({len(dealers)}): {dealer_text}"
+    )
+    try:
+        path, png_zip, text = await asyncio.to_thread(
+            generate_multi_dealer_reports,
+            dealers,
+            rdate,
+            "GENERAL",
+        )
+
+        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
+        with path.open("rb") as f:
+            await update.effective_message.reply_document(
+                document=InputFile(f, filename=path.name),
+                caption=f"📊 Selected dealer reports - {dealer_text} ({rdate})",
+            )
+
+        if png_zip:
+            await update.effective_message.reply_text("🖼 Uploading selected dealer PNG previews...")
+            with png_zip.open("rb") as f:
+                await update.effective_message.reply_document(
+                    document=InputFile(f, filename=png_zip.name),
+                    caption=f"🖼 PNG previews - {dealer_text} ({rdate})",
+                )
+        else:
+            await update.effective_message.reply_text(
+                "⚠️ Excel was generated, but PNG previews were not created. "
+                "Check LibreOffice, PyMuPDF and LIBREOFFICE_PATH."
+            )
+    except Exception as exc:
+        await wait.edit_text(f"❌ Multi-dealer report failed: {exc}")
+
+
 async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rdate = context.args[0].strip() if context.args else None
     wait = await update.effective_message.reply_text(
@@ -139,7 +194,7 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, png_zip, text = generate_today_all_dealers_with_pngs(rdate)
+        path, png_zip, text = await asyncio.to_thread(generate_today_all_dealers_with_pngs, rdate)
 
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
         with path.open("rb") as f:
@@ -197,7 +252,7 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     wait = await update.effective_message.reply_text(f"📊 Generating Region/Dealer summary for {rdate}...")
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, text = generate_region_dealer_summary(rdate)
+        path, text = await asyncio.to_thread(generate_region_dealer_summary, rdate)
         await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))

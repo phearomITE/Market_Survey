@@ -1,27 +1,14 @@
-# Secrets
 .env
 .env.*
 !.env.example
-
-# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
-
-# Virtual environments
 .venv/
 venv/
-
-# Generated reports
-exports/
-*.png
-*.pdf
-
-# Editors and OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# Logs
+exports/*
+!exports/.gitkeep
 *.log
+.DS_Store
+.idea/
+.vscode/

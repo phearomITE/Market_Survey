@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 import difflib
 import re
 from typing import Any
@@ -10,21 +11,21 @@ from typing import Any
 from sqlalchemy import text
 
 from app.db.database import SessionLocal
-from app.services.ai_summary_service import summarize_with_ollama
 
 OWN_PRODUCTS = [
-    "CBC 4.4",
-    "CB Original",
-    "CB LITE",
-    "CB BLACK",
+    "CB LITE ORD",
+    "CBC 4.4 NCP",
+    "CB Original NCP",
+    "CB LITE NCP",
+    "CB BLACK NCP",
     "CAMBODIA COLA",
     "WURKZ",
-    "ភេសជ្ជៈប៉ូវកម្លាំង\u037fកម្ពុជា".replace("\u037f", "\u200b"),
+    "CAMBODIA ED",
     "DAZZ",
     "DAZZ Zero Sugar",
     "IZE PET 300ml Flavour",
     "IZE COLA PET 1.5L All SKUs",
-    "EXPREZ ត្រសក់ផ្អែម",
+    "EXPREZ Melon",
     "Wurkz Ice",
     "CAMBODIA Sport 300mL",
     "CAMBODIA Sport 500mL",
@@ -33,46 +34,47 @@ OWN_PRODUCTS = [
 ]
 
 COMPETITOR_PRODUCTS = [
-    "GB Original",
-    "GB SNOW",
-    "Hanuman Lite",
-    "Hanuman Black",
-    "Krud",
-    "Krud Lite",
-    "Great Lite",
-    "Greet Lite",
+    "GB SNOW ORD",
+    "HANUMAN LITE ORD",
+    "Krud LITE ORD",
+    "CB Original NCP",
+    "GB Original NCP",
+    "Krud NCP",
+    "GB SNOW NCP",
+    "Hanuman LITE NCP",
+    "Krud LITE NCP",
+    "Greet LITE NCP",
+    "Hanuman Black NCP",
     "Coca Cola 330ml",
     "Boostrong",
+    "Krud ED",
     "Champion",
+    "King Kong Ice",
+    "Krud Ice",
     "Super Boostrong",
     "King Kong",
-    "Krud ED",
-    "Krud Ice",
-    "Poweram",
+    "AIRA",
     "BACCHUSE",
+    "Dragon",
     "BACCHUSE Sugar Free",
     "POP Z Flavour",
+    "V Cola 350ml",
     "Coca 1.5L",
     "Big Cola 3L",
-    "Sting Can 330ml",
-    "Pocari Sweat",
-    "Provida 500mL",
-    "Provida 1500mL",
     "EXPREZ Can 330ml",
-    "CAMBODIA Sport 300ml",
-    "CAMBODIA Sport 300mL",
+    "Sting Can 330ml",
     "Idol Can 330ml",
+    "CAMBODIA Sport 300ml",
+    "Pocari Sweat",
     "V-Active Sport",
     "Vital 500mL",
-    "Vital 1500mL",
-    "Ganzberg  500ml",
+    "Provida 500mL",
     "Ganzberg 500ml",
-    "Ganzberg 1500ml",
     "Hitech 500mL",
+    "Vital 1500mL",
+    "Provida 1500mL",
+    "Ganzberg 1500ml",
     "Hitech 1500mL",
-    "AIRA",
-    "Dragon",
-    "V Cola 350ml",
 ]
 
 RING_PRODUCTS = ["CBL NCP 6 Can", "CBL NCP 5 USD"]
@@ -81,40 +83,39 @@ RING_PRODUCT_ALIASES = {
     "CBL NCP 5 USD": ["CBL NCP 5 USD", "Wurkz NCP 5 USD"],
 }
 
-# Legacy comparison groups kept for backward compatibility only.
-# Current final rule is product-level:
-# average -> KB rounding -> rounded 9/10 becomes 10; 0-8 stays unchanged.
 OFFTAKE_COMPARE_GROUPS = [
-    ["CBC 4.4", "CB Original", "GB Original", "Krud"],
-    ["CB LITE", "GB SNOW", "Hanuman Lite", "Krud Lite", "Great Lite", "Greet Lite"],
-    ["CB BLACK", "Hanuman Black"],
+    ["CB LITE ORD", "GB SNOW ORD", "HANUMAN LITE ORD", "Krud LITE ORD"],
+    ["CBC 4.4 NCP", "CB Original NCP", "GB Original NCP", "Krud NCP"],
+    ["CB LITE NCP", "GB SNOW NCP", "Hanuman LITE NCP", "Krud LITE NCP", "Greet LITE NCP"],
+    ["CB BLACK NCP", "Hanuman Black NCP"],
     ["CAMBODIA COLA", "Coca Cola 330ml"],
-    ["WURKZ", "Boostrong", "Krud ED", "Poweram"],
-    ["Wurkz Ice", "Champion", "Krud Ice"],
-    ["ភេសជ្ជៈប៉ូវកម្លាំងͿកម្ពុជា".replace("Ϳ", "​"), "Super Boostrong", "King Kong", "AIRA", "Dragon"],
-    ["DAZZ", "BACCHUSE"],
+    ["WURKZ", "Boostrong", "Krud ED"],
+    ["Wurkz Ice", "Champion", "King Kong Ice", "Krud Ice"],
+    ["CAMBODIA ED", "Super Boostrong", "King Kong", "AIRA"],
+    ["DAZZ", "BACCHUSE", "Dragon"],
     ["DAZZ Zero Sugar", "BACCHUSE Sugar Free"],
     ["IZE PET 300ml Flavour", "POP Z Flavour", "V Cola 350ml"],
     ["IZE COLA PET 1.5L All SKUs", "Coca 1.5L", "Big Cola 3L"],
-    ["EXPREZ ត្រសក់ផ្អែម", "EXPREZ Can 330ml", "Sting Can 330ml", "Idol Can 330ml"],
-    ["CAMBODIA Sport 500mL", "CAMBODIA Sport 300ml", "CAMBODIA Sport 300mL", "Pocari Sweat", "V-Active Sport"],
-    ["CAMBODIA WATER 500mL", "Vital 500mL", "Provida 500mL", "Ganzberg 500ml", "Ganzberg  500ml", "Hitech 500mL"],
+    ["EXPREZ Melon", "EXPREZ Can 330ml", "Sting Can 330ml", "Idol Can 330ml"],
+    ["CAMBODIA Sport 500mL", "CAMBODIA Sport 300ml", "Pocari Sweat", "V-Active Sport"],
+    ["CAMBODIA WATER 500mL", "Vital 500mL", "Provida 500mL", "Ganzberg 500ml", "Hitech 500mL"],
     ["CAMBODIA WATER 1500mL", "Vital 1500mL", "Provida 1500mL", "Ganzberg 1500ml", "Hitech 1500mL"],
 ]
 
 PRODUCT_CODES = {
-    "CBC 4.4": ["cbc44", "cbc_4_4"],
-    "CB Original": ["cb_original", "cb_original_beer", "cb_original_can", "cb_ori"],
-    "CB LITE": ["cbc_lite", "cb_lite"],
-    "CB BLACK": ["cb_black"],
+    "CB LITE ORD": ["cb_lite_ord", "cbc_lite_ord"],
+    "CBC 4.4 NCP": ["cbc44_ncp", "cbc_4_4_ncp", "cbc44", "cbc_4_4"],
+    "CB Original NCP": ["cb_original_ncp", "cb_original", "cb_original_beer", "cb_original_can", "cb_ori"],
+    "CB LITE NCP": ["cb_lite_ncp", "cbc_lite_ncp", "cb_lite", "cbc_lite"],
+    "CB BLACK NCP": ["cb_black_ncp", "cb_black"],
     "CAMBODIA COLA": ["cambodia_cola_330", "cambodia_cola", "cambodia_cola_330ml"],
     "WURKZ": ["wurkz"],
-    "ភេសជ្ជៈប៉ូវកម្លាំង\u037fកម្ពុជា".replace("\u037f", "\u200b"): ["cambodia_energy", "energy_menthol"],
+    "CAMBODIA ED": ["cambodia_ed", "cambodia_energy", "energy_menthol"],
     "DAZZ": ["dazz"],
     "DAZZ Zero Sugar": ["dazz_zero_sugar", "dazz_zero"],
-    "IZE PET 300ml Flavour": ["ize_pet_300", "ize_pet_300_all", "ize_pet_300ml"],
+    "IZE PET 300ml Flavour": ["ize_pet_300_flavour", "ize_pet_300", "ize_pet_300_all", "ize_pet_300ml"],
     "IZE COLA PET 1.5L All SKUs": ["ize_cola_pet_1500", "ize_cola_pet_15_all", "ize_cola_1500"],
-    "EXPREZ ត្រសក់ផ្អែម": ["exprez_cucumber", "exprez_melon", "exprez"],
+    "EXPREZ Melon": ["exprez_melon", "exprez_cucumber", "exprez"],
     "Wurkz Ice": ["wurkz_ice"],
     "CAMBODIA Sport 300mL": ["cambodia_sport_300"],
     "CAMBODIA Sport 500mL": ["cambodia_sport_500"],
@@ -123,47 +124,69 @@ PRODUCT_CODES = {
 }
 
 COMPETITOR_CODES = {
-    "GB Original": ["gb_original"],
-    "GB SNOW": ["gb_snow"],
-    # Hanuman Original removed per business requirement.
-    "Hanuman Lite": ["hanuman_lite"],
-    "Hanuman Black": ["hanuman_black"],
-    "Krud": ["krud"],
-    "Krud Lite": ["krud_lite"],
-    "Great Lite": ["greet_lite", "great_lite"],
-    "Greet Lite": ["greet_lite", "great_lite"],
+    "GB SNOW ORD": ["gb_snow_ord"],
+    "HANUMAN LITE ORD": ["hanuman_lite_ord"],
+    "Krud LITE ORD": ["krud_lite_ord"],
+    "CB Original NCP": ["cb_original_ncp", "cb_original"],
+    "GB Original NCP": ["gb_original_ncp", "gb_original"],
+    "Krud NCP": ["krud_ncp", "krud"],
+    "GB SNOW NCP": ["gb_snow_ncp", "gb_snow"],
+    "Hanuman LITE NCP": ["hanuman_lite_ncp", "hanuman_lite"],
+    "Krud LITE NCP": ["krud_lite_ncp", "krud_lite"],
+    "Greet LITE NCP": ["greet_lite_ncp", "greet_lite", "great_lite"],
+    "Hanuman Black NCP": ["hanuman_black_ncp", "hanuman_black"],
     "Coca Cola 330ml": ["coca_cola_330"],
     "Boostrong": ["boostrong"],
+    "Krud ED": ["krud_ed"],
     "Champion": ["champion"],
+    "King Kong Ice": ["king_kong_ice"],
+    "Krud Ice": ["krud_ice"],
     "Super Boostrong": ["super_boostrong"],
     "King Kong": ["king_kong"],
-    "Krud ED": ["krud_ed"],
-    "Krud Ice": ["krud_ice"],
-    "Poweram": ["poweram"],
+    "AIRA": ["aira"],
     "BACCHUSE": ["bacchuse"],
+    "Dragon": ["dragon"],
     "BACCHUSE Sugar Free": ["bacchuse_sugar_free"],
     "POP Z Flavour": ["pop_z_flavour"],
+    "V Cola 350ml": ["v_cola_350"],
     "Coca 1.5L": ["coca_1500", "coca_15l", "coca_1_5l"],
     "Big Cola 3L": ["big_cola_3l"],
-    "Sting Can 330ml": ["sting_can_330"],
-    "Pocari Sweat": ["pocari_sweat"],
-    "Provida 500mL": ["provida_500"],
-    "Provida 1500mL": ["provida_1500"],
     "EXPREZ Can 330ml": ["exprez_can_330"],
-    "CAMBODIA Sport 300ml": ["cambodia_sport_300"],
-    "CAMBODIA Sport 300mL": ["cambodia_sport_300"],
+    "Sting Can 330ml": ["sting_can_330"],
     "Idol Can 330ml": ["idol_can_330"],
+    "CAMBODIA Sport 300ml": ["cambodia_sport_300"],
+    "Pocari Sweat": ["pocari_sweat"],
     "V-Active Sport": ["v_active_sport"],
     "Vital 500mL": ["vital_500"],
-    "Vital 1500mL": ["vital_1500"],
-    "Ganzberg  500ml": ["ganzberg_500"],
+    "Provida 500mL": ["provida_500"],
     "Ganzberg 500ml": ["ganzberg_500"],
-    "Ganzberg 1500ml": ["ganzberg_1500"],
     "Hitech 500mL": ["hitech_500"],
+    "Vital 1500mL": ["vital_1500"],
+    "Provida 1500mL": ["provida_1500"],
+    "Ganzberg 1500ml": ["ganzberg_1500"],
     "Hitech 1500mL": ["hitech_1500"],
-    "AIRA": ["aira"],
-    "Dragon": ["dragon"],
-    "V Cola 350ml": ["v_cola_350"],
+}
+
+PRODUCT_LABEL_ALIASES = {
+    "CB LITE ORD": ["CB LITE ORD", "CBC LITE ORD"],
+    "CBC 4.4 NCP": ["CBC 4.4 NCP", "CBC 4.4"],
+    "CB Original NCP": ["CB Original NCP", "CB Original"],
+    "CB LITE NCP": ["CB LITE NCP", "CB LITE", "CBC LITE"],
+    "CB BLACK NCP": ["CB BLACK NCP", "CB BLACK"],
+    "CAMBODIA COLA": ["CAMBODIA COLA", "CAMBODIA COLA 330ml"],
+    "CAMBODIA ED": ["CAMBODIA ED", "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា"],
+    "IZE PET 300ml Flavour": ["IZE PET 300ml Flavour", "IZE PET 300ml All SKUs"],
+    "EXPREZ Melon": ["EXPREZ Melon", "EXPREZ ត្រសក់ផ្អែម"],
+    "CAMBODIA Sport 300mL": ["CAMBODIA Sport 300mL", "CAMBODIA Sport 300ml"],
+    "CAMBODIA Sport 500mL": ["CAMBODIA Sport 500mL", "CAMBODIA Sport 500ml"],
+    "GB Original NCP": ["GB Original NCP", "GB Original", "GB  Original"],
+    "GB SNOW NCP": ["GB SNOW NCP", "GB SNOW"],
+    "Hanuman LITE NCP": ["Hanuman LITE NCP", "Hanuman Lite"],
+    "Krud NCP": ["Krud NCP", "Krud"],
+    "Krud LITE NCP": ["Krud LITE NCP", "Krud Lite"],
+    "Greet LITE NCP": ["Greet LITE NCP", "Greet Lite", "Great Lite"],
+    "Hanuman Black NCP": ["Hanuman Black NCP", "Hanuman Black"],
+    "Ganzberg 500ml": ["Ganzberg 500ml", "Ganzberg  500ml"],
 }
 
 STATUS_TO_MOVEMENT = {
@@ -348,14 +371,21 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     products = result.get("products") or {}
     competitors = result.get("competitors") or {}
 
+    # These two are own-product freshness rows but appear in competitor
+    # columns in the movement table, so comparison promotion must update the
+    # competitor bucket that Excel actually reads.
+    if product in {"CB Original NCP", "CAMBODIA Sport 300ml"} and product in competitors:
+        return "competitors", competitors[product]
     if product in products:
         return "products", products[product]
     if product in competitors:
         return "competitors", competitors[product]
 
     alias_map = {
-        "Great Lite": "Greet Lite" if "Greet Lite" in competitors else "Great Lite",
-        "Greet Lite": "Great Lite" if "Great Lite" in competitors else "Greet Lite",
+        "CBC LITE ORD": "CB LITE ORD",
+        "CAMBODIA COLA 330ml": "CAMBODIA COLA",
+        "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
+        "CAMBODIA Sport 300mL": "CAMBODIA Sport 300ml",
         "CAMBODIA Sport 300ml": "CAMBODIA Sport 300mL",
         "Ganzberg  500ml": "Ganzberg 500ml",
     }
@@ -627,61 +657,53 @@ def stock_summary(values: list[Any]) -> str | None:
 
 
 def _field_label_aliases(product: str, field: str) -> list[str]:
-    """Human-readable Kobo/Enketo field-label aliases.
-
-    Kobo sometimes returns exported fields by question label, not only by XLSForm
-    variable name. These aliases make sync capture values such as:
-    "GB Original - Movement Score 0-10" correctly.
-    """
+    """Return label aliases for current and legacy Kobo product names."""
     labels: list[str] = []
-    if field in {"mov", "movement", "movement_score"}:
-        labels += [
-            f"{product} - Movement Score 0-10",
-            f"{product} - Movement Score",
-            f"{product} - Offtake Movement",
-            f"{product} - Movement",
-        ]
-    elif field == "status":
-        labels += [
-            f"{product} - ស្ថានភាពលក់",
-            f"{product} - Sale Status",
-            f"{product} - Status",
-        ]
-    elif field == "stock":
-        labels += [
-            f"{product} - Stock Status",
-            f"{product} - ស្ថានភាពស្តុក",
-        ]
-    elif field == "bbe":
-        labels += [
-            f"{product} - BBE / Freshness Date",
-            f"{product} - BBE",
-            f"{product} - Freshness Date",
-        ]
-    elif field == "buy_in":
-        labels += [
-            f"{product} - Buy In Price",
-            f"{product} - Buy In",
-        ]
-    elif field == "sell_out":
-        labels += [
-            f"{product} - Sell Out Price",
-            f"{product} - Sell Out",
-        ]
-    elif field == "ring_pull":
-        labels += [
-            f"{product} - Ring Pull (រៀល\u200b)",
-            f"{product} - Ring Pull (រៀល)",
-            f"{product} - Ring Pull",
-        ]
-    elif field == "volume":
-        labels += [
-            f"{product} - Volume",
-            f"{product} - Volume (ctn)",
-            f"{product} - Volume Ctn",
-        ]
+    names = PRODUCT_LABEL_ALIASES.get(product, [product])
+    for display_name in names:
+        if field in {"mov", "movement", "movement_score"}:
+            labels += [
+                f"{display_name} - Movement Score 0-10",
+                f"{display_name} - Movement Score",
+                f"{display_name} - Offtake Movement",
+                f"{display_name} - Movement",
+            ]
+        elif field == "status":
+            labels += [
+                f"{display_name} - ស្ថានភាពលក់",
+                f"{display_name} - Sale Status",
+                f"{display_name} - Status",
+            ]
+        elif field == "stock":
+            labels += [f"{display_name} - Stock Status", f"{display_name} - ស្ថានភាពស្តុក"]
+        elif field == "bbe":
+            labels += [
+                f"{display_name} - BBE / Freshness Date",
+                f"{display_name} - BBE",
+                f"{display_name} - Freshness Date",
+            ]
+        elif field == "buy_in":
+            labels += [f"{display_name} - Buy In Price", f"{display_name} - Buy In"]
+        elif field == "sell_out":
+            labels += [f"{display_name} - Sell Out Price", f"{display_name} - Sell Out"]
+        elif field == "ring_pull":
+            labels += [
+                f"{display_name} - Ring Pull (រៀល\u200b)",
+                f"{display_name} - Ring Pull (រៀល)",
+                f"{display_name} - Ring Pull",
+            ]
+        elif field == "volume":
+            labels += [
+                f"{display_name} - Volume",
+                f"{display_name} - Volume (ctn)",
+                f"{display_name} - Volume Ctn",
+            ]
+        elif field == "new_purchase":
+            labels += [
+                f"{display_name} - New Outlet Purchase",
+                f"{display_name} - New Purchase",
+            ]
 
-    # Common spacing variants.
     more: list[str] = []
     for label in labels:
         more.append(label.replace("  ", " "))
@@ -728,12 +750,23 @@ def competitor_field(product: str, field: str) -> list[str]:
     codes = COMPETITOR_CODES.get(product, [slug(product)])
     keys: list[str] = []
     keys += _field_label_aliases(product, field)
+    # Some report comparison items are also own-product freshness rows
+    # (CB Original NCP and CAMBODIA Sport 300ml). Reuse their own form fields.
+    own_alias = "CAMBODIA Sport 300mL" if product == "CAMBODIA Sport 300ml" else product
+    if own_alias in OWN_PRODUCTS:
+        keys += product_field(own_alias, field)
     for code in codes:
         field_aliases = [field]
         if field == "mov":
             field_aliases += ["movement", "movement_score"]
         elif field == "status":
             field_aliases += ["comp_status"]
+        elif field == "stock":
+            field_aliases += ["stock_status"]
+        elif field == "buy_in":
+            field_aliases += ["buy_in_price"]
+        elif field == "sell_out":
+            field_aliases += ["sell_out_price"]
         elif field == "volume":
             field_aliases += ["volume_ctn"]
         for fa in dict.fromkeys(field_aliases):
@@ -768,28 +801,104 @@ def _clean_text(value: Any) -> str:
     return str(value).replace("\r", "\n").strip()
 
 
+FINAL_SUMMARY_KEYWORDS = (
+    "បូកសរុបរួម",
+    "បូកសរុបរូម",
+    "សរុបរួម",
+    "បួកសរុបរួម",
+)
+
+
+def is_final_summary_outlet_name(value: Any) -> bool:
+    """Return True only when Outlet Name is one of the four summary markers.
+
+    The marker is matched exactly after trimming whitespace. It is no longer
+    searched inside Key Issues or Initiative/Suggestion text.
+    """
+    normalized = _clean_text(value).replace(" ", "")
+    return normalized in {keyword.replace(" ", "") for keyword in FINAL_SUMMARY_KEYWORDS}
+
+
+def _is_summary_submission(submission: Any) -> bool:
+    return is_final_summary_outlet_name(getattr(submission, "outlet_name", None))
+
+
+def _strip_final_summary_keyword(value: Any) -> str:
+    text_value = _clean_text(value)
+    for keyword in FINAL_SUMMARY_KEYWORDS:
+        text_value = text_value.replace(keyword, "")
+    return text_value.strip(" :-–—|\n\t")
+
+
+def _summary_points(value: Any, limit: int = 4) -> list[str]:
+    text_value = _strip_final_summary_keyword(value)
+    if not text_value:
+        return []
+    pieces = re.split(r"(?:\r?\n)+|[;；]+|(?:(?<=^)|(?<=\s))[1-4][.)៖:]\s*|[•▪◦●]+", text_value)
+    cleaned: list[str] = []
+    for piece in pieces:
+        item = re.sub(r"^[-–—*]+\s*", "", str(piece or "")).strip()
+        if item and item not in cleaned:
+            cleaned.append(item)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
+    # Summary selection is controlled only by Outlet Name. The Key Issues and
+    # Suggestion fields contain the actual summary text and need no keyword.
+    candidates = [s for s in submissions if _is_summary_submission(s)]
+    if not candidates:
+        return [], []
+    latest = max(
+        candidates,
+        key=lambda s: (
+            getattr(s, "submission_time", None) or datetime.min,
+            getattr(s, "id", 0) or 0,
+        ),
+    )
+    return (
+        _summary_points(getattr(latest, "key_issue_text", None)),
+        _summary_points(getattr(latest, "suggestion_text", None)),
+    )
+
+
 def _product_lookup_key(name: Any) -> str:
     """Very loose product key for alias matching: GB  Original == GB Original."""
     return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
 
 
 def _canonical_product_name(name: Any) -> str:
-    """Canonical product name used when reading metric rows from the DB.
-
-    Fixes product-name mismatches such as "GB  Original" vs "GB Original"
-    that can make the report read a wrong/blank movement value.
-    """
-    s = " ".join(str(name or "").split()).strip()
+    """Canonical product name used for current template and legacy DB rows."""
+    value = " ".join(str(name or "").replace("\u200b", "").split()).strip()
     aliases = {
-        "GB Original": "GB Original",
-        "GB  Original": "GB Original",
-        "Great Lite": "Great Lite",
-        "Greet Lite": "Greet Lite",
-        "Ganzberg 500ml": "Ganzberg 500ml",
+        "CBC LITE ORD": "CB LITE ORD",
+        "CB LITE ORD": "CB LITE ORD",
+        "CBC 4.4": "CBC 4.4 NCP",
+        "CB Original": "CB Original NCP",
+        "CB LITE": "CB LITE NCP",
+        "CBC LITE": "CB LITE NCP",
+        "CB BLACK": "CB BLACK NCP",
+        "CAMBODIA COLA 330ml": "CAMBODIA COLA",
+        "ភេសជ្ជៈប៉ូវកម្លាំង_កម្ពុជា": "CAMBODIA ED",
+        "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED",
+        "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
+        "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
+        "GB Original": "GB Original NCP",
+        "GB  Original": "GB Original NCP",
+        "GB SNOW": "GB SNOW NCP",
+        "Hanuman Lite": "Hanuman LITE NCP",
+        "Krud": "Krud NCP",
+        "Krud Lite": "Krud LITE NCP",
+        "Great Lite": "Greet LITE NCP",
+        "Greet Lite": "Greet LITE NCP",
+        "Hanuman Black": "Hanuman Black NCP",
         "Ganzberg  500ml": "Ganzberg 500ml",
-        "CAMBODIA Sport 300ml": "CAMBODIA Sport 300mL",
+        "CAMBODIA Sport 300mL": "CAMBODIA Sport 300mL",
+        "CAMBODIA Sport 300ml": "CAMBODIA Sport 300ml",
     }
-    return aliases.get(s, s)
+    return aliases.get(value, value)
 
 
 def _metric_by_product(metrics: list) -> dict[str, Any]:
@@ -1124,22 +1233,35 @@ def _available_from_wide_or_metric(
     return _metric_or_payload_available(submission, metric, product)
 
 def aggregate_submissions(submissions: list) -> dict:
-    outlet_types = Counter((s.outlet_type or "Unknown") for s in submissions)
+    all_submissions = list(submissions or [])
+
+    # A row whose Outlet Name is a summary marker is a control/summary row,
+    # not a real outlet visit. Exclude it from outlet counts, availability,
+    # movement, freshness, Ring Pull and every product calculation.
+    data_submissions = [s for s in all_submissions if not _is_summary_submission(s)]
+    header_submissions = data_submissions or all_submissions
+    first_submission = header_submissions[0] if header_submissions else None
+
+    outlet_types = Counter((s.outlet_type or "Unknown") for s in data_submissions)
     result = {
-        "dealer": submissions[0].dealer if submissions else "",
-        "region": submissions[0].region if submissions else "",
-        "report_date": submissions[0].report_date if submissions else None,
-        "total_outlets": len(submissions),
+        "dealer": getattr(first_submission, "dealer", "") if first_submission else "",
+        "region": getattr(first_submission, "region", "") if first_submission else "",
+        "report_date": getattr(first_submission, "report_date", None) if first_submission else None,
+        "total_outlets": len(data_submissions),
         "outlet_types": outlet_types,
-        "group_no": to_int(mode([s.group_no for s in submissions])) or 2,
-        "member_no": to_int(mode([s.member_no for s in submissions])),
-        "location_text": combine_location_visit([s.location_text for s in submissions]),
+        "group_no": to_int(mode([s.group_no for s in header_submissions])) or 2,
+        "member_no": to_int(mode([s.member_no for s in header_submissions])),
+        "location_text": combine_location_visit([s.location_text for s in data_submissions]),
         "products": {},
         "competitors": {},
         "ring_pull": {},
         "key_issues": [],
         "suggestions": [],
     }
+
+    # Keep the rest of the existing aggregation logic unchanged, but make it
+    # operate only on genuine outlet rows.
+    submissions = data_submissions
 
     product_maps = [_metric_by_product(list(getattr(s, "product_metrics", []) or [])) for s in submissions]
     competitor_maps = [_metric_by_product(list(getattr(s, "competitor_metrics", []) or [])) for s in submissions]
@@ -1208,7 +1330,10 @@ def aggregate_submissions(submissions: list) -> dict:
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
             "_movement_values": movement_values,
-            "stock": None,
+            "stock": stock_summary([
+                _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
+                for s, m in zip(submissions, metrics)
+            ]),
             "buy_in": mode_number([
                 _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=True, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1225,15 +1350,17 @@ def aggregate_submissions(submissions: list) -> dict:
         # labels such as "GB  Original" while the data key is "GB Original".
         result["competitors"][_product_lookup_key(product)] = cdata
         result["competitors"][_canonical_product_name(product)] = cdata
-        if product == "GB Original":
+        if product == "GB Original NCP":
             result["competitors"]["GB  Original"] = cdata
             result["competitors"]["GB Original"] = cdata
+            result["competitors"]["GB Original NCP"] = cdata
             result["competitors"]["gboriginal"] = cdata
+            result["competitors"]["gboriginalncp"] = cdata
 
     # Final hard-normalize GB Original after all competitor aliases are created.
     # This prevents any stale alias/metric row from making the Excel report show
     # the single raw value 2 when the actual submitted values are [7,2,10,10,10,10].
-    gb = result.get("competitors", {}).get("GB Original") or result.get("competitors", {}).get("gboriginal")
+    gb = result.get("competitors", {}).get("GB Original NCP") or result.get("competitors", {}).get("GB Original") or result.get("competitors", {}).get("gboriginalncp")
     if isinstance(gb, dict):
         gb_values = [
             v for v in list(gb.get("_movement_values") or [])
@@ -1243,12 +1370,12 @@ def aggregate_submissions(submissions: list) -> dict:
         # If alias data somehow lost the values, recompute directly from every
         # submission/wide payload one more time.
         if not gb_values:
-            gb_metrics = [cm.get("GB Original") or cm.get("gboriginal") or cm.get("GB  Original") for cm in competitor_maps]
+            gb_metrics = [cm.get("GB Original NCP") or cm.get("GB Original") or cm.get("gboriginalncp") or cm.get("gboriginal") or cm.get("GB  Original") for cm in competitor_maps]
             gb_values = [
                 v
                 for s, m in zip(submissions, gb_metrics)
                 if _include_movement_value(
-                    (v := _movement_from_wide_or_metric(s, m, "GB Original", is_competitor=True, wide_map=wide_map)),
+                    (v := _movement_from_wide_or_metric(s, m, "GB Original NCP", is_competitor=True, wide_map=wide_map)),
                     is_competitor=True,
                 )
             ]
@@ -1258,7 +1385,7 @@ def aggregate_submissions(submissions: list) -> dict:
         gb["mov"] = final_offtake_movement(gb_values)
 
         # Re-point every known GB Original alias to the exact same final dict.
-        for alias in ("GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", _product_lookup_key("GB Original")):
+        for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
             result["competitors"][alias] = gb
 
         print(
@@ -1278,11 +1405,9 @@ def aggregate_submissions(submissions: list) -> dict:
         qtys = [to_int(_value(m, "qty_ctn")) or 0 for m in metrics]
         result["ring_pull"][product] = {"total_outlets": sum(1 for q in qtys if q > 0), "qty": sum(qtys)}
 
-    issue_texts = [_clean_text(s.key_issue_text) for s in submissions if _clean_text(s.key_issue_text)]
-    suggestion_texts = [_clean_text(s.suggestion_text) for s in submissions if _clean_text(s.suggestion_text)]
-    ai_summary = summarize_with_ollama(issue_texts, suggestion_texts, result)
-    result["key_issues"] = ai_summary.get("key_issues", ["", "", "", ""])[:4]
-    result["suggestions"] = ai_summary.get("suggestions", ["", "", "", ""])[:4]
+    key_issues, suggestions = _latest_manual_summary(all_submissions)
+    result["key_issues"] = key_issues[:4]
+    result["suggestions"] = suggestions[:4]
     while len(result["key_issues"]) < 4:
         result["key_issues"].append("")
     while len(result["suggestions"]) < 4:

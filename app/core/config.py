@@ -29,26 +29,26 @@ class Settings(BaseSettings):
     auto_sync_before_report: bool = False
     auto_sync_enabled: bool = True
     auto_sync_interval_minutes: int = 1
-    auto_sync_interval_seconds: int = 10
+    auto_sync_interval_seconds: int = 60
+    report_sync_wait_seconds: int = 180
     libreoffice_path: str = ""
-
-    # AI summary provider: google or ollama
-    ai_provider: str = "ollama"
-    ai_summary_enabled: bool = False
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
-    ai_summary_timeout: int = 600
-    ai_summary_temperature: float = 0.1
-    ai_summary_num_ctx: int = 4096
-
-    # Google Gemini AI summary
-    google_api_key: str = ""
-    google_model: str = "gemini-2.0-flash"
 
     @property
     def db_url(self) -> str:
+        """Return a SQLAlchemy URL that always uses psycopg v3.
+
+        Railway's PostgreSQL service normally exposes DATABASE_URL as
+        postgresql://... while this project installs psycopg v3, not psycopg2.
+        SQLAlchemy otherwise tries the psycopg2 driver. Normalize the scheme so
+        the same Railway reference variable works without exposing credentials.
+        """
         if self.database_url:
-            return self.database_url
+            url = self.database_url.strip()
+            if url.startswith("postgres://"):
+                url = "postgresql://" + url[len("postgres://"):]
+            if url.startswith("postgresql://"):
+                url = "postgresql+psycopg://" + url[len("postgresql://"):]
+            return url
         return f"postgresql+psycopg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
 
     @property

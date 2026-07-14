@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
 
@@ -9,6 +10,7 @@ from app.bot.handlers import (
     debug_kobo_cmd,
     help_cmd,
     report_cmd,
+    report_multi_cmd,
     report_today_cmd,
     summary_cmd,
     start,
@@ -33,11 +35,11 @@ async def _auto_sync_loop() -> None:
     global _last_auto_sync
 
     # Local polling: check Kobo frequently without overlapping sync jobs.
-    # Prefer AUTO_SYNC_INTERVAL_SECONDS=10. Falls back to minutes for old .env files.
+    # Prefer AUTO_SYNC_INTERVAL_SECONDS=60. Falls back to minutes for old .env files.
     interval_seconds = int(getattr(settings, "auto_sync_interval_seconds", 0) or 0)
     if interval_seconds <= 0:
         interval_seconds = int(settings.auto_sync_interval_minutes or 1) * 60
-    interval_seconds = max(5, interval_seconds)
+    interval_seconds = max(60, interval_seconds)
     print(f"🔄 Auto Kobo sync enabled: every {interval_seconds} seconds")
 
     # Run once shortly after startup, then every interval.
@@ -76,9 +78,24 @@ async def _post_shutdown(app: Application) -> None:
             pass
 
 
+def _safe_database_target() -> str:
+    try:
+        parsed = urlsplit(settings.db_url.replace("postgresql+psycopg://", "postgresql://", 1))
+        return f"{parsed.hostname or 'unknown'}:{parsed.port or 5432}/{(parsed.path or '/').lstrip('/')}"
+    except Exception:
+        return "configured database"
+
+
 def main():
     if not settings.telegram_bot_token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is missing in .env")
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is missing")
+    if not settings.kobo_token or not settings.kobo_asset_uid:
+        raise RuntimeError("KOBO_TOKEN or KOBO_ASSET_UID is missing")
+
+    print(f"🚀 Environment: {settings.app_env}")
+    print(f"🗄️ Database target: {_safe_database_target()}")
+    print(f"📄 Template: {settings.template_file}")
+    print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
 
@@ -99,6 +116,8 @@ def main():
     app.add_handler(CommandHandler("sync_kobo", sync_kobo_cmd))
     app.add_handler(CommandHandler("debug_kobo", debug_kobo_cmd))
     app.add_handler(CommandHandler("report", report_cmd))
+    app.add_handler(CommandHandler("report_multi", report_multi_cmd))
+    app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
 

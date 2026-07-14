@@ -8,7 +8,12 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(settings.db_url, pool_pre_ping=True)
+engine = create_engine(
+    settings.db_url,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={"connect_timeout": 15},
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -40,6 +45,7 @@ def _ensure_light_migrations() -> None:
             ("gps_latitude", "DOUBLE PRECISION"),
             ("gps_longitude", "DOUBLE PRECISION"),
             ("updated_at", "TIMESTAMP"),
+            ("source_hash", "VARCHAR(64)"),
         ]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_submissions ADD COLUMN IF NOT EXISTS {col} {ddl}")
 
@@ -67,6 +73,56 @@ def _ensure_light_migrations() -> None:
         # SyncLog columns added after early versions.
         for col in ["fetched", "synced", "skipped"]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS sync_logs ADD COLUMN IF NOT EXISTS {col} INTEGER")
+
+        for col, ddl in [
+            ("stock_status", "VARCHAR(80)"),
+        ]:
+            _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_competitor_metrics ADD COLUMN IF NOT EXISTS {col} {ddl}")
+
+        # Keep existing database rows compatible with the renamed product list.
+        product_renames = {
+            "CBC 4.4": "CBC 4.4 NCP",
+            "CB Original": "CB Original NCP",
+            "CB LITE": "CB LITE NCP",
+            "CB BLACK": "CB BLACK NCP",
+            "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED",
+            "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
+        }
+        competitor_renames = {
+            "GB Original": "GB Original NCP",
+            "GB  Original": "GB Original NCP",
+            "GB SNOW": "GB SNOW NCP",
+            "Hanuman Lite": "Hanuman LITE NCP",
+            "Krud": "Krud NCP",
+            "Krud Lite": "Krud LITE NCP",
+            "Greet Lite": "Greet LITE NCP",
+            "Great Lite": "Greet LITE NCP",
+            "Hanuman Black": "Hanuman Black NCP",
+        }
+        for old_name, new_name in product_renames.items():
+            _safe_exec(conn, f"""
+                UPDATE kobo_product_metrics old_row
+                SET product_name = '{new_name}'
+                WHERE old_row.product_name = '{old_name}'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM kobo_product_metrics new_row
+                      WHERE new_row.submission_id = old_row.submission_id
+                        AND new_row.product_name = '{new_name}'
+                  )
+            """)
+            _safe_exec(conn, f"DELETE FROM kobo_product_metrics WHERE product_name = '{old_name}'")
+        for old_name, new_name in competitor_renames.items():
+            _safe_exec(conn, f"""
+                UPDATE kobo_competitor_metrics old_row
+                SET product_name = '{new_name}'
+                WHERE old_row.product_name = '{old_name}'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM kobo_competitor_metrics new_row
+                      WHERE new_row.submission_id = old_row.submission_id
+                        AND new_row.product_name = '{new_name}'
+                  )
+            """)
+            _safe_exec(conn, f"DELETE FROM kobo_competitor_metrics WHERE product_name = '{old_name}'")
 
 
 def init_db() -> None:
