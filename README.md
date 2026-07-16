@@ -55,3 +55,64 @@ The Dockerfile installs LibreOffice and Noto fonts for Linux report rendering. R
 ## Security
 
 Never commit `.env`. Store Kobo, Telegram and PostgreSQL credentials only in Railway Variables or a local ignored `.env`.
+
+
+
+
+
+Yes, the updated code is now correctly inside the real Git repository.
+
+This confirms it:
+
+```text
+modified: app/reports/excel_report.py
+```
+
+The diff also shows the new spacing values:
+
+```python
+SUMMARY_MIN_ROW_HEIGHT = 32
+SUMMARY_LINE_HEIGHT = 22
+SUMMARY_MAX_ROW_HEIGHT = 140
+```
+
+You are currently inside the `git diff` viewer. Press:
+
+```text
+q
+```
+
+Then commit and push:
+
+```bash
+git add app/reports/excel_report.py
+git commit -m "Improve four-line Khmer summary spacing"
+git push origin main
+```
+
+Verify the latest commit:
+
+```bash
+git log -1 --oneline
+```
+
+You should see a new commit such as:
+
+```text
+xxxxxxx Improve four-line Khmer summary spacing
+```
+
+Railway should then automatically build and deploy the new GitHub commit. After the deployment becomes active, test:
+
+```text
+/report CPH2 2026-07-14
+```
+
+## Current own-product Kobo field policy
+
+- `CB LITE ORD`: Sale Status, Movement, Stock, BBE, Buy In and Sell Out.
+- `CBC 4.4 NCP`, `CB Original NCP`, `CB LITE NCP`: the same fields plus Ring Pull.
+- `CAMBODIA ED`: Sale Status, Movement and Stock.
+- All other own products: Sale Status and Movement only.
+- Product-level `New Outlet Purchase` and `Volume (ctn)` are hidden for all own products.
+- Hidden legacy fields remain in the XLSForm schema for old-data compatibility, but synchronization and reporting ignore their historical values.

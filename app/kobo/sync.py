@@ -31,6 +31,7 @@ from app.reports.aggregator import (
     competitor_field,
     first_value,
     product_field,
+    own_product_field_enabled,
 )
 
 
@@ -50,8 +51,10 @@ def _status_to_mov(value) -> int | None:
 
 
 def _has_any_product_detail(flat: dict, product: str) -> bool:
-    for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume", "new_purchase"):
-        if first_value(flat, product_field(product, field)) not in (None, ""):
+    for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull"):
+        if own_product_field_enabled(product, field) and first_value(
+            flat, product_field(product, field)
+        ) not in (None, ""):
             return True
     return False
 
@@ -70,18 +73,23 @@ def _product_metrics_from_flat(flat: dict) -> list[dict]:
         else:
             available = _has_any_product_detail(flat, product)
 
+        def active_value(field: str):
+            if not own_product_field_enabled(product, field):
+                return None
+            return first_value(flat, product_field(product, field))
+
         values = {
             "product_name": product,
             "status": str(status).strip() if status not in (None, "") else None,
             "available": bool(available),
             "movement_score": movement,
-            "stock_status": first_value(flat, product_field(product, "stock")),
-            "bbe_date": first_value(flat, product_field(product, "bbe")),
-            "buy_in_price": to_float(first_value(flat, product_field(product, "buy_in"))),
-            "sell_out_price": to_float(first_value(flat, product_field(product, "sell_out"))),
-            "ring_pull_value": to_float(first_value(flat, product_field(product, "ring_pull"))),
-            "new_outlet_purchase": yes_value(first_value(flat, product_field(product, "new_purchase"))),
-            "volume_ctn": to_float(first_value(flat, product_field(product, "volume"))),
+            "stock_status": active_value("stock"),
+            "bbe_date": active_value("bbe"),
+            "buy_in_price": to_float(active_value("buy_in")),
+            "sell_out_price": to_float(active_value("sell_out")),
+            "ring_pull_value": to_float(active_value("ring_pull")),
+            "new_outlet_purchase": False,
+            "volume_ctn": None,
         }
 
         # Store every product row so reporting has fixed rows, even if blank.
