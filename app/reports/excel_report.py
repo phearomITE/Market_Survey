@@ -47,9 +47,17 @@ REPORT_LOGO_ANCHOR = "A1"
 # merged summary cell width first, then wrap naturally only when the text reaches
 # the cell border. Row height is estimated only to make the PNG preview clean.
 SUMMARY_CHARS_PER_LINE = 145
-SUMMARY_MIN_ROW_HEIGHT = 18
-SUMMARY_LINE_HEIGHT = 13
-SUMMARY_MAX_ROW_HEIGHT = 72
+
+# Keep each numbered item (1-4) on a clearly separated visual line.
+# 32 points is about 43 screen pixels, matching the requested preview spacing.
+SUMMARY_MIN_ROW_HEIGHT = 32
+SUMMARY_LINE_HEIGHT = 22
+SUMMARY_MAX_ROW_HEIGHT = 140
+
+# Noto Sans Khmer is installed by the Railway Dockerfile. It prevents Khmer
+# glyphs and diacritics from colliding when LibreOffice renders Excel to PNG.
+SUMMARY_FONT_NAME = "Noto Sans Khmer"
+SUMMARY_FONT_SIZE = 10.5
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
@@ -672,9 +680,19 @@ def _set_row_text(ws: Worksheet, row: int, col: int, prefix_no: int, text: str) 
 
     cell = ws.cell(row, col)
     cell.value = value
+
+    # Use a Khmer-safe font and center the text inside a taller row.
+    # The four summary items remain on rows 45-48; only their visual spacing
+    # changes, so no template coordinates or business calculations are affected.
+    cell.font = Font(
+        name=SUMMARY_FONT_NAME,
+        size=SUMMARY_FONT_SIZE,
+        bold=False,
+        color="000000",
+    )
     cell.alignment = Alignment(
         horizontal="left",
-        vertical="top",
+        vertical="center",
         wrap_text=True,
         shrink_to_fit=False,
     )
@@ -683,7 +701,11 @@ def _set_row_text(ws: Worksheet, row: int, col: int, prefix_no: int, text: str) 
 
 
 def _fit_summary_row_height(ws: Worksheet, row: int, issue_lines: int, suggestion_lines: int) -> None:
-    """Adjust only the four summary rows, not the full template layout."""
+    """Give each of summary rows 1-4 clear vertical breathing room.
+
+    Empty rows also keep the same minimum height, so 1, 2, 3 and 4 remain
+    evenly separated in Excel and in Railway's LibreOffice PNG output.
+    """
     max_lines = max(issue_lines, suggestion_lines, 1)
     height = SUMMARY_MIN_ROW_HEIGHT + ((max_lines - 1) * SUMMARY_LINE_HEIGHT)
     ws.row_dimensions[row].height = min(SUMMARY_MAX_ROW_HEIGHT, height)
