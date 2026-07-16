@@ -30,8 +30,8 @@ from app.reports.aggregator import (
     STATUS_AVAILABLE,
     competitor_field,
     first_value,
+    own_product_field_allowed,
     product_field,
-    own_product_field_enabled,
 )
 
 
@@ -51,10 +51,8 @@ def _status_to_mov(value) -> int | None:
 
 
 def _has_any_product_detail(flat: dict, product: str) -> bool:
-    for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull"):
-        if own_product_field_enabled(product, field) and first_value(
-            flat, product_field(product, field)
-        ) not in (None, ""):
+    for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume", "new_purchase"):
+        if own_product_field_allowed(product, field) and first_value(flat, product_field(product, field)) not in (None, ""):
             return True
     return False
 
@@ -73,23 +71,39 @@ def _product_metrics_from_flat(flat: dict) -> list[dict]:
         else:
             available = _has_any_product_detail(flat, product)
 
-        def active_value(field: str):
-            if not own_product_field_enabled(product, field):
-                return None
-            return first_value(flat, product_field(product, field))
-
         values = {
             "product_name": product,
             "status": str(status).strip() if status not in (None, "") else None,
             "available": bool(available),
             "movement_score": movement,
-            "stock_status": active_value("stock"),
-            "bbe_date": active_value("bbe"),
-            "buy_in_price": to_float(active_value("buy_in")),
-            "sell_out_price": to_float(active_value("sell_out")),
-            "ring_pull_value": to_float(active_value("ring_pull")),
-            "new_outlet_purchase": False,
-            "volume_ctn": None,
+            "stock_status": (
+                first_value(flat, product_field(product, "stock"))
+                if own_product_field_allowed(product, "stock") else None
+            ),
+            "bbe_date": (
+                first_value(flat, product_field(product, "bbe"))
+                if own_product_field_allowed(product, "bbe") else None
+            ),
+            "buy_in_price": (
+                to_float(first_value(flat, product_field(product, "buy_in")))
+                if own_product_field_allowed(product, "buy_in") else None
+            ),
+            "sell_out_price": (
+                to_float(first_value(flat, product_field(product, "sell_out")))
+                if own_product_field_allowed(product, "sell_out") else None
+            ),
+            "ring_pull_value": (
+                to_float(first_value(flat, product_field(product, "ring_pull")))
+                if own_product_field_allowed(product, "ring_pull") else None
+            ),
+            "new_outlet_purchase": (
+                yes_value(first_value(flat, product_field(product, "new_purchase")))
+                if own_product_field_allowed(product, "new_purchase") else False
+            ),
+            "volume_ctn": (
+                to_float(first_value(flat, product_field(product, "volume")))
+                if own_product_field_allowed(product, "volume") else None
+            ),
         }
 
         # Store every product row so reporting has fixed rows, even if blank.
@@ -110,9 +124,10 @@ def _competitor_metrics_from_flat(flat: dict) -> list[dict]:
                 "product_name": product,
                 "status": str(status).strip() if status not in (None, "") else None,
                 "movement_score": movement,
-                "stock_status": first_value(flat, competitor_field(product, "stock")),
-                "buy_in_price": to_float(first_value(flat, competitor_field(product, "buy_in"))),
-                "sell_out_price": to_float(first_value(flat, competitor_field(product, "sell_out"))),
+                # V46 competitor form fields are Sale Status + Movement only.
+                "stock_status": None,
+                "buy_in_price": None,
+                "sell_out_price": None,
             }
         )
     return rows

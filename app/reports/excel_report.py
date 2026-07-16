@@ -78,6 +78,8 @@ PRODUCT_NAME_MAP = {
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
     "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
+    "EXPREZ Can 330ml": "EXPREZ Can 330ml",
+    "EXPREZ Can 330mL": "EXPREZ Can 330ml",
     "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 300mL": "CAMBODIA Sport 300mL",
@@ -250,7 +252,12 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
     """
     canonical = _product_key(template_name)
     competitors = agg.get("competitors") or {}
-    if not competitors:
+    products = agg.get("products") or {}
+
+    # Comparison columns may contain cross-over own products. V46 adds
+    # EXPREZ Can 330ml to that group, so search both result buckets.
+    buckets = [competitors, products]
+    if not competitors and not products:
         return None
 
     target = _norm_lookup_key(canonical)
@@ -284,27 +291,30 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
 
     candidates: list[dict] = []
 
-    # 1) Direct alias matches.
-    for key in candidate_names:
-        val = competitors.get(key)
-        if isinstance(val, dict):
-            candidates.append(val)
+    # 1) Direct alias matches across competitor and cross-over own products.
+    for bucket in buckets:
+        for key in candidate_names:
+            val = bucket.get(key)
+            if isinstance(val, dict):
+                candidates.append(val)
 
     # 2) Normalized full-name matches.
-    for key, val in competitors.items():
-        if not isinstance(val, dict):
-            continue
-        if _norm_lookup_key(key) == target:
-            candidates.append(val)
+    for bucket in buckets:
+        for key, val in bucket.items():
+            if not isinstance(val, dict):
+                continue
+            if _norm_lookup_key(key) == target:
+                candidates.append(val)
 
     # 3) Fuzzy contains match for renamed/legacy GB Original keys.
     if target in {"gboriginal", "gboriginalncp"}:
-        for key, val in competitors.items():
-            if not isinstance(val, dict):
-                continue
-            nk = _norm_lookup_key(key)
-            if "gb" in nk and "original" in nk:
-                candidates.append(val)
+        for bucket in buckets:
+            for key, val in bucket.items():
+                if not isinstance(val, dict):
+                    continue
+                nk = _norm_lookup_key(key)
+                if "gb" in nk and "original" in nk:
+                    candidates.append(val)
 
     if not candidates:
         return None

@@ -26,39 +26,13 @@ OWN_PRODUCTS = [
     "IZE PET 300ml Flavour",
     "IZE COLA PET 1.5L All SKUs",
     "EXPREZ Melon",
+    "EXPREZ Can 330ml",
     "Wurkz Ice",
     "CAMBODIA Sport 300mL",
     "CAMBODIA Sport 500mL",
     "CAMBODIA WATER 500mL",
     "CAMBODIA WATER 1500mL",
 ]
-
-
-# Kobo own-product field policy.
-#
-# The form keeps legacy question names hidden for backward compatibility, while
-# the sync and report layers enforce the same business rule so historical values
-# from removed fields cannot reappear in a newly generated report.
-DEFAULT_OWN_PRODUCT_FIELDS = frozenset({"status", "mov"})
-OWN_PRODUCT_FIELD_POLICY = {
-    "CB LITE ORD": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out"}),
-    "CBC 4.4 NCP": frozenset(
-        {"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}
-    ),
-    "CB Original NCP": frozenset(
-        {"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}
-    ),
-    "CB LITE NCP": frozenset(
-        {"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}
-    ),
-    "CAMBODIA ED": frozenset({"status", "mov", "stock"}),
-}
-
-
-def own_product_field_enabled(product: str, field: str) -> bool:
-    """Return whether an own-product field is active in the current Kobo form."""
-    return field in OWN_PRODUCT_FIELD_POLICY.get(product, DEFAULT_OWN_PRODUCT_FIELDS)
-
 
 COMPETITOR_PRODUCTS = [
     "GB SNOW ORD",
@@ -88,7 +62,6 @@ COMPETITOR_PRODUCTS = [
     "V Cola 350ml",
     "Coca 1.5L",
     "Big Cola 3L",
-    "EXPREZ Can 330ml",
     "Sting Can 330ml",
     "Idol Can 330ml",
     "CAMBODIA Sport 300ml",
@@ -143,6 +116,7 @@ PRODUCT_CODES = {
     "IZE PET 300ml Flavour": ["ize_pet_300_flavour", "ize_pet_300", "ize_pet_300_all", "ize_pet_300ml"],
     "IZE COLA PET 1.5L All SKUs": ["ize_cola_pet_1500", "ize_cola_pet_15_all", "ize_cola_1500"],
     "EXPREZ Melon": ["exprez_melon", "exprez_cucumber", "exprez"],
+    "EXPREZ Can 330ml": ["exprez_can_330"],
     "Wurkz Ice": ["wurkz_ice"],
     "CAMBODIA Sport 300mL": ["cambodia_sport_300"],
     "CAMBODIA Sport 500mL": ["cambodia_sport_500"],
@@ -178,6 +152,7 @@ COMPETITOR_CODES = {
     "V Cola 350ml": ["v_cola_350"],
     "Coca 1.5L": ["coca_1500", "coca_15l", "coca_1_5l"],
     "Big Cola 3L": ["big_cola_3l"],
+    # Legacy field alias only: V46 classifies EXPREZ Can 330ml as an own product.
     "EXPREZ Can 330ml": ["exprez_can_330"],
     "Sting Can 330ml": ["sting_can_330"],
     "Idol Can 330ml": ["idol_can_330"],
@@ -204,6 +179,7 @@ PRODUCT_LABEL_ALIASES = {
     "CAMBODIA ED": ["CAMBODIA ED", "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា"],
     "IZE PET 300ml Flavour": ["IZE PET 300ml Flavour", "IZE PET 300ml All SKUs"],
     "EXPREZ Melon": ["EXPREZ Melon", "EXPREZ ត្រសក់ផ្អែម"],
+    "EXPREZ Can 330ml": ["EXPREZ Can 330ml", "EXPREZ Can 330mL"],
     "CAMBODIA Sport 300mL": ["CAMBODIA Sport 300mL", "CAMBODIA Sport 300ml"],
     "CAMBODIA Sport 500mL": ["CAMBODIA Sport 500mL", "CAMBODIA Sport 500ml"],
     "GB Original NCP": ["GB Original NCP", "GB Original", "GB  Original"],
@@ -227,6 +203,23 @@ STATUS_TO_MOVEMENT = {
 
 STATUS_AVAILABLE = {"sale", "fast_sale", "មានលក់", "លក់ដាច់"}
 STOCK_LABEL = {"full": "គ្រប់", "low": "ខ្វះ", "no_stock": "ដាច់ស្តុក"}
+
+# V45/V46 own-product form policy. Fields not listed for a product are
+# intentionally ignored even when an old database row still contains them.
+DEFAULT_OWN_PRODUCT_FIELDS = frozenset({"status", "mov"})
+OWN_PRODUCT_FIELD_POLICY = {
+    "CB LITE ORD": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out"}),
+    "CBC 4.4 NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CB Original NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CB LITE NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CAMBODIA ED": frozenset({"status", "mov", "stock"}),
+    "EXPREZ Can 330ml": DEFAULT_OWN_PRODUCT_FIELDS,
+}
+
+
+def own_product_field_allowed(product: str, field: str) -> bool:
+    """Return whether a field is active for an own product in the current form."""
+    return field in OWN_PRODUCT_FIELD_POLICY.get(product, DEFAULT_OWN_PRODUCT_FIELDS)
 
 
 def slug(text: str) -> str:
@@ -398,9 +391,14 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     products = result.get("products") or {}
     competitors = result.get("competitors") or {}
 
-    # These two are own-product freshness rows but appear in competitor
-    # columns in the movement table, so comparison promotion must update the
-    # competitor bucket that Excel actually reads.
+    # EXPREZ Can 330ml became an own product in V46, although the final
+    # template still displays it in a comparison column. Always promote the
+    # own-product result for this item.
+    if product == "EXPREZ Can 330ml" and product in products:
+        return "products", products[product]
+
+    # These two legacy cross-over items are own-product form rows but are also
+    # stored in the competitor bucket used by the existing report template.
     if product in {"CB Original NCP", "CAMBODIA Sport 300ml"} and product in competitors:
         return "competitors", competitors[product]
     if product in products:
@@ -790,7 +788,21 @@ def product_field(product: str, field: str) -> list[str]:
                 f"fresh_{code}_group/fresh_{fa}_{code}",
                 f"freshness_availability_group/fresh_{code}_group/fresh_{fa}_{code}",
             ]
-    return keys
+
+            # Before V46, EXPREZ Can 330ml was saved under comp_* fields.
+            # Read those legacy keys so historical submissions still report.
+            if product == "EXPREZ Can 330ml" and field in {"status", "mov"}:
+                keys += [
+                    f"comp_{fa}_{code}",
+                    f"comp_{code}_{fa}",
+                    f"competitor/{code}_{fa}",
+                    f"competitors/{code}_{fa}",
+                    f"competitor_group/{code}_{fa}",
+                    f"competitor_group/comp_{fa}_{code}",
+                    f"comp_{code}_group/comp_{fa}_{code}",
+                    f"competitor_group/comp_{code}_group/comp_{fa}_{code}",
+                ]
+    return list(dict.fromkeys(keys))
 
 
 def competitor_field(product: str, field: str) -> list[str]:
@@ -836,10 +848,8 @@ def is_available(payload: dict, product: str) -> bool:
     status = first_value(payload, product_field(product, "status"))
     if status not in (None, ""):
         return str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
-    for f in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull"):
-        if own_product_field_enabled(product, f) and first_value(
-            payload, product_field(product, f)
-        ) not in (None, ""):
+    for f in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume"):
+        if first_value(payload, product_field(product, f)) not in (None, ""):
             return True
     return yes_value(first_value(payload, product_field(product, "available")))
 
@@ -1135,9 +1145,16 @@ def _metric_or_payload_value(submission: Any, metric: Any, product: str, field: 
 
     This is especially useful after form/template product-name updates because
     old DB metric rows may not contain every product, while the raw payload still
-    has the submitted values. Disabled own-product fields return blank even when
-    historical rows still contain old values.
+    has the submitted values.
     """
+    value = _value(metric, field)
+    if value not in (None, ""):
+        return value
+
+    payload = _payload_of_submission(submission)
+    if not payload:
+        return None
+
     field_map = {
         "bbe_date": "bbe",
         "stock_status": "stock",
@@ -1147,33 +1164,14 @@ def _metric_or_payload_value(submission: Any, metric: Any, product: str, field: 
         "volume_ctn": "volume",
     }
     logical_field = field_map.get(field, field)
-    if not is_competitor and not own_product_field_enabled(product, logical_field):
-        return None
-
-    value = _value(metric, field)
-    if value not in (None, ""):
-        return value
-
-    payload = _payload_of_submission(submission)
-    if not payload:
-        return None
-
     keys = competitor_field(product, logical_field) if is_competitor else product_field(product, logical_field)
     return first_value(payload, keys)
 
 
 def _metric_or_payload_available(submission: Any, metric: Any, product: str) -> bool:
-    # Prefer current form status/movement over a legacy stored available flag.
-    metric_status = _value(metric, "status")
-    if metric_status not in (None, ""):
-        return (
-            str(metric_status).strip().lower() in STATUS_AVAILABLE
-            or str(metric_status).strip() in STATUS_AVAILABLE
-        )
-
-    movement = to_int(_value(metric, "movement_score"))
-    if movement is not None:
-        return movement > 0
+    available = _value(metric, "available")
+    if available not in (None, ""):
+        return bool(available)
 
     payload = _payload_of_submission(submission)
     if not payload:
@@ -1183,10 +1181,8 @@ def _metric_or_payload_available(submission: Any, metric: Any, product: str) -> 
     if status not in (None, ""):
         return str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
 
-    for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull"):
-        if own_product_field_enabled(product, field) and first_value(
-            payload, product_field(product, field)
-        ) not in (None, ""):
+    for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume"):
+        if own_product_field_allowed(product, field) and first_value(payload, product_field(product, field)) not in (None, ""):
             return True
     return False
 
@@ -1260,19 +1256,16 @@ def _value_from_wide_or_metric(
     wide_map: dict[str, dict[str, Any]],
 ):
     """Read report field from wide table first, then metric table fallback."""
-    logical_field = {
-        "bbe_date": "bbe",
-        "stock_status": "stock",
-        "buy_in_price": "buy_in",
-        "sell_out_price": "sell_out",
-        "ring_pull_value": "ring_pull",
-        "volume_ctn": "volume",
-    }.get(field, field)
-    if not is_competitor and not own_product_field_enabled(product, logical_field):
-        return None
-
     wide_payload = _wide_payload_for_submission(submission, wide_map)
     if wide_payload:
+        logical_field = {
+            "bbe_date": "bbe",
+            "stock_status": "stock",
+            "buy_in_price": "buy_in",
+            "sell_out_price": "sell_out",
+            "ring_pull_value": "ring_pull",
+            "volume_ctn": "volume",
+        }.get(field, field)
         keys = competitor_field(product, logical_field) if is_competitor else product_field(product, logical_field)
         value = first_value(wide_payload, keys)
         if value not in (None, ""):
@@ -1292,10 +1285,8 @@ def _available_from_wide_or_metric(
         status = first_value(wide_payload, product_field(product, "status"))
         if status not in (None, ""):
             return str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
-        for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull"):
-            if own_product_field_enabled(product, field) and first_value(
-                wide_payload, product_field(product, field)
-            ) not in (None, ""):
+        for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume"):
+            if own_product_field_allowed(product, field) and first_value(wide_payload, product_field(product, field)) not in (None, ""):
                 return True
 
     return _metric_or_payload_available(submission, metric, product)
@@ -1337,40 +1328,63 @@ def aggregate_submissions(submissions: list) -> dict:
     wide_map = _wide_payloads_by_submission(submissions)
 
     for product in OWN_PRODUCTS:
-        metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
+        if product == "EXPREZ Can 330ml":
+            # Old submissions stored this item as a competitor. Use those rows
+            # as a fallback until the submission is edited/re-synced under V46.
+            metrics = [
+                pm.get(product)
+                or pm.get(_product_lookup_key(product))
+                or cm.get(product)
+                or cm.get(_product_lookup_key(product))
+                for pm, cm in zip(product_maps, competitor_maps)
+            ]
+        else:
+            metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
 
         movement_values = [
             v for s, m in zip(submissions, metrics)
             if (v := _movement_from_wide_or_metric(s, m, product, is_competitor=False, wide_map=wide_map)) is not None
         ]
 
+        volume_values = (
+            [
+                to_float(_value_from_wide_or_metric(s, m, product, "volume_ctn", is_competitor=False, wide_map=wide_map)) or 0
+                for s, m in zip(submissions, metrics)
+            ]
+            if own_product_field_allowed(product, "volume")
+            else []
+        )
+        volume_sum = sum(volume_values)
+
         pdata: dict[str, Any] = {
             "bbe": mode([
                 _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
-            ]) if own_product_field_enabled(product, "bbe") else None,
+            ]) if own_product_field_allowed(product, "bbe") else None,
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
+            "_movement_values": movement_values,
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
-            ]) if own_product_field_enabled(product, "stock") else None,
+            ]) if own_product_field_allowed(product, "stock") else None,
             "buy_in": mode_number([
                 _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
-            ]) if own_product_field_enabled(product, "buy_in") else None,
+            ]) if own_product_field_allowed(product, "buy_in") else None,
             "sell_out": mode_number([
                 _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
-            ]) if own_product_field_enabled(product, "sell_out") else None,
+            ]) if own_product_field_allowed(product, "sell_out") else None,
             "ring_pull": mode_number([
                 _value_from_wide_or_metric(s, m, product, "ring_pull_value", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
-            ]) if own_product_field_enabled(product, "ring_pull") else None,
-            # Product-level New Outlet Purchase and Volume are removed from the
-            # current Kobo workflow for every own product.
-            "new_purchase": 0,
-            "volume": None,
+            ]) if own_product_field_allowed(product, "ring_pull") else None,
+            "new_purchase": (
+                sum(1 for m in metrics if bool(_value(m, "new_outlet_purchase")))
+                if own_product_field_allowed(product, "new_purchase") else 0
+            ),
+            "volume": report_number(volume_sum) if volume_sum and own_product_field_allowed(product, "volume") else None,
         }
 
         counts = Counter()
@@ -1394,18 +1408,11 @@ def aggregate_submissions(submissions: list) -> dict:
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
             "_movement_values": movement_values,
-            "stock": stock_summary([
-                _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "buy_in": mode_number([
-                _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=True, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "sell_out": mode_number([
-                _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=True, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
+            # V46 competitors collect only Sale Status and Movement Score.
+            # Keep report detail columns blank even when old DB rows contain values.
+            "stock": None,
+            "buy_in": None,
+            "sell_out": None,
         }
         result["competitors"][product] = cdata
 
