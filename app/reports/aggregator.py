@@ -350,9 +350,9 @@ def final_offtake_movement(values: list[Any]) -> int | None:
     3) Keep that rounded score here.
 
     The comparison-row goal rule is applied later by
-    _apply_offtake_comparison_goal(): only the product with the largest raw
-    average in each comparison row can be promoted to 10 when its rounded
-    score is 9 or 10.
+    _apply_offtake_comparison_goal(): the product with the largest raw
+    average becomes 10, the same increase is applied to its comparison
+    products, and duplicate positive ratings are removed by average rank.
 
     Examples before comparison promotion:
       7.75 -> 8
@@ -398,22 +398,26 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
 
 
 def _apply_offtake_comparison_goal(result: dict) -> None:
-    """Apply comparison-row movement goal rule.
+    """Normalize movement scores inside every comparison row.
 
-    Business rule requested:
-    - First calculate each product movement by average + KB rounding.
-      Example: 7.75 -> 8, 8.20 -> 8, 8.90 -> 9.
-    - Inside each comparison row/group, only the product with the largest raw
-      average can be promoted to 10.
-    - Promotion happens only when the winner rounded to 9 or 10.
-    - Other products keep their rounded value; if another product also rounded
-      to 10 but has a lower average, cap it to 9 so one row does not show many
-      visible 10s.
+    Business rule:
+    1) Calculate each product's raw average and KB rounded movement first.
+    2) Find the product with the largest raw average in the comparison row.
+    3) Raise that winner to 10.
+    4) Add the same increase amount to every other product with real movement.
+    5) Remove duplicate visible ratings by ranking products by raw average.
+       The row therefore contains only one movement 10 and no duplicate
+       positive movement scores.
 
-    Example:
-      CB LITE avg 7.75 -> rounded 8 -> final 8
-      GB SNOW avg 8.20 -> rounded 8 -> final 8
-      Hanuman Lite avg 8.90 -> rounded 9 -> final 10
+    Examples:
+      Rounded 7, 5, 4, 3, 2 -> increase 3 -> final 10, 8, 7, 6, 5.
+
+      Average 7.75, 8.20, 8.90
+      Rounded 8, 8, 9 -> increase 1 -> preliminary 9, 9, 10.
+      Raw-average ranking removes the duplicate -> final 8, 9, 10.
+
+    Missing values stay blank. A real zero stays zero and is not promoted,
+    because zero means no movement rather than a scored competing product.
     """
     for group in OFFTAKE_COMPARE_GROUPS:
         items: list[dict[str, Any]] = []
@@ -432,41 +436,57 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
             rounded = to_int(pdata.get("mov"))
             avg = to_float(pdata.get("_mov_avg"))
 
-            if rounded is None or avg is None:
+            if rounded is None:
                 pdata["mov"] = None
                 continue
 
             rounded = max(0, min(10, rounded))
             pdata["mov"] = rounded
 
-            # Only products with real movement can be candidates.
-            if rounded > 0:
-                items.append({
-                    "data": pdata,
-                    "rounded": rounded,
-                    "avg": avg,
-                    "order": order,
-                })
+            # Do not invent movement for products submitted as zero/no sale.
+            if rounded <= 0:
+                continue
 
-        # Promotion only if at least one product rounded to 9 or 10.
-        promotable = [item for item in items if item["rounded"] >= 9]
-        if not promotable:
+            # Current aggregation always stores _mov_avg. The fallback keeps
+            # legacy rows usable if only their rounded movement is available.
+            if avg is None:
+                avg = float(rounded)
+
+            items.append({
+                "data": pdata,
+                "product": product,
+                "rounded": rounded,
+                "avg": avg,
+                "order": order,
+            })
+
+        if not items:
             continue
 
-        # Winner = largest raw average, then highest rounded score, then first
-        # product in the template/comparison group order.
-        winner = max(promotable, key=lambda item: (item["avg"], item["rounded"], -item["order"]))
-        winner_id = id(winner["data"])
+        # Winner is selected by raw average, not only by rounded movement.
+        winner = max(
+            items,
+            key=lambda item: (item["avg"], item["rounded"], -item["order"]),
+        )
+        increase = max(0, 10 - winner["rounded"])
 
         for item in items:
-            pdata = item["data"]
-            rounded = item["rounded"]
-            if id(pdata) == winner_id:
-                pdata["mov"] = 10
-            else:
-                # Keep stable rounded values, but avoid another visible 10 in
-                # the same comparison row.
-                pdata["mov"] = 9 if rounded >= 10 else rounded
+            item["shifted"] = min(10, item["rounded"] + increase)
+
+        # Highest raw average receives the highest final movement. When two
+        # preliminary values duplicate, lower-ranked products step down by one
+        # until every positive score in the row is unique.
+        ranked = sorted(
+            items,
+            key=lambda item: (-item["avg"], -item["rounded"], item["order"]),
+        )
+
+        previous_score = 11
+        for item in ranked:
+            final_score = min(item["shifted"], previous_score - 1)
+            final_score = max(1, min(10, final_score))
+            item["data"]["mov"] = final_score
+            previous_score = final_score
 
 def _clean_location_piece(text: Any) -> str:
     """Clean one user-entered location phrase without destroying meaning."""
@@ -1395,8 +1415,8 @@ def aggregate_submissions(submissions: list) -> dict:
             "mov=", gb.get("mov"),
         )
 
-    # Apply comparison-row goal after all product/competitor averages are ready.
-    # Only the largest raw average in each row/group can become 10.
+    # Apply the comparison-row normalization after every raw average and
+    # rounded movement is ready. Each row gets exactly one movement 10.
     _apply_offtake_comparison_goal(result)
 
     for product in RING_PRODUCTS:

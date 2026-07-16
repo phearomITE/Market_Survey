@@ -57,7 +57,7 @@ SUMMARY_MAX_ROW_HEIGHT = 140
 # Noto Sans Khmer is installed by the Railway Dockerfile. It prevents Khmer
 # glyphs and diacritics from colliding when LibreOffice renders Excel to PNG.
 SUMMARY_FONT_NAME = "Noto Sans Khmer"
-SUMMARY_FONT_SIZE = 15
+SUMMARY_FONT_SIZE = 17
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
@@ -159,33 +159,43 @@ def _metric_mov_score(metrics: dict | None) -> float:
 
 
 def _final_movement_from_metrics(metrics: dict | None):
-    """Return the safest final movement value for Excel output.
+    """Return the final movement calculated by the aggregator.
 
-    Uses the already-aggregated mov when valid. If _movement_values is present,
-    recalculate the final movement using the business rule:
-      average -> .0-.4 down/.5-.9 up -> 8/9/10 becomes 10.
-    This prevents stale template/alias values like GB Original = 2.
+    The comparison-row rule is applied in ``aggregator.py`` after raw averages
+    are calculated. Excel must trust that final ``mov`` value and must not
+    independently promote rounded 8/9 values to 10, otherwise the comparison
+    ranking and the one-10-per-row rule would be overwritten.
     """
     if not isinstance(metrics, dict):
         return None
 
+    final_value = _metric_value(
+        metrics,
+        "mov",
+        "final_mov",
+        "final_movement",
+        "movement",
+        "movement_score",
+    )
+    if final_value not in (None, "", "nan"):
+        return final_value
+
+    # Backward-compatible fallback for old metric dictionaries that contain
+    # only raw movement values and no aggregated final movement.
     raw_values = metrics.get("_movement_values") or metrics.get("movement_values")
     if isinstance(raw_values, (list, tuple)):
         nums = []
-        for v in raw_values:
+        for value in raw_values:
             try:
-                if v not in (None, "", "nan"):
-                    nums.append(float(str(v).replace(",", "").strip()))
+                if value not in (None, "", "nan"):
+                    nums.append(float(str(value).replace(",", "").strip()))
             except Exception:
                 pass
         if nums:
-            avg = sum(nums) / len(nums)
-            rounded = int(avg + 0.5)
-            rounded = max(0, min(10, rounded))
-            return 10 if rounded >= 8 else rounded
+            rounded = int((sum(nums) / len(nums)) + 0.5)
+            return max(0, min(10, rounded))
 
-    return _metric_value(metrics, "mov", "final_mov", "final_movement", "movement", "movement_score")
-
+    return None
 
 def _lookup_metrics(agg: dict, template_name: str) -> dict | None:
     """Return product/competitor metrics using robust alias matching.
