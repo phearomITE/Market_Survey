@@ -57,7 +57,7 @@ SUMMARY_MAX_ROW_HEIGHT = 140
 # Noto Sans Khmer is installed by the Railway Dockerfile. It prevents Khmer
 # glyphs and diacritics from colliding when LibreOffice renders Excel to PNG.
 SUMMARY_FONT_NAME = "Noto Sans Khmer"
-SUMMARY_FONT_SIZE = 10.5
+SUMMARY_FONT_SIZE = 13
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
