@@ -10,6 +10,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
+        python3-uno \
         fonts-noto-core \
         fonts-noto-extra \
         fontconfig \
