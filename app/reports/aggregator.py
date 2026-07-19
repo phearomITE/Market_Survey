@@ -904,10 +904,33 @@ def _summary_points(value: Any, limit: int = 4) -> list[str]:
     return cleaned
 
 
-def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
-    # Summary selection is controlled only by Outlet Name. The Key Issues and
-    # Suggestion fields contain the actual summary text and need no keyword.
-    candidates = [s for s in submissions if _is_summary_submission(s)]
+def normalize_summary_report_type(value: Any) -> str:
+    """Return GENERAL or CHANNEL_SPECIALIST for a summary-marker row.
+
+    Blank is intentionally GENERAL so every old summary submission continues
+    to work after the optional form selector is introduced.
+    """
+    if value in (None, ""):
+        return "GENERAL"
+    normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
+    if normalized in {"CHANNEL", "CHANNEL_SPECIALIST", "SPECIALIST", "CS"}:
+        return "CHANNEL_SPECIALIST"
+    return "GENERAL"
+
+
+def _latest_manual_summary(
+    submissions: list,
+    report_type: str = "GENERAL",
+) -> tuple[list[str], list[str]]:
+    # Summary selection is controlled by Outlet Name + the optional template
+    # selector. Blank selector belongs to GENERAL; CHANNEL SPECIALIST belongs
+    # only to the Channel Specialist report.
+    target_type = normalize_summary_report_type(report_type)
+    candidates = [
+        s for s in submissions
+        if _is_summary_submission(s)
+        and normalize_summary_report_type(getattr(s, "summary_report_type", None)) == target_type
+    ]
     if not candidates:
         return [], []
     latest = max(
@@ -1291,7 +1314,7 @@ def _available_from_wide_or_metric(
 
     return _metric_or_payload_available(submission, metric, product)
 
-def aggregate_submissions(submissions: list) -> dict:
+def aggregate_submissions(submissions: list, report_type: str = "GENERAL") -> dict:
     all_submissions = list(submissions or [])
 
     # A row whose Outlet Name is a summary marker is a control/summary row,
@@ -1316,6 +1339,12 @@ def aggregate_submissions(submissions: list) -> dict:
         "ring_pull": {},
         "key_issues": [],
         "suggestions": [],
+        "report_type": normalize_summary_report_type(report_type),
+        "channel": (
+            "CHANNEL SPECIALIST"
+            if normalize_summary_report_type(report_type) == "CHANNEL_SPECIALIST"
+            else "GENERAL"
+        ),
     }
 
     # Keep the rest of the existing aggregation logic unchanged, but make it
@@ -1476,7 +1505,7 @@ def aggregate_submissions(submissions: list) -> dict:
         qtys = [to_int(_value(m, "qty_ctn")) or 0 for m in metrics]
         result["ring_pull"][product] = {"total_outlets": sum(1 for q in qtys if q > 0), "qty": sum(qtys)}
 
-    key_issues, suggestions = _latest_manual_summary(all_submissions)
+    key_issues, suggestions = _latest_manual_summary(all_submissions, report_type=report_type)
     result["key_issues"] = key_issues[:4]
     result["suggestions"] = suggestions[:4]
     while len(result["key_issues"]) < 4:

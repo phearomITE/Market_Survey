@@ -226,6 +226,35 @@ def _source_hash(raw: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _core_value(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return " ".join(value.strip().split()) or None
+    return value
+
+
+def _core_record_matches(existing: dict, normalized: dict) -> bool:
+    """Check fields that must be repaired even when the raw Kobo hash is unchanged.
+
+    This protects against parser fixes such as historical KD1 -> KDL1. The raw
+    Kobo submission did not change, but the normalized database value must.
+    """
+    fields = (
+        "dealer",
+        "report_date",
+        "region",
+        "outlet_name",
+        "group_no",
+        "member_no",
+        "summary_report_type",
+    )
+    return all(
+        _core_value(existing.get(field)) == _core_value(normalized.get(field))
+        for field in fields
+    )
+
+
 def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = None) -> dict:
     """Fetch Kobo rows and upsert only new or changed submissions.
 
@@ -237,12 +266,37 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     synced = 0
     unchanged = 0
     hash_backfilled = 0
+    repaired = 0
     skipped = 0
     matched = 0
     skipped_reasons: list[str] = []
 
     with SessionLocal() as db:
-        existing_hashes = dict(db.execute(select(KoboSubmission.submission_id, KoboSubmission.source_hash)).all())
+        existing_records = {
+            row.submission_id: {
+                "source_hash": row.source_hash,
+                "dealer": row.dealer,
+                "report_date": row.report_date,
+                "region": row.region,
+                "outlet_name": row.outlet_name,
+                "group_no": row.group_no,
+                "member_no": row.member_no,
+                "summary_report_type": row.summary_report_type,
+            }
+            for row in db.execute(
+                select(
+                    KoboSubmission.submission_id,
+                    KoboSubmission.source_hash,
+                    KoboSubmission.dealer,
+                    KoboSubmission.report_date,
+                    KoboSubmission.region,
+                    KoboSubmission.outlet_name,
+                    KoboSubmission.group_no,
+                    KoboSubmission.member_no,
+                    KoboSubmission.summary_report_type,
+                )
+            ).all()
+        }
 
         for raw in rows:
             data = normalize_submission(raw)
@@ -263,23 +317,29 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
 
             source_hash = _source_hash(raw)
             data["source_hash"] = source_hash
-            existing_hash = existing_hashes.get(data["submission_id"])
-            if existing_hash == source_hash:
+            existing = existing_records.get(data["submission_id"])
+            existing_hash = existing.get("source_hash") if existing else None
+            core_matches = bool(existing and _core_record_matches(existing, data))
+
+            if existing and existing_hash == source_hash and core_matches:
                 unchanged += 1
                 continue
 
-            # V37 first-run optimization: old DB rows have no source_hash yet.
-            # Backfill their hash without deleting/recreating 57 child metric rows.
-            # New rows are still imported fully, and future Kobo edits are detected.
-            if data["submission_id"] in existing_hashes and existing_hash in (None, ""):
+            # Safe first-run optimization: only backfill the hash when all core
+            # normalized values already match. If a parser fix changes Dealer,
+            # Date, Member or Summary Template, fully re-upsert the row.
+            if existing and existing_hash in (None, "") and core_matches:
                 db.execute(
                     update(KoboSubmission)
                     .where(KoboSubmission.submission_id == data["submission_id"])
                     .values(source_hash=source_hash)
                 )
-                existing_hashes[data["submission_id"]] = source_hash
+                existing["source_hash"] = source_hash
                 hash_backfilled += 1
                 continue
+
+            if existing and not core_matches:
+                repaired += 1
 
             upsert_wide_submission(flat, data)
             stmt = insert(KoboSubmission).values(**data).on_conflict_do_update(
@@ -296,12 +356,21 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 continue
 
             _replace_metric_rows(db, sub.id, flat)
-            existing_hashes[data["submission_id"]] = source_hash
+            existing_records[data["submission_id"]] = {
+                "source_hash": source_hash,
+                "dealer": data.get("dealer"),
+                "report_date": data.get("report_date"),
+                "region": data.get("region"),
+                "outlet_name": data.get("outlet_name"),
+                "group_no": data.get("group_no"),
+                "member_no": data.get("member_no"),
+                "summary_report_type": data.get("summary_report_type"),
+            }
             synced += 1
 
         message = (
             f"fetched {len(rows)}, matched {matched}, synced {synced}, "
-            f"hash_backfilled {hash_backfilled}, unchanged {unchanged}, skipped {skipped}"
+            f"hash_backfilled {hash_backfilled}, repaired {repaired}, unchanged {unchanged}, skipped {skipped}"
         )
         if skipped_reasons:
             message += " | " + " || ".join(skipped_reasons[:5])
@@ -310,12 +379,12 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
 
     print(
         f"✅ Kobo sync: fetched={len(rows)} matched={matched} synced={synced} "
-        f"hash_backfilled={hash_backfilled} unchanged={unchanged} skipped={skipped}"
+        f"hash_backfilled={hash_backfilled} repaired={repaired} unchanged={unchanged} skipped={skipped}"
     )
     return {
         "fetched": len(rows), "matched": matched, "synced": synced,
-        "hash_backfilled": hash_backfilled, "unchanged": unchanged,
-        "skipped": skipped, "skipped_reasons": skipped_reasons,
+        "hash_backfilled": hash_backfilled, "repaired": repaired,
+        "unchanged": unchanged, "skipped": skipped, "skipped_reasons": skipped_reasons,
     }
 
 

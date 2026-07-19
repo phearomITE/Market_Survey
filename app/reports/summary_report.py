@@ -16,6 +16,7 @@ from openpyxl.utils import get_column_letter
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import is_final_summary_outlet_name
+from app.kobo.parser import normalize_dealer
 
 
 HEADER_FILL = "1F4E78"
@@ -56,7 +57,7 @@ def build_summary_rows(submissions: Iterable) -> list[dict]:
     """
     grouped: dict[str, list] = defaultdict(list)
     for s in submissions:
-        dealer = _clean(getattr(s, "dealer", "")).upper()
+        dealer = normalize_dealer(getattr(s, "dealer", ""))
         if dealer:
             grouped[dealer].append(s)
 

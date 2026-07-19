@@ -46,6 +46,7 @@ def _ensure_light_migrations() -> None:
             ("gps_longitude", "DOUBLE PRECISION"),
             ("updated_at", "TIMESTAMP"),
             ("source_hash", "VARCHAR(64)"),
+            ("summary_report_type", "VARCHAR(40)"),
         ]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_submissions ADD COLUMN IF NOT EXISTS {col} {ddl}")
 
@@ -65,6 +66,24 @@ def _ensure_light_migrations() -> None:
             ALTER TABLE IF EXISTS kobo_submissions
             ALTER COLUMN total_outlet_visit_target TYPE INTEGER
             USING NULLIF(regexp_replace(total_outlet_visit_target::text, '[^0-9-]', '', 'g'), '')::integer
+        """)
+
+        # Repair the historical KDL1 choice-name typo. Old Kobo deployments
+        # exported the choice name "kd1" even though the visible label was KDL1.
+        _safe_exec(conn, """
+            UPDATE kobo_submissions
+            SET dealer = 'KDL1'
+            WHERE UPPER(TRIM(COALESCE(dealer, ''))) = 'KD1'
+        """)
+        _safe_exec(conn, """
+            DO $$
+            BEGIN
+                IF to_regclass('public.kobo_submissions_wide') IS NOT NULL THEN
+                    UPDATE kobo_submissions_wide
+                    SET dealer = 'KDL1'
+                    WHERE UPPER(TRIM(COALESCE(dealer, ''))) = 'KD1';
+                END IF;
+            END $$
         """)
 
         # Remove old raw payload JSONB column per user's production requirement.

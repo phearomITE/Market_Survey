@@ -56,10 +56,6 @@ The Dockerfile installs LibreOffice and Noto fonts for Linux report rendering. R
 
 Never commit `.env`. Store Kobo, Telegram and PostgreSQL credentials only in Railway Variables or a local ignored `.env`.
 
-
-
-
-
 Yes, the updated code is now correctly inside the real Git repository.
 
 This confirms it:
@@ -108,11 +104,10 @@ Railway should then automatically build and deploy the new GitHub commit. After 
 /report CPH2 2026-07-14
 ```
 
-## Current own-product Kobo field policy
+## V49 Summary Template Routing and KDL1 Repair
 
-- `CB LITE ORD`: Sale Status, Movement, Stock, BBE, Buy In and Sell Out.
-- `CBC 4.4 NCP`, `CB Original NCP`, `CB LITE NCP`: the same fields plus Ring Pull.
-- `CAMBODIA ED`: Sale Status, Movement and Stock.
-- All other own products: Sale Status and Movement only.
-- Product-level `New Outlet Purchase` and `Volume (ctn)` are hidden for all own products.
-- Hidden legacy fields remain in the XLSForm schema for old-data compatibility, but synchronization and reporting ignore their historical values.
+- Final summary rows now have an optional `CHANNEL SPECIALIST` selector.
+- Blank selector routes Key Issues/Suggestions to the General template.
+- Selected `CHANNEL SPECIALIST` routes them to `template_channel_specialist.xlsx`.
+- Historical Kobo dealer value `kd1` is normalized and migrated to official code `KDL1`.
+- Sync repairs normalized core fields even when the raw Kobo submission hash is unchanged.
