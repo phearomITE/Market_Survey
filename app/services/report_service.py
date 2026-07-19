@@ -331,17 +331,44 @@ def generate_multi_dealer_reports(
 
 
 def generate_region_dealer_summary(report_date_str: str | None = None):
+    """Generate a fresh all-dealer summary for one date.
+
+    A summary may already find some dealers in PostgreSQL while newly submitted
+    dealers are still missing. Always synchronize the full requested date before
+    reading the database.
+    """
     d = parse_report_date(report_date_str)
+    sync_warning = ""
+
+    try:
+        sync_result = sync_kobo(
+            dealer=None,
+            report_date=d,
+            wait_if_running=True,
+            timeout_seconds=settings.report_sync_wait_seconds,
+        )
+
+        # The active sync may have targeted another dealer/date. Run one full
+        # date pass after waiting so this summary includes every current dealer.
+        if sync_result.get("waited_for_existing_sync"):
+            sync_kobo(
+                dealer=None,
+                report_date=d,
+                wait_if_running=True,
+                timeout_seconds=settings.report_sync_wait_seconds,
+            )
+    except Exception as exc:
+        sync_warning = f" Sync warning: {exc}"
+
     submissions = get_submissions(None, d)
-    if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions)
     rows = build_summary_rows(submissions)
     path = create_summary_report(rows, d)
     submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
+    total_dealers = len(rows)
     total_submissions = sum(r.get("total_submissions", 0) for r in rows)
     total_outlets = sum(r.get("total_outlets", 0) for r in rows)
     return (
         path,
-        f"Generated summary for {d}: {submitted_dealers}/65 dealers submitted, "
-        f"{total_submissions} submissions, {total_outlets} outlets"
+        f"Generated summary for {d}: {submitted_dealers}/{total_dealers} dealers submitted, "
+        f"{total_submissions} submissions, {total_outlets} outlets.{sync_warning}"
     )

@@ -26,8 +26,9 @@ from app.reports.excel_report import (
 
 
 def test_exact_report_rows():
-    assert len(OWN_PRODUCTS) == 18
+    assert len(OWN_PRODUCTS) == 19
     assert OWN_PRODUCTS[0] == "CB LITE ORD"
+    assert "EXPREZ Can 330ml" in OWN_PRODUCTS
     assert OWN_PRODUCTS[-1] == "CAMBODIA WATER 1500mL"
     assert "King Kong Ice" in COMPETITOR_PRODUCTS
     assert "Poweram" not in COMPETITOR_PRODUCTS

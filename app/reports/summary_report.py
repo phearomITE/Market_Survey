@@ -81,10 +81,27 @@ def build_summary_rows(submissions: Iterable) -> list[dict]:
             targets = [x for x in targets if x is not None]
             target = max(targets) if targets else None
 
+            member_values: set[str] = set()
+            for submission in outlet_rows:
+                raw_member = getattr(submission, "member_no", None)
+                parsed_member = _safe_int(raw_member)
+                if parsed_member is not None:
+                    member_values.add(str(parsed_member))
+                elif _clean(raw_member):
+                    member_values.add(_clean(raw_member))
+
+            members = ", ".join(
+                sorted(
+                    member_values,
+                    key=lambda value: (0, int(value)) if value.isdigit() else (1, value.lower()),
+                )
+            )
+
             rows.append(
                 {
                     "region": region,
                     "dealer": dealer,
+                    "member": members,
                     "total_submissions": total_submissions,
                     "total_outlets": total_outlets,
                     "target": target,
@@ -118,7 +135,7 @@ def _style_summary_sheet(ws) -> None:
 
     # Header
     header_row = 8
-    for col in range(1, 6):
+    for col in range(1, 7):
         c = ws.cell(header_row, col)
         c.fill = PatternFill("solid", fgColor=HEADER_FILL)
         c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -126,7 +143,7 @@ def _style_summary_sheet(ws) -> None:
 
     # Data rows
     for row in range(9, ws.max_row + 1):
-        status = str(ws.cell(row, 5).value or "")
+        status = str(ws.cell(row, 6).value or "")
         fill = None
         if "No Submit" in status:
             fill = PatternFill("solid", fgColor=ZERO_FILL)
@@ -135,14 +152,14 @@ def _style_summary_sheet(ws) -> None:
         elif "✅" in status:
             fill = PatternFill("solid", fgColor=OK_FILL)
         if fill:
-            for col in range(1, 6):
+            for col in range(1, 7):
                 ws.cell(row, col).fill = fill
 
         ws.cell(row, 1).font = Font(bold=True)
         ws.cell(row, 2).font = Font(bold=True)
 
     ws.freeze_panes = "A9"
-    widths = {"A": 12, "B": 14, "C": 20, "D": 16, "E": 18, "G": 22, "H": 14}
+    widths = {"A": 12, "B": 14, "C": 16, "D": 20, "E": 16, "F": 22, "G": 22, "H": 14}
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
@@ -183,7 +200,7 @@ def create_summary_report(rows: list[dict], report_date: date, output_path: Path
         ws.cell(4, idx).value = label
         ws.cell(5, idx).value = value
 
-    header = ["Region", "Dealer", "Total Submissions", "Total Outlets", "Status"]
+    header = ["Region", "Dealer", "Member", "Total Submissions", "Total Outlets", "Status"]
     for col, value in enumerate(header, start=1):
         ws.cell(8, col).value = value
 
@@ -193,19 +210,21 @@ def create_summary_report(rows: list[dict], report_date: date, output_path: Path
         for r in region_rows:
             ws.cell(current_row, 1).value = r["region"]
             ws.cell(current_row, 2).value = r["dealer"]
-            ws.cell(current_row, 3).value = r["total_submissions"]
-            ws.cell(current_row, 4).value = r["total_outlets"]
-            ws.cell(current_row, 5).value = r["status"]
+            ws.cell(current_row, 3).value = r.get("member", "")
+            ws.cell(current_row, 4).value = r["total_submissions"]
+            ws.cell(current_row, 5).value = r["total_outlets"]
+            ws.cell(current_row, 6).value = r["status"]
             current_row += 1
 
         # Region subtotal row
         ws.cell(current_row, 1).value = region
         ws.cell(current_row, 2).value = "Region Total"
-        ws.cell(current_row, 3).value = sum(r["total_submissions"] for r in region_rows)
-        ws.cell(current_row, 4).value = sum(r["total_outlets"] for r in region_rows)
+        ws.cell(current_row, 3).value = ""
+        ws.cell(current_row, 4).value = sum(r["total_submissions"] for r in region_rows)
+        ws.cell(current_row, 5).value = sum(r["total_outlets"] for r in region_rows)
         submitted = sum(1 for r in region_rows if r["total_submissions"] > 0)
-        ws.cell(current_row, 5).value = f"{submitted}/{len(region_rows)} dealers submitted"
-        for col in range(1, 6):
+        ws.cell(current_row, 6).value = f"{submitted}/{len(region_rows)} dealers submitted"
+        for col in range(1, 7):
             ws.cell(current_row, col).fill = PatternFill("solid", fgColor=REGION_FILL)
             ws.cell(current_row, col).font = Font(bold=True)
         current_row += 1
