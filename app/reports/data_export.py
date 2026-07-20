@@ -25,19 +25,37 @@ SUMMARY_SHEET = "Summary_Data"
 LOCATION_SHEET = "Location_Outlet"
 DATA_EXPORT_TEMPLATE = BASE_DIR / "templates" / "Template_Data_Survey.xlsx"
 
-OUTLET_TYPE_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("Wholesale", "Wholesale"),
-    ("Drink Shop", "Drink Shop"),
-    ("Wet Market", "Wet Market"),
-    ("Trolley", "Trolley"),
-    ("Local Eat", "Local Eat"),
-    ("Coffe,Bakery", "Coffee,Bakery"),
-    ("Canteen", "Canteen"),
-    ("Sport Club", "Sport Club"),
-    ("Motor Shop", "Motor Shop"),
-)
+SUMMARY_HEADERS = [
+    "Region",
+    "Dealer",
+    "Location_Visit",
+    "Member",
+    "Group",
+    "Total_Outlets",
+    "Wholesale",
+    "Drink_Shop",
+    "Wet_Market",
+    "Trolley",
+    "Product",
+    "WS",
+    "DS",
+    "WM",
+    "TL",
+    "Mov",
+]
 
-# The comparison groups already define the exact 57-product report order.
+LOCATION_HEADERS = [
+    "Date",
+    "Region",
+    "Dealer",
+    "Latitude",
+    "Longitude",
+    "Outlet Name",
+    "Outlet Type",
+    "Phone Number Outlet",
+]
+
+# The comparison groups define the exact 57-product report order.
 EXPORT_PRODUCTS: tuple[str, ...] = tuple(
     product
     for group in OFFTAKE_COMPARE_GROUPS
@@ -56,6 +74,13 @@ PRODUCT_LOOKUP_ALIASES = {
     "EXPREZ Can 330ml": (
         "EXPREZ Can 330ml",
     ),
+}
+
+OUTLET_TYPE_KEYS = {
+    "Wholesale": "wholesale",
+    "Drink_Shop": "drinkshop",
+    "Wet_Market": "wetmarket",
+    "Trolley": "trolley",
 }
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
@@ -78,7 +103,7 @@ def _region_sort(value: Any) -> tuple[int, str]:
     return (int(match.group(1)), text) if match else (999, text)
 
 
-def _member_sort(value: Any) -> tuple[int, Any]:
+def _numeric_text_sort(value: Any) -> tuple[int, Any]:
     if value in (None, ""):
         return (2, "")
     try:
@@ -96,12 +121,48 @@ def _location_sort_key(submission: Any):
     return (
         _region_sort(getattr(submission, "region", None)),
         _clean(getattr(submission, "dealer", None)).upper(),
-        _member_sort(getattr(submission, "member_no", None)),
+        _numeric_text_sort(getattr(submission, "member_no", None)),
         _clean(getattr(submission, "outlet_name", None)).lower(),
     )
 
 
-def _movement_for_product(aggregate: dict[str, Any], product: str):
+def _normalize_outlet_type(value: Any) -> str:
+    text = _clean(value).lower()
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _count_type(counter: Any, target_key: str) -> int:
+    if not counter:
+        return 0
+    items = counter.items() if hasattr(counter, "items") else []
+    return sum(
+        int(count or 0)
+        for label, count in items
+        if _normalize_outlet_type(label) == target_key
+    )
+
+
+def _joined_unique(rows: Iterable[Any], attribute: str) -> str:
+    values = {
+        getattr(row, attribute, None)
+        for row in rows
+        if getattr(row, attribute, None) not in (None, "")
+    }
+    return ", ".join(_clean(value) for value in sorted(values, key=_numeric_text_sort))
+
+
+def _joined_locations(rows: Iterable[Any]) -> str:
+    values: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        value = _clean(getattr(row, "location_text", None))
+        if value and value not in seen:
+            seen.add(value)
+            values.append(value)
+    return " | ".join(values)
+
+
+def _product_metric(aggregate: dict[str, Any], product: str) -> dict[str, Any] | None:
     display_name = PRODUCT_DISPLAY_ALIASES.get(product, product)
     candidates: list[str] = [product, display_name]
     candidates.extend(PRODUCT_LOOKUP_ALIASES.get(product, ()))
@@ -112,9 +173,19 @@ def _movement_for_product(aggregate: dict[str, Any], product: str):
         bucket = aggregate.get(bucket_name) or {}
         for candidate in dict.fromkeys(candidates):
             metric = bucket.get(candidate)
-            if isinstance(metric, dict) and metric.get("mov") is not None:
-                return metric.get("mov")
+            if isinstance(metric, dict):
+                return metric
     return None
+
+
+def _movement_for_product(aggregate: dict[str, Any], product: str):
+    metric = _product_metric(aggregate, product)
+    return metric.get("mov") if metric else None
+
+
+def _availability_for_product(aggregate: dict[str, Any], product: str):
+    metric = _product_metric(aggregate, product)
+    return (metric.get("availability") or {}) if metric else {}
 
 
 def _coordinates(submission: Any) -> tuple[float | None, float | None]:
@@ -139,6 +210,11 @@ def _coordinates(submission: Any) -> tuple[float | None, float | None]:
 def _clear_data_rows(ws) -> None:
     if ws.max_row > 1:
         ws.delete_rows(2, ws.max_row - 1)
+
+
+def _write_headers(ws, headers: list[str]) -> None:
+    for column, header in enumerate(headers, start=1):
+        ws.cell(1, column).value = header
 
 
 def _style_header(ws, last_column: int) -> None:
@@ -166,16 +242,13 @@ def _style_data_rows(ws, start_row: int, end_row: int, last_column: int) -> None
 
 
 def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
-    """Write one compact product block per Region + Dealer.
+    """Write one row per Dealer + Product, without scattering by member.
 
-    Previous versions grouped by Member, which scattered one dealer across many
-    small blocks and made Total Outlets show 1, 2, etc. for each member. The
-    export is now dealer-level:
-
-    - all real outlet submissions for the dealer are combined;
-    - Member contains the unique member values, for example ``1, 2, 6``;
-    - Total Outlets equals the number of genuine outlet submissions;
-    - outlet-type counts and product movement use the same complete dealer data.
+    Dealer-level values repeat for every product row:
+    Location_Visit, combined Members, combined Groups, Total_Outlets and total
+    outlet-type counts. Product-level WS/DS/WM/TL count only outlets where that
+    product is sold, while Mov uses the same final normalized movement used by
+    the dealer report.
     """
     groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for submission in submissions:
@@ -192,32 +265,29 @@ def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
         aggregate = aggregate_submissions(rows)
         outlet_counts = aggregate.get("outlet_types") or {}
 
-        member_values = {
-            getattr(submission, "member_no", None)
-            for submission in rows
-            if getattr(submission, "member_no", None) not in (None, "")
-        }
-        members = ", ".join(
-            _clean(value)
-            for value in sorted(member_values, key=_member_sort)
-        )
-
         common_values = [
             region,
             dealer,
-            members,
+            _joined_locations(rows) or _clean(aggregate.get("location_text")),
+            _joined_unique(rows, "member_no"),
+            _joined_unique(rows, "group_no"),
             len(rows),
+            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Wholesale"]),
+            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Drink_Shop"]),
+            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Wet_Market"]),
+            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Trolley"]),
         ]
-        common_values.extend(
-            int(outlet_counts.get(source_label, 0) or 0)
-            for _template_label, source_label in OUTLET_TYPE_COLUMNS
-        )
 
         for product in EXPORT_PRODUCTS:
+            availability = _availability_for_product(aggregate, product)
             output_rows.append(
                 common_values
                 + [
                     PRODUCT_DISPLAY_ALIASES.get(product, product),
+                    _count_type(availability, OUTLET_TYPE_KEYS["Wholesale"]),
+                    _count_type(availability, OUTLET_TYPE_KEYS["Drink_Shop"]),
+                    _count_type(availability, OUTLET_TYPE_KEYS["Wet_Market"]),
+                    _count_type(availability, OUTLET_TYPE_KEYS["Trolley"]),
                     _movement_for_product(aggregate, product),
                 ]
             )
@@ -227,16 +297,31 @@ def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
             ws.cell(row_number, column_number).value = value
 
     last_row = len(output_rows) + 1
-    _style_data_rows(ws, 2, last_row, 15)
-    if last_row >= 2:
-        ws.column_dimensions["A"].width = 10
-        ws.column_dimensions["B"].width = 12
-        ws.column_dimensions["C"].width = 18
-        for column in "DEFGHIJKLM":
-            ws.column_dimensions[column].width = 14
-        ws.column_dimensions["N"].width = 30
-        ws.column_dimensions["O"].width = 12
-        for cell in ws["O"][1:]:
+    _style_data_rows(ws, 2, last_row, len(SUMMARY_HEADERS))
+
+    widths = {
+        "A": 10,
+        "B": 12,
+        "C": 30,
+        "D": 18,
+        "E": 12,
+        "F": 14,
+        "G": 12,
+        "H": 14,
+        "I": 14,
+        "J": 12,
+        "K": 30,
+        "L": 9,
+        "M": 9,
+        "N": 9,
+        "O": 9,
+        "P": 10,
+    }
+    for column, width in widths.items():
+        ws.column_dimensions[column].width = width
+
+    for column in ("F", "G", "H", "I", "J", "L", "M", "N", "O", "P"):
+        for cell in ws[column][1:]:
             cell.number_format = "0"
 
     return len(groups), len(output_rows)
@@ -267,7 +352,7 @@ def _write_location_data(ws, submissions: Iterable[Any], report_date: date) -> i
         ws.cell(row_number, 8).number_format = "@"
 
     last_row = len(rows) + 1
-    _style_data_rows(ws, 2, last_row, 8)
+    _style_data_rows(ws, 2, last_row, len(LOCATION_HEADERS))
     ws.column_dimensions["A"].width = 14
     ws.column_dimensions["B"].width = 10
     ws.column_dimensions["C"].width = 12
@@ -303,8 +388,10 @@ def create_data_export(
     location_ws = workbook[LOCATION_SHEET]
     _clear_data_rows(summary_ws)
     _clear_data_rows(location_ws)
-    _style_header(summary_ws, 15)
-    _style_header(location_ws, 8)
+    _write_headers(summary_ws, SUMMARY_HEADERS)
+    _write_headers(location_ws, LOCATION_HEADERS)
+    _style_header(summary_ws, len(SUMMARY_HEADERS))
+    _style_header(location_ws, len(LOCATION_HEADERS))
 
     submission_list = list(submissions or [])
     dealer_groups, summary_rows = _write_summary_data(summary_ws, submission_list)

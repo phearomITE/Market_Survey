@@ -8,7 +8,6 @@ Railway-ready Telegram bot for:
 - LibreOffice PDF/PNG rendering
 - Single-dealer and selected multi-dealer Telegram reports
 - Manual final summary selected by the four Outlet Name markers
-- BI-ready daily data export using the approved two-sheet template
 
 ## Commands
 
@@ -22,22 +21,7 @@ Railway-ready Telegram bot for:
 /report5 CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today 2026-07-14
 /summary 2026-07-14
-/export 2026-07-18
 ```
-
-
-## Daily data export
-
-```text
-/export 2026-07-18
-```
-
-The command synchronizes the full requested Kobo date and returns
-`Market_Survey_Data_YYYY-MM-DD.xlsx` using `templates/Template_Data_Survey.xlsx`.
-
-- `Summary_Data`: one compact block for each Region + Dealer. Member values are combined in one cell, Total Outlets equals all genuine outlet submissions for that dealer, and each product has one final comparison-normalized Movement row.
-- `Location_Outlet`: one row for each real outlet, with date, GPS, outlet name/type and phone number.
-- Final summary-marker submissions are excluded from both sheets.
 
 ## Local Windows run
 
@@ -119,3 +103,37 @@ Railway should then automatically build and deploy the new GitHub commit. After 
 ```text
 /report CPH2 2026-07-14
 ```
+
+## Daily BI Data Export
+
+Telegram command:
+
+```text
+/export 2026-07-18
+```
+
+The bot synchronizes the complete requested Kobo date and sends
+`Market_Survey_Data_YYYY-MM-DD.xlsx` with two sheets.
+
+### Summary_Data
+
+One row represents one Dealer + Product. Dealers are not split by Member.
+
+Columns:
+
+```text
+Region, Dealer, Location_Visit, Member, Group, Total_Outlets,
+Wholesale, Drink_Shop, Wet_Market, Trolley,
+Product, WS, DS, WM, TL, Mov
+```
+
+- `Member` and `Group` combine unique values for the dealer.
+- `Total_Outlets` equals all real outlet submissions for the dealer.
+- `Wholesale` through `Trolley` are dealer-level outlet counts.
+- `WS`, `DS`, `WM`, `TL` are product-specific selling-outlet counts.
+- `Mov` uses the same final normalized comparison movement as the dealer report.
+- Final-summary marker submissions are excluded.
+
+### Location_Outlet
+
+One row per real outlet with date, GPS, outlet name/type, and phone number.
