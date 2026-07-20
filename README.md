@@ -8,6 +8,7 @@ Railway-ready Telegram bot for:
 - LibreOffice PDF/PNG rendering
 - Single-dealer and selected multi-dealer Telegram reports
 - Manual final summary selected by the four Outlet Name markers
+- BI-ready daily data export using the approved two-sheet template
 
 ## Commands
 
@@ -21,7 +22,22 @@ Railway-ready Telegram bot for:
 /report5 CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today 2026-07-14
 /summary 2026-07-14
+/export 2026-07-18
 ```
+
+
+## Daily data export
+
+```text
+/export 2026-07-18
+```
+
+The command synchronizes the full requested Kobo date and returns
+`Market_Survey_Data_YYYY-MM-DD.xlsx` using `templates/Template_Data_Survey.xlsx`.
+
+- `Summary_Data`: one row for each Member + Product, with outlet totals, outlet-type counts and final comparison-normalized Movement.
+- `Location_Outlet`: one row for each real outlet, with date, GPS, outlet name/type and phone number.
+- Final summary-marker submissions are excluded from both sheets.
 
 ## Local Windows run
 
@@ -103,11 +119,3 @@ Railway should then automatically build and deploy the new GitHub commit. After 
 ```text
 /report CPH2 2026-07-14
 ```
-
-## V49 Summary Template Routing and KDL1 Repair
-
-- Final summary rows now have an optional `CHANNEL SPECIALIST` selector.
-- Blank selector routes Key Issues/Suggestions to the General template.
-- Selected `CHANNEL SPECIALIST` routes them to `template_channel_specialist.xlsx`.
-- Historical Kobo dealer value `kd1` is normalized and migrated to official code `KDL1`.
-- Sync repairs normalized core fields even when the raw Kobo submission hash is unchanged.
