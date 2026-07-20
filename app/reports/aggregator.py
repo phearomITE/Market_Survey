@@ -201,6 +201,24 @@ STATUS_TO_MOVEMENT = {
 STATUS_AVAILABLE = {"sale", "fast_sale", "មានលក់", "លក់ដាច់"}
 STOCK_LABEL = {"full": "គ្រប់", "low": "ខ្វះ", "no_stock": "ដាច់ស្តុក"}
 
+# Current Kobo own-product field policy.  sync.py imports this helper when
+# deciding which legacy fields may still be read/stored.  Keep it in the
+# aggregator module so sync and report code stay version-compatible.
+DEFAULT_OWN_PRODUCT_FIELDS = frozenset({"status", "mov"})
+OWN_PRODUCT_FIELD_POLICY = {
+    "CB LITE ORD": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out"}),
+    "CBC 4.4 NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CB Original NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CB LITE NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CAMBODIA ED": frozenset({"status", "mov", "stock"}),
+    "EXPREZ Can 330ml": DEFAULT_OWN_PRODUCT_FIELDS,
+}
+
+
+def own_product_field_allowed(product: str, field: str) -> bool:
+    """Return whether an own-product field is active in the current Kobo form."""
+    return field in OWN_PRODUCT_FIELD_POLICY.get(product, DEFAULT_OWN_PRODUCT_FIELDS)
+
 
 def slug(text: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in str(text)).strip("_").replace("__", "_")
