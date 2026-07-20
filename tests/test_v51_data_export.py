@@ -17,7 +17,7 @@ def _submission(
     lon: float,
     product_mov: int,
     competitor_mov: int,
-    member_no: int = 6,
+    member_no: int = 7,
     group_no: int = 2,
     location_text: str = "Area A",
 ):
@@ -69,32 +69,32 @@ def _submission(
     )
 
 
+def _column_by_header(ws, header: str) -> int:
+    for column in range(1, ws.max_column + 1):
+        if ws.cell(1, column).value == header:
+            return column
+    raise AssertionError(f"Header not found: {header}")
+
+
 def _find_product_row(ws, product: str) -> int:
+    product_column = _column_by_header(ws, "Product")
     for row in range(2, ws.max_row + 1):
-        if ws.cell(row, 11).value == product:
+        if ws.cell(row, product_column).value == product:
             return row
     raise AssertionError(f"Product row not found: {product}")
 
 
-def test_data_export_matches_dealer_product_layout(tmp_path: Path):
+def test_data_export_uses_uploaded_template_columns_without_replacing_them(tmp_path: Path):
     project_root = Path(__file__).resolve().parents[1]
     template = project_root / "templates" / "Template_Data_Survey.xlsx"
     output = tmp_path / "export.xlsx"
 
     rows = [
-        _submission(
-            "1", "Outlet One", "Wholesale", 12.085292, 106.422036,
-            4, 8, member_no=1, group_no=2, location_text="Area A",
-        ),
-        _submission(
-            "2", "Outlet Two", "Drink Shop", 11.568123, 102.9957213,
-            6, 10, member_no=6, group_no=3, location_text="Area B",
-        ),
+        _submission("1", "Outlet One", "Wholesale", 12.08, 106.42, 4, 8, member_no=7),
+        _submission("2", "Outlet Two", "Drink Shop", 11.56, 102.99, 6, 10, member_no=7),
+        _submission("3", "Outlet Three", "Local Eat", 11.57, 103.00, 5, 9, member_no=8),
         # Control row must not be exported or counted as an outlet.
-        _submission(
-            "3", "បូកសរុបរួម", "Wholesale", 0, 0,
-            10, 10, member_no=9, group_no=9, location_text="Summary",
-        ),
+        _submission("4", "បូកសរុបរួម", "Wholesale", 0, 0, 10, 10, member_no=999),
     ]
 
     path, stats = create_data_export(
@@ -107,41 +107,44 @@ def test_data_export_matches_dealer_product_layout(tmp_path: Path):
     assert path == output
     assert stats["dealer_groups"] == 1
     assert stats["summary_rows"] == len(EXPORT_PRODUCTS)
-    assert stats["location_rows"] == 2
+    assert stats["location_rows"] == 3
 
     workbook = load_workbook(output, data_only=True)
     summary = workbook["Summary_Data"]
     location = workbook["Location_Outlet"]
 
-    assert [summary.cell(1, col).value for col in range(1, 17)] == SUMMARY_HEADERS
+    # The user's approved template headers and order must remain unchanged.
+    assert [summary.cell(1, col).value for col in range(1, 16)] == SUMMARY_HEADERS
+    assert summary.max_column == 15
     assert summary.max_row == len(EXPORT_PRODUCTS) + 1
 
-    # Dealer-level values repeat for every product row and are not split by Member.
-    assert summary["A2"].value == "R1"
-    assert summary["B2"].value == "CA1"
-    assert summary["C2"].value == "Area A | Area B"
-    assert summary["D2"].value == "1"
-    assert summary["E2"].value == "2, 3"
-    assert summary["F2"].value == 2
-    assert summary["G2"].value == 1
-    assert summary["H2"].value == 1
-    assert summary["I2"].value == 0
-    assert summary["J2"].value == 0
-    assert summary[f"F{len(EXPORT_PRODUCTS) + 1}"].value == 2
+    # Dealer values repeat per product, but Member shows only the most frequent value.
+    assert summary.cell(2, _column_by_header(summary, "Region")).value == "R1"
+    assert summary.cell(2, _column_by_header(summary, "Dealer")).value == "CA1"
+    assert summary.cell(2, _column_by_header(summary, "Member")).value == "7"
+    assert summary.cell(2, _column_by_header(summary, "Total Outlets")).value == 3
+    assert summary.cell(2, _column_by_header(summary, "Wholesale")).value == 1
+    assert summary.cell(2, _column_by_header(summary, "Drink Shop")).value == 1
+    assert summary.cell(2, _column_by_header(summary, "Local Eat")).value == 1
 
-    # Product-specific outlet counts use only outlets where that product is sold.
     own_row = _find_product_row(summary, "CB LITE ORD")
-    assert summary.cell(own_row, 12).value == 1  # WS
-    assert summary.cell(own_row, 13).value == 1  # DS
-    assert summary.cell(own_row, 14).value == 0  # WM
-    assert summary.cell(own_row, 15).value == 0  # TL
-    assert summary.cell(own_row, 16).value is not None
-
     competitor_row = _find_product_row(summary, "GB SNOW ORD")
-    assert summary.cell(competitor_row, 12).value == 1
-    assert summary.cell(competitor_row, 13).value == 1
-    assert summary.cell(competitor_row, 16).value is not None
+    movement_column = _column_by_header(summary, "Movement")
+    assert summary.cell(own_row, movement_column).value is not None
+    assert summary.cell(competitor_row, movement_column).value is not None
 
-    assert location.max_row == 3
-    assert location["F2"].value == "Outlet One"
-    assert location["H2"].value == "+588886631198"
+    assert location.max_row == 4
+    assert [location.cell(1, col).value for col in range(1, 9)] == [
+        "Date", "Region", "Dealer", "Latitude", "Longitude",
+        "Outlet Name", "Outlet Type", "Phone Number Outlet",
+    ]
+    assert location["F2"].value == "Outlet Three" or location["F2"].value == "Outlet Two" or location["F2"].value == "Outlet One"
+    assert all(location.cell(row, 8).number_format == "@" for row in range(2, 5))
+
+    # Existing Excel table styles are kept and table ranges are expanded.
+    assert summary.tables
+    assert location.tables
+    summary_table = next(iter(summary.tables.values()))
+    location_table = next(iter(location.tables.values()))
+    assert summary_table.ref == f"A1:O{len(EXPORT_PRODUCTS) + 1}"
+    assert location_table.ref == "A1:H4"

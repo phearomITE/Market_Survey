@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from copy import copy
 from datetime import date
 from pathlib import Path
 import re
 from typing import Any, Iterable
 
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 from app.core.config import BASE_DIR, settings
 from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, aggregate_submissions
@@ -26,23 +25,24 @@ SUMMARY_SHEET = "Summary_Data"
 LOCATION_SHEET = "Location_Outlet"
 DATA_EXPORT_TEMPLATE = BASE_DIR / "templates" / "Template_Data_Survey.xlsx"
 
+# These are the expected headers in the user's approved template. The exporter
+# reads the workbook's real row-1 headers at runtime and does not replace them.
 SUMMARY_HEADERS = [
     "Region",
     "Dealer",
-    "Location_Visit",
     "Member",
-    "Group",
-    "Total_Outlets",
+    "Total Outlets",
     "Wholesale",
-    "Drink_Shop",
-    "Wet_Market",
+    "Drink Shop",
+    "Wet Market",
     "Trolley",
+    "Local Eat",
+    "Coffe,Bakery",
+    "Canteen",
+    "Sport Club",
+    "Motor Shop",
     "Product",
-    "WS",
-    "DS",
-    "WM",
-    "TL",
-    "Mov",
+    "Movement",
 ]
 
 LOCATION_HEADERS = [
@@ -56,7 +56,7 @@ LOCATION_HEADERS = [
     "Phone Number Outlet",
 ]
 
-# The comparison groups define the exact 57-product report order.
+# The comparison groups define the exact report/export product order.
 EXPORT_PRODUCTS: tuple[str, ...] = tuple(
     product
     for group in OFFTAKE_COMPARE_GROUPS
@@ -78,20 +78,45 @@ PRODUCT_LOOKUP_ALIASES = {
 }
 
 OUTLET_TYPE_KEYS = {
-    "Wholesale": "wholesale",
-    "Drink_Shop": "drinkshop",
-    "Wet_Market": "wetmarket",
-    "Trolley": "trolley",
+    "wholesale": {"wholesale"},
+    "drinkshop": {"drinkshop"},
+    "wetmarket": {"wetmarket"},
+    "trolley": {"trolley"},
+    "localeat": {"localeat"},
+    # Support both the correct spelling and the approved template's "Coffe".
+    "coffeebakery": {"coffeebakery", "coffebakery"},
+    "canteen": {"canteen"},
+    "sportclub": {"sportclub"},
+    "motorshop": {"motorshop"},
 }
 
-_HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
-_HEADER_FONT = Font(color="FFFFFF", bold=True)
-_THIN = Side(style="thin", color="D9E2F3")
-_DATA_BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+SUMMARY_REQUIRED_HEADER_KEYS = {
+    "region",
+    "dealer",
+    "member",
+    "totaloutlets",
+    "product",
+    "movement",
+}
+LOCATION_REQUIRED_HEADER_KEYS = {
+    "date",
+    "region",
+    "dealer",
+    "latitude",
+    "longitude",
+    "outletname",
+    "outlettype",
+    "phonenumberoutlet",
+}
 
 
 def _clean(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _header_key(value: Any) -> str:
+    """Normalize a template header while preserving the user's column order."""
+    return re.sub(r"[^a-z0-9]+", "", _clean(value).lower())
 
 
 def _is_summary_submission(submission: Any) -> bool:
@@ -128,18 +153,17 @@ def _location_sort_key(submission: Any):
 
 
 def _normalize_outlet_type(value: Any) -> str:
-    text = _clean(value).lower()
-    return re.sub(r"[^a-z0-9]+", "", text)
+    return re.sub(r"[^a-z0-9]+", "", _clean(value).lower())
 
 
-def _count_type(counter: Any, target_key: str) -> int:
+def _count_type(counter: Any, target_keys: set[str]) -> int:
     if not counter:
         return 0
     items = counter.items() if hasattr(counter, "items") else []
     return sum(
         int(count or 0)
         for label, count in items
-        if _normalize_outlet_type(label) == target_key
+        if _normalize_outlet_type(label) in target_keys
     )
 
 
@@ -208,48 +232,51 @@ def _coordinates(submission: Any) -> tuple[float | None, float | None]:
         return None, None
 
 
+def _template_headers(ws) -> list[str]:
+    """Read the real template headers without rewriting the user's workbook."""
+    last_column = 0
+    for column in range(1, ws.max_column + 1):
+        if _clean(ws.cell(1, column).value):
+            last_column = column
+    if last_column == 0:
+        raise ValueError(f"Sheet {ws.title!r} has no headers in row 1")
+    return [_clean(ws.cell(1, column).value) for column in range(1, last_column + 1)]
+
+
+def _validate_headers(sheet_name: str, headers: list[str], required_keys: set[str]) -> None:
+    present = {_header_key(header) for header in headers if _clean(header)}
+    missing = sorted(required_keys - present)
+    if missing:
+        raise ValueError(
+            f"{sheet_name} template is missing required column(s): " + ", ".join(missing)
+        )
+
+
 def _clear_data_rows(ws) -> None:
     if ws.max_row > 1:
         ws.delete_rows(2, ws.max_row - 1)
 
 
-def _write_headers(ws, headers: list[str]) -> None:
-    for column, header in enumerate(headers, start=1):
-        ws.cell(1, column).value = header
+def _resize_sheet_tables(ws, last_row: int, last_column: int) -> None:
+    """Expand existing Excel tables while keeping the user's table style."""
+    end_row = max(2, last_row)
+    end_column = get_column_letter(last_column)
+    for table in ws.tables.values():
+        table.ref = f"A1:{end_column}{end_row}"
+    ws.auto_filter.ref = f"A1:{end_column}{end_row}"
+    if not ws.freeze_panes:
+        ws.freeze_panes = "A2"
 
 
-def _style_header(ws, last_column: int) -> None:
-    for cell in ws[1][:last_column]:
-        cell.fill = copy(_HEADER_FILL)
-        cell.font = copy(_HEADER_FONT)
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = copy(_DATA_BORDER)
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{ws.cell(1, last_column).column_letter}1"
+def _summary_row_values(headers: list[str], values: dict[str, Any]) -> list[Any]:
+    return [values.get(_header_key(header), "") for header in headers]
 
 
-def _style_data_rows(ws, start_row: int, end_row: int, last_column: int) -> None:
-    if end_row < start_row:
-        return
-    for row in ws.iter_rows(
-        min_row=start_row,
-        max_row=end_row,
-        min_col=1,
-        max_col=last_column,
-    ):
-        for cell in row:
-            cell.border = copy(_DATA_BORDER)
-            cell.alignment = Alignment(vertical="center", wrap_text=False)
+def _write_summary_data(ws, submissions: Iterable[Any], headers: list[str]) -> tuple[int, int]:
+    """Write one row per Dealer + Product using the uploaded template columns.
 
-
-def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
-    """Write one row per Dealer + Product, without scattering by member.
-
-    Dealer-level values repeat for every product row:
-    Location_Visit, most frequent Member, combined Groups, Total_Outlets and total
-    outlet-type counts. Product-level WS/DS/WM/TL count only outlets where that
-    product is sold, while Mov uses the same final normalized movement used by
-    the dealer report.
+    The exporter never replaces row 1. It maps values by each existing header,
+    so the approved 15-column template remains exactly as the user designed it.
     """
     groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for submission in submissions:
@@ -266,102 +293,101 @@ def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
         aggregate = aggregate_submissions(rows)
         outlet_counts = aggregate.get("outlet_types") or {}
 
-        common_values = [
-            region,
-            dealer,
-            _joined_locations(rows) or _clean(aggregate.get("location_text")),
-            most_frequent_member(rows),
-            _joined_unique(rows, "group_no"),
-            len(rows),
-            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Wholesale"]),
-            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Drink_Shop"]),
-            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Wet_Market"]),
-            _count_type(outlet_counts, OUTLET_TYPE_KEYS["Trolley"]),
-        ]
+        dealer_values = {
+            "region": region,
+            "dealer": dealer,
+            "locationvisit": _joined_locations(rows) or _clean(aggregate.get("location_text")),
+            "member": most_frequent_member(rows),
+            "group": _joined_unique(rows, "group_no"),
+            "totaloutlets": len(rows),
+            "wholesale": _count_type(outlet_counts, OUTLET_TYPE_KEYS["wholesale"]),
+            "drinkshop": _count_type(outlet_counts, OUTLET_TYPE_KEYS["drinkshop"]),
+            "wetmarket": _count_type(outlet_counts, OUTLET_TYPE_KEYS["wetmarket"]),
+            "trolley": _count_type(outlet_counts, OUTLET_TYPE_KEYS["trolley"]),
+            "localeat": _count_type(outlet_counts, OUTLET_TYPE_KEYS["localeat"]),
+            "coffebakery": _count_type(outlet_counts, OUTLET_TYPE_KEYS["coffeebakery"]),
+            "coffeebakery": _count_type(outlet_counts, OUTLET_TYPE_KEYS["coffeebakery"]),
+            "canteen": _count_type(outlet_counts, OUTLET_TYPE_KEYS["canteen"]),
+            "sportclub": _count_type(outlet_counts, OUTLET_TYPE_KEYS["sportclub"]),
+            "motorshop": _count_type(outlet_counts, OUTLET_TYPE_KEYS["motorshop"]),
+        }
 
         for product in EXPORT_PRODUCTS:
             availability = _availability_for_product(aggregate, product)
-            output_rows.append(
-                common_values
-                + [
-                    PRODUCT_DISPLAY_ALIASES.get(product, product),
-                    _count_type(availability, OUTLET_TYPE_KEYS["Wholesale"]),
-                    _count_type(availability, OUTLET_TYPE_KEYS["Drink_Shop"]),
-                    _count_type(availability, OUTLET_TYPE_KEYS["Wet_Market"]),
-                    _count_type(availability, OUTLET_TYPE_KEYS["Trolley"]),
-                    _movement_for_product(aggregate, product),
-                ]
+            product_values = dict(dealer_values)
+            product_values.update(
+                {
+                    "product": PRODUCT_DISPLAY_ALIASES.get(product, product),
+                    "movement": _movement_for_product(aggregate, product),
+                    "mov": _movement_for_product(aggregate, product),
+                    # Optional compatibility when an older/custom template has
+                    # product-specific outlet columns.
+                    "ws": _count_type(availability, OUTLET_TYPE_KEYS["wholesale"]),
+                    "ds": _count_type(availability, OUTLET_TYPE_KEYS["drinkshop"]),
+                    "wm": _count_type(availability, OUTLET_TYPE_KEYS["wetmarket"]),
+                    "tl": _count_type(availability, OUTLET_TYPE_KEYS["trolley"]),
+                }
             )
+            output_rows.append(_summary_row_values(headers, product_values))
 
     for row_number, values in enumerate(output_rows, start=2):
         for column_number, value in enumerate(values, start=1):
-            ws.cell(row_number, column_number).value = value
+            cell = ws.cell(row_number, column_number)
+            cell.value = value
+            header_key = _header_key(headers[column_number - 1])
+            if header_key in {
+                "totaloutlets", "wholesale", "drinkshop", "wetmarket", "trolley",
+                "localeat", "coffebakery", "coffeebakery", "canteen",
+                "sportclub", "motorshop", "movement", "mov", "ws", "ds", "wm", "tl",
+            }:
+                cell.number_format = "0"
+            elif header_key == "member":
+                cell.number_format = "@"
 
     last_row = len(output_rows) + 1
-    _style_data_rows(ws, 2, last_row, len(SUMMARY_HEADERS))
-
-    widths = {
-        "A": 10,
-        "B": 12,
-        "C": 30,
-        "D": 18,
-        "E": 12,
-        "F": 14,
-        "G": 12,
-        "H": 14,
-        "I": 14,
-        "J": 12,
-        "K": 30,
-        "L": 9,
-        "M": 9,
-        "N": 9,
-        "O": 9,
-        "P": 10,
-    }
-    for column, width in widths.items():
-        ws.column_dimensions[column].width = width
-
-    for column in ("F", "G", "H", "I", "J", "L", "M", "N", "O", "P"):
-        for cell in ws[column][1:]:
-            cell.number_format = "0"
-
+    _resize_sheet_tables(ws, last_row, len(headers))
     return len(groups), len(output_rows)
 
 
-def _write_location_data(ws, submissions: Iterable[Any], report_date: date) -> int:
+def _location_row_values(headers: list[str], submission: Any, report_date: date) -> list[Any]:
+    lat, lon = _coordinates(submission)
+    values = {
+        "date": getattr(submission, "report_date", None) or report_date,
+        "region": _clean(getattr(submission, "region", None)).upper(),
+        "dealer": _clean(getattr(submission, "dealer", None)).upper(),
+        "latitude": lat,
+        "longitude": lon,
+        "outletname": _clean(getattr(submission, "outlet_name", None)),
+        "outlettype": _clean(getattr(submission, "outlet_type", None)),
+        "phonenumberoutlet": _clean(getattr(submission, "phone_number", None)),
+    }
+    return [values.get(_header_key(header), "") for header in headers]
+
+
+def _write_location_data(
+    ws,
+    submissions: Iterable[Any],
+    report_date: date,
+    headers: list[str],
+) -> int:
     rows = [s for s in submissions if not _is_summary_submission(s)]
     rows.sort(key=_location_sort_key)
 
     for row_number, submission in enumerate(rows, start=2):
-        lat, lon = _coordinates(submission)
-        values = [
-            getattr(submission, "report_date", None) or report_date,
-            _clean(getattr(submission, "region", None)).upper(),
-            _clean(getattr(submission, "dealer", None)).upper(),
-            lat,
-            lon,
-            _clean(getattr(submission, "outlet_name", None)),
-            _clean(getattr(submission, "outlet_type", None)),
-            _clean(getattr(submission, "phone_number", None)),
-        ]
+        values = _location_row_values(headers, submission, report_date)
         for column_number, value in enumerate(values, start=1):
-            ws.cell(row_number, column_number).value = value
-
-        ws.cell(row_number, 1).number_format = "dd/mm/yyyy"
-        ws.cell(row_number, 4).number_format = "0.0000000"
-        ws.cell(row_number, 5).number_format = "0.0000000"
-        ws.cell(row_number, 8).number_format = "@"
+            cell = ws.cell(row_number, column_number)
+            cell.value = value
+            header_key = _header_key(headers[column_number - 1])
+            if header_key == "date":
+                cell.number_format = "dd/mm/yyyy"
+            elif header_key in {"latitude", "longitude"}:
+                cell.number_format = "0.0000000"
+            elif header_key == "phonenumberoutlet":
+                cell.number_format = "@"
 
     last_row = len(rows) + 1
-    _style_data_rows(ws, 2, last_row, len(LOCATION_HEADERS))
-    ws.column_dimensions["A"].width = 14
-    ws.column_dimensions["B"].width = 10
-    ws.column_dimensions["C"].width = 12
-    ws.column_dimensions["D"].width = 15
-    ws.column_dimensions["E"].width = 15
-    ws.column_dimensions["F"].width = 28
-    ws.column_dimensions["G"].width = 18
-    ws.column_dimensions["H"].width = 24
+    _resize_sheet_tables(ws, last_row, len(headers))
     return len(rows)
 
 
@@ -387,16 +413,27 @@ def create_data_export(
 
     summary_ws = workbook[SUMMARY_SHEET]
     location_ws = workbook[LOCATION_SHEET]
+    summary_headers = _template_headers(summary_ws)
+    location_headers = _template_headers(location_ws)
+    _validate_headers(SUMMARY_SHEET, summary_headers, SUMMARY_REQUIRED_HEADER_KEYS)
+    _validate_headers(LOCATION_SHEET, location_headers, LOCATION_REQUIRED_HEADER_KEYS)
+
+    # Keep the user's row-1 labels, order, widths, colors and table styles.
     _clear_data_rows(summary_ws)
     _clear_data_rows(location_ws)
-    _write_headers(summary_ws, SUMMARY_HEADERS)
-    _write_headers(location_ws, LOCATION_HEADERS)
-    _style_header(summary_ws, len(SUMMARY_HEADERS))
-    _style_header(location_ws, len(LOCATION_HEADERS))
 
     submission_list = list(submissions or [])
-    dealer_groups, summary_rows = _write_summary_data(summary_ws, submission_list)
-    location_rows = _write_location_data(location_ws, submission_list, report_date)
+    dealer_groups, summary_rows = _write_summary_data(
+        summary_ws,
+        submission_list,
+        summary_headers,
+    )
+    location_rows = _write_location_data(
+        location_ws,
+        submission_list,
+        report_date,
+        location_headers,
+    )
 
     destination = Path(output_path) if output_path else (
         settings.export_path / f"Market_Survey_Data_{report_date:%Y-%m-%d}.xlsx"
