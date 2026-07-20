@@ -87,9 +87,9 @@ def _member_sort(value: Any) -> tuple[int, Any]:
         return (1, _clean(value).lower())
 
 
-def _group_sort_key(item: tuple[tuple[str, str, Any], list[Any]]):
-    (region, dealer, member), _rows = item
-    return (_region_sort(region), _clean(dealer).upper(), _member_sort(member))
+def _group_sort_key(item: tuple[tuple[str, str], list[Any]]):
+    (region, dealer), _rows = item
+    return (_region_sort(region), _clean(dealer).upper())
 
 
 def _location_sort_key(submission: Any):
@@ -166,26 +166,47 @@ def _style_data_rows(ws, start_row: int, end_row: int, last_column: int) -> None
 
 
 def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
-    groups: dict[tuple[str, str, Any], list[Any]] = defaultdict(list)
+    """Write one compact product block per Region + Dealer.
+
+    Previous versions grouped by Member, which scattered one dealer across many
+    small blocks and made Total Outlets show 1, 2, etc. for each member. The
+    export is now dealer-level:
+
+    - all real outlet submissions for the dealer are combined;
+    - Member contains the unique member values, for example ``1, 2, 6``;
+    - Total Outlets equals the number of genuine outlet submissions;
+    - outlet-type counts and product movement use the same complete dealer data.
+    """
+    groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for submission in submissions:
         if _is_summary_submission(submission):
             continue
         key = (
             _clean(getattr(submission, "region", None)).upper(),
             _clean(getattr(submission, "dealer", None)).upper(),
-            getattr(submission, "member_no", None),
         )
         groups[key].append(submission)
 
     output_rows: list[list[Any]] = []
-    for (region, dealer, member), rows in sorted(groups.items(), key=_group_sort_key):
+    for (region, dealer), rows in sorted(groups.items(), key=_group_sort_key):
         aggregate = aggregate_submissions(rows)
         outlet_counts = aggregate.get("outlet_types") or {}
+
+        member_values = {
+            getattr(submission, "member_no", None)
+            for submission in rows
+            if getattr(submission, "member_no", None) not in (None, "")
+        }
+        members = ", ".join(
+            _clean(value)
+            for value in sorted(member_values, key=_member_sort)
+        )
+
         common_values = [
             region,
             dealer,
-            member if member is not None else "",
-            int(aggregate.get("total_outlets", 0) or 0),
+            members,
+            len(rows),
         ]
         common_values.extend(
             int(outlet_counts.get(source_label, 0) or 0)
@@ -208,10 +229,9 @@ def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
     last_row = len(output_rows) + 1
     _style_data_rows(ws, 2, last_row, 15)
     if last_row >= 2:
-        ws.cell(2, 1)
         ws.column_dimensions["A"].width = 10
         ws.column_dimensions["B"].width = 12
-        ws.column_dimensions["C"].width = 12
+        ws.column_dimensions["C"].width = 18
         for column in "DEFGHIJKLM":
             ws.column_dimensions[column].width = 14
         ws.column_dimensions["N"].width = 30
@@ -287,7 +307,7 @@ def create_data_export(
     _style_header(location_ws, 8)
 
     submission_list = list(submissions or [])
-    member_groups, summary_rows = _write_summary_data(summary_ws, submission_list)
+    dealer_groups, summary_rows = _write_summary_data(summary_ws, submission_list)
     location_rows = _write_location_data(location_ws, submission_list, report_date)
 
     destination = Path(output_path) if output_path else (
@@ -297,7 +317,9 @@ def create_data_export(
     workbook.save(destination)
 
     return destination, {
-        "member_groups": member_groups,
+        "dealer_groups": dealer_groups,
+        # Retained for compatibility with older callers.
+        "member_groups": dealer_groups,
         "summary_rows": summary_rows,
         "location_rows": location_rows,
         "products": len(EXPORT_PRODUCTS),

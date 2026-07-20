@@ -351,7 +351,7 @@ def generate_data_export(report_date_str: str | None = None):
     """Synchronize one full Kobo date and export BI-ready survey data.
 
     The output follows templates/Template_Data_Survey.xlsx and contains:
-    - Summary_Data: one row per Member + Product
+    - Summary_Data: one compact block per Dealer, with one row per Product
     - Location_Outlet: one row per genuine outlet visit
     """
     d = parse_report_date(report_date_str)
@@ -384,7 +384,7 @@ def generate_data_export(report_date_str: str | None = None):
     text = (
         f"Generated data export for {d}: "
         f"{stats['location_rows']} outlet locations, "
-        f"{stats['member_groups']} member groups, "
+        f"{stats['dealer_groups']} dealer groups, "
         f"{stats['summary_rows']} product rows."
         f"{sync_warning}"
     )

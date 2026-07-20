@@ -17,6 +17,7 @@ def _submission(
     lon: float,
     product_mov: int,
     competitor_mov: int,
+    member_no: int = 6,
 ):
     return SimpleNamespace(
         submission_id=sid,
@@ -24,7 +25,7 @@ def _submission(
         region="R1",
         dealer="CA1",
         group_no=2,
-        member_no=6,
+        member_no=member_no,
         total_outlet_visit_target=2,
         outlet_name=outlet_name,
         outlet_type=outlet_type,
@@ -72,8 +73,8 @@ def test_data_export_uses_template_and_writes_two_sheets(tmp_path: Path):
     output = tmp_path / "export.xlsx"
 
     rows = [
-        _submission("1", "Outlet One", "Wholesale", 12.085292, 106.422036, 4, 8),
-        _submission("2", "Outlet Two", "Drink Shop", 11.568123, 102.9957213, 6, 10),
+        _submission("1", "Outlet One", "Wholesale", 12.085292, 106.422036, 4, 8, member_no=1),
+        _submission("2", "Outlet Two", "Drink Shop", 11.568123, 102.9957213, 6, 10, member_no=6),
         # Control row must not be exported as an outlet.
         _submission("3", "បូកសរុបរួម", "Wholesale", 0, 0, 10, 10),
     ]
@@ -86,6 +87,7 @@ def test_data_export_uses_template_and_writes_two_sheets(tmp_path: Path):
     )
 
     assert path == output
+    assert stats["dealer_groups"] == 1
     assert stats["member_groups"] == 1
     assert stats["summary_rows"] == len(EXPORT_PRODUCTS)
     assert stats["location_rows"] == 2
@@ -96,8 +98,9 @@ def test_data_export_uses_template_and_writes_two_sheets(tmp_path: Path):
 
     assert summary["A2"].value == "R1"
     assert summary["B2"].value == "CA1"
-    assert summary["C2"].value == 6
+    assert summary["C2"].value == "1, 6"
     assert summary["D2"].value == 2
+    assert summary[f"D{len(EXPORT_PRODUCTS) + 1}"].value == 2
     assert summary["E2"].value == 1
     assert summary["F2"].value == 1
     assert summary["N2"].value == "CB LITE ORD"

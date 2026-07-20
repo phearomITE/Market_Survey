@@ -35,7 +35,7 @@ Railway-ready Telegram bot for:
 The command synchronizes the full requested Kobo date and returns
 `Market_Survey_Data_YYYY-MM-DD.xlsx` using `templates/Template_Data_Survey.xlsx`.
 
-- `Summary_Data`: one row for each Member + Product, with outlet totals, outlet-type counts and final comparison-normalized Movement.
+- `Summary_Data`: one compact block for each Region + Dealer. Member values are combined in one cell, Total Outlets equals all genuine outlet submissions for that dealer, and each product has one final comparison-normalized Movement row.
 - `Location_Outlet`: one row for each real outlet, with date, GPS, outlet name/type and phone number.
 - Final summary-marker submissions are excluded from both sheets.
 
