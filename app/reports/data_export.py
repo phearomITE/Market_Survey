@@ -7,10 +7,15 @@ import re
 from typing import Any, Iterable
 
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from app.core.config import BASE_DIR, settings
-from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, aggregate_submissions
+from app.reports.aggregator import (
+    OFFTAKE_COMPARE_GROUPS,
+    aggregate_submissions,
+    combine_location_visit,
+)
 from app.reports.member_mode import most_frequent_member
 
 
@@ -30,6 +35,7 @@ DATA_EXPORT_TEMPLATE = BASE_DIR / "templates" / "Template_Data_Survey.xlsx"
 SUMMARY_HEADERS = [
     "Region",
     "Dealer",
+    "Location of Visit Text",
     "Member",
     "Total Outlets",
     "Wholesale",
@@ -93,6 +99,7 @@ OUTLET_TYPE_KEYS = {
 SUMMARY_REQUIRED_HEADER_KEYS = {
     "region",
     "dealer",
+    "locationofvisittext",
     "member",
     "totaloutlets",
     "product",
@@ -177,14 +184,15 @@ def _joined_unique(rows: Iterable[Any], attribute: str) -> str:
 
 
 def _joined_locations(rows: Iterable[Any]) -> str:
-    values: list[str] = []
-    seen: set[str] = set()
-    for row in rows:
-        value = _clean(getattr(row, "location_text", None))
-        if value and value not in seen:
-            seen.add(value)
-            values.append(value)
-    return " | ".join(values)
+    """Combine real submitted location text without duplicate place variants.
+
+    The shared aggregator helper performs case-insensitive normalization, Khmer
+    alias matching and spelling-variant matching. Examples such as Psar prek
+    pnov, psar prek pov, Praek Pnov, ព្រែកព្នៅ and Pnov become one label:
+    Prek Pnov. Saroang and Samroang become Samroang.
+    """
+    values = [getattr(row, "location_text", None) for row in rows]
+    return combine_location_visit(values)
 
 
 def _product_metric(aggregate: dict[str, Any], product: str) -> dict[str, Any] | None:
@@ -276,7 +284,7 @@ def _write_summary_data(ws, submissions: Iterable[Any], headers: list[str]) -> t
     """Write one row per Dealer + Product using the uploaded template columns.
 
     The exporter never replaces row 1. It maps values by each existing header,
-    so the approved 15-column template remains exactly as the user designed it.
+    so the approved 16-column template remains exactly as the user designed it.
     """
     groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for submission in submissions:
@@ -293,10 +301,19 @@ def _write_summary_data(ws, submissions: Iterable[Any], headers: list[str]) -> t
         aggregate = aggregate_submissions(rows)
         outlet_counts = aggregate.get("outlet_types") or {}
 
+        combined_location = (
+            _joined_locations(rows)
+            or _clean(aggregate.get("location_text"))
+        )
+
         dealer_values = {
             "region": region,
             "dealer": dealer,
-            "locationvisit": _joined_locations(rows) or _clean(aggregate.get("location_text")),
+            # Exact approved V57 header plus compatibility with older custom
+            # templates that used Location_Visit or Location Visit Text.
+            "locationofvisittext": combined_location,
+            "locationvisittext": combined_location,
+            "locationvisit": combined_location,
             "member": most_frequent_member(rows),
             "group": _joined_unique(rows, "group_no"),
             "totaloutlets": len(rows),
@@ -343,6 +360,23 @@ def _write_summary_data(ws, submissions: Iterable[Any], headers: list[str]) -> t
                 cell.number_format = "0"
             elif header_key == "member":
                 cell.number_format = "@"
+            elif header_key in {
+                "locationofvisittext",
+                "locationvisittext",
+                "locationvisit",
+            }:
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    # Keep the full combined location readable instead of visually cutting it.
+    for column_number, header in enumerate(headers, start=1):
+        if _header_key(header) in {
+            "locationofvisittext",
+            "locationvisittext",
+            "locationvisit",
+        }:
+            column_letter = get_column_letter(column_number)
+            current_width = ws.column_dimensions[column_letter].width or 0
+            ws.column_dimensions[column_letter].width = max(current_width, 48)
 
     last_row = len(output_rows) + 1
     _resize_sheet_tables(ws, last_row, len(headers))
