@@ -12,6 +12,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from app.core.config import BASE_DIR, settings
 from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, aggregate_submissions
+from app.reports.member_mode import most_frequent_member
 
 
 SUMMARY_MARKERS = {
@@ -245,7 +246,7 @@ def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
     """Write one row per Dealer + Product, without scattering by member.
 
     Dealer-level values repeat for every product row:
-    Location_Visit, combined Members, combined Groups, Total_Outlets and total
+    Location_Visit, most frequent Member, combined Groups, Total_Outlets and total
     outlet-type counts. Product-level WS/DS/WM/TL count only outlets where that
     product is sold, while Mov uses the same final normalized movement used by
     the dealer report.
@@ -269,7 +270,7 @@ def _write_summary_data(ws, submissions: Iterable[Any]) -> tuple[int, int]:
             region,
             dealer,
             _joined_locations(rows) or _clean(aggregate.get("location_text")),
-            _joined_unique(rows, "member_no"),
+            most_frequent_member(rows),
             _joined_unique(rows, "group_no"),
             len(rows),
             _count_type(outlet_counts, OUTLET_TYPE_KEYS["Wholesale"]),

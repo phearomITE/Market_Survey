@@ -137,3 +137,9 @@ Product, WS, DS, WM, TL, Mov
 ### Location_Outlet
 
 One row per real outlet with date, GPS, outlet name/type, and phone number.
+
+## Member column rule
+
+For both `/summary` and `/export`, the Member column shows only the value that
+appears most often among the dealer's real outlet submissions for the requested
+date. Summary-marker rows and blank Member values are ignored.

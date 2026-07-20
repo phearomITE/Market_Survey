@@ -120,7 +120,7 @@ def test_data_export_matches_dealer_product_layout(tmp_path: Path):
     assert summary["A2"].value == "R1"
     assert summary["B2"].value == "CA1"
     assert summary["C2"].value == "Area A | Area B"
-    assert summary["D2"].value == "1, 6"
+    assert summary["D2"].value == "1"
     assert summary["E2"].value == "2, 3"
     assert summary["F2"].value == 2
     assert summary["G2"].value == 1

@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import is_final_summary_outlet_name
 from app.kobo.parser import normalize_dealer
+from app.reports.member_mode import most_frequent_member
 
 
 HEADER_FILL = "1F4E78"
@@ -82,27 +83,16 @@ def build_summary_rows(submissions: Iterable) -> list[dict]:
             targets = [x for x in targets if x is not None]
             target = max(targets) if targets else None
 
-            member_values: set[str] = set()
-            for submission in outlet_rows:
-                raw_member = getattr(submission, "member_no", None)
-                parsed_member = _safe_int(raw_member)
-                if parsed_member is not None:
-                    member_values.add(str(parsed_member))
-                elif _clean(raw_member):
-                    member_values.add(_clean(raw_member))
-
-            members = ", ".join(
-                sorted(
-                    member_values,
-                    key=lambda value: (0, int(value)) if value.isdigit() else (1, value.lower()),
-                )
-            )
+            # Show only the Member occurring most often for this dealer/date.
+            # Example: 7 appears 9 times while 1, 8 and 69966165 appear less often
+            # -> the summary Member column displays only 7.
+            member = most_frequent_member(outlet_rows)
 
             rows.append(
                 {
                     "region": region,
                     "dealer": dealer,
-                    "member": members,
+                    "member": member,
                     "total_submissions": total_submissions,
                     "total_outlets": total_outlets,
                     "target": target,
