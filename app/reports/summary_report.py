@@ -17,6 +17,7 @@ from app.reports.aggregator import (
     is_final_summary_outlet_name,
     load_wide_payloads,
 )
+from app.reports.excel_report import final_report_movement_value
 
 
 HEADER_FILL = "1F4E78"
@@ -121,7 +122,15 @@ def movement_comparison_from_aggregate(aggregate: dict[str, Any] | None) -> dict
     This is the same final value used by the dealer Market Improvement Report.
     """
     aggregate = aggregate or {}
-    own_movement = _movement_from_bucket(aggregate.get("products"), CB_LITE_NCP)
+    # Use the exact movement lookup used by the final Excel report. This is
+    # critical because the report applies canonical/legacy alias handling before
+    # writing product values. Reading aggregate buckets directly can select a
+    # stale alias and produce a different leader in /summary.
+    own_movement = final_report_movement_value(
+        aggregate,
+        CB_LITE_NCP,
+        competitor=False,
+    )
 
     result: dict[str, Any] = {
         "movement_under_5": None,
@@ -139,9 +148,12 @@ def movement_comparison_from_aggregate(aggregate: dict[str, Any] | None) -> dict
         else:
             result["movement_9_to_10"] = own_movement
 
-    competitors = aggregate.get("competitors") or {}
     for product in CB_LITE_NCP_COMPETITORS:
-        movement = _movement_from_bucket(competitors, product)
+        movement = final_report_movement_value(
+            aggregate,
+            product,
+            competitor=True,
+        )
         if movement == 10:
             result["competitor_product"] = product
             result["competitor_movement_lead"] = 10

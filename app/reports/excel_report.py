@@ -341,6 +341,37 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
     return best
 
 
+def final_report_movement_value(
+    agg: dict,
+    product_name: str,
+    *,
+    competitor: bool = False,
+) -> int | None:
+    """Return the exact movement value that the final Excel report writes.
+
+    Summary and export features must use this helper instead of reading raw
+    aggregate buckets directly. The final report has robust alias handling for
+    renamed competitor products, so sharing the same lookup guarantees that a
+    dealer summary cannot name Greet LITE NCP as the movement leader when the
+    final report actually shows Hanuman LITE NCP = 10.
+    """
+    if competitor:
+        metrics = _lookup_competitor_metrics(agg, product_name)
+    else:
+        canonical = _product_key(product_name)
+        metrics = (agg.get("products") or {}).get(canonical)
+        if not isinstance(metrics, dict):
+            metrics = _lookup_metrics(agg, product_name)
+
+    value = _final_movement_from_metrics(metrics)
+    if value in (None, "", "nan"):
+        return None
+    try:
+        return max(0, min(10, int(float(str(value).replace(",", "").strip()))))
+    except Exception:
+        return None
+
+
 def _write_metrics_cells(ws: Worksheet, row: int, product_col: int, metrics: dict | None) -> None:
     """Write movement/stock/buy/sell cells safely."""
     if not metrics:
@@ -754,7 +785,22 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws["A4"] = f"Group : {agg.get('group_no') or 2}"
     member_no = agg.get("member_no") or (max(1, min(10, total // 3 or 1)) if total else 0)
     ws["C4"] = f"Member : {member_no}"
-    ws["H4"] = f"Location of Visit: {agg.get('location_text') or ''}"
+    location_text = str(agg.get("location_text") or "").strip()
+    ws["H4"] = f"Location of Visit: {location_text}"
+    # H4:V4 is a merged range in the report template. Keep the complete
+    # combined location text and allow it to wrap instead of being visually
+    # cut off in Excel/PDF/PNG. Noto Sans Khmer preserves Khmer shaping.
+    ws["H4"].font = Font(name=SUMMARY_FONT_NAME, size=10, bold=False)
+    ws["H4"].alignment = Alignment(
+        horizontal="left",
+        vertical="center",
+        wrap_text=True,
+        shrink_to_fit=False,
+    )
+    if len(location_text) > 150:
+        ws.row_dimensions[4].height = max(ws.row_dimensions[4].height or 15, 45)
+    elif len(location_text) > 80:
+        ws.row_dimensions[4].height = max(ws.row_dimensions[4].height or 15, 32)
 
     # Total outlet visit cell in template is around W4, but search is safer.
     for row in ws.iter_rows(min_row=1, max_row=6):

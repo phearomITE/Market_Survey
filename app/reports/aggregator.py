@@ -538,6 +538,14 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
 def _clean_location_piece(text: Any) -> str:
     """Clean one user-entered location phrase without destroying meaning."""
     value = str(text or "").replace("\r", " ").replace("\n", " ")
+    # Some users paste the field label into the answer. Remove only the label,
+    # never the location itself.
+    value = re.sub(
+        r"^\s*(?:location\s*(?:of\s*)?visit|ទីតាំង(?:ចុះ)?ទស្សនកិច្ច)\s*[:：-]\s*",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    )
     value = re.sub(r"\s+", " ", value).strip(" ,;|/\\")
     return value
 
@@ -627,14 +635,22 @@ def _is_similar_location(new_key: str, old_key: str) -> bool:
     if new_key == old_key:
         return True
 
-    # A short/long version of the same place, e.g. prekpnov vs phnompenhprekpnov.
-    if len(new_key) >= 5 and len(old_key) >= 5 and (new_key in old_key or old_key in new_key):
+    # A short/long spelling of the same place may contain the other key. Require
+    # a close length ratio so a broad parent place is not accidentally merged
+    # with a more specific, genuinely different location.
+    shorter, longer = sorted((new_key, old_key), key=len)
+    if (
+        len(shorter) >= 5
+        and shorter in longer
+        and (len(shorter) / max(len(longer), 1)) >= 0.72
+    ):
         return True
 
-    # Fuzzy spelling similarity for user-filled text. Use a higher threshold for
-    # short keys to avoid merging different short locations by mistake.
+    # Fuzzy spelling similarity for user-filled text. Use a conservative
+    # threshold: case differences are already removed, while common spelling
+    # variants are normalized before this comparison.
     ratio = difflib.SequenceMatcher(None, new_key, old_key).ratio()
-    threshold = 0.90 if min(len(new_key), len(old_key)) < 7 else 0.84
+    threshold = 0.92 if min(len(new_key), len(old_key)) < 7 else 0.88
     return ratio >= threshold
 
 
