@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import copy
 from datetime import date
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ from typing import Any, Iterable
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from app.core.config import BASE_DIR, settings
 from app.reports.aggregator import (
@@ -290,13 +292,62 @@ def _clear_data_rows(ws) -> None:
         ws.delete_rows(2, ws.max_row - 1)
 
 
+def _safe_table_name(value: Any, fallback: str) -> str:
+    """Return a valid Excel structured-table name."""
+    name = re.sub(r"[^A-Za-z0-9_.]+", "_", _clean(value)) or fallback
+    if not re.match(r"^[A-Za-z_]", name):
+        name = f"T_{name}"
+    # Avoid names that look like cell references, such as A1 or W1048576.
+    if re.fullmatch(r"[A-Za-z]{1,3}[0-9]+", name):
+        name = f"T_{name}"
+    return name[:255]
+
+
 def _resize_sheet_tables(ws, last_row: int, last_column: int) -> None:
-    """Expand existing Excel tables while keeping the user's table style."""
-    end_row = max(2, last_row)
-    end_column = get_column_letter(last_column)
-    for table in ws.tables.values():
-        table.ref = f"A1:{end_column}{end_row}"
-    ws.auto_filter.ref = f"A1:{end_column}{end_row}"
+    """Rebuild the sheet table so its XML exactly matches the output range.
+
+    The approved template originally contained a Summary_Data table whose ref
+    covered A:W (23 columns) but whose tableColumns collection contained 24
+    entries, including a stale ``Column2``. Merely changing ``table.ref`` leaves
+    that mismatch in table1.xml, so Microsoft Excel repairs/removes the Table
+    and AutoFilter when the generated workbook opens.
+
+    Recreating the structured table lets openpyxl regenerate one tableColumn
+    for each real header. This preserves the user's table style and filters
+    while producing valid Excel XML.
+    """
+    end_row = max(2, int(last_row or 0))
+    end_column = get_column_letter(max(1, int(last_column or 0)))
+    table_ref = f"A1:{end_column}{end_row}"
+
+    existing_tables = list(ws.tables.values())
+    if existing_tables:
+        original = existing_tables[0]
+        original_name = getattr(original, "displayName", None) or getattr(original, "name", None)
+        table_name = _safe_table_name(original_name, f"{ws.title.replace(' ', '')}Table")
+        table_style = copy(getattr(original, "tableStyleInfo", None))
+
+        # Remove every stale table definition before rebuilding one clean table.
+        for key in list(ws.tables.keys()):
+            del ws.tables[key]
+
+        rebuilt = Table(displayName=table_name, ref=table_ref)
+        rebuilt.tableStyleInfo = table_style or TableStyleInfo(
+            name="TableStyleMedium7",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        ws.add_table(rebuilt)
+
+        # A structured table already owns its AutoFilter. Do not create a second
+        # worksheet-level filter over the same range.
+        ws.auto_filter.ref = None
+    else:
+        # Custom templates without a structured table still receive filters.
+        ws.auto_filter.ref = table_ref
+
     if not ws.freeze_panes:
         ws.freeze_panes = "A2"
 
