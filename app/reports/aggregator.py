@@ -1230,38 +1230,23 @@ def _wide_payloads_by_submission(submissions: list[Any]) -> dict[str, dict[str, 
     if not ids:
         return {}
 
-    # Preserve order while removing duplicates. Summary/export may include a
-    # summary-marker row alongside the same dealer's outlet rows.
-    ids = list(dict.fromkeys(ids))
     out: dict[str, dict[str, Any]] = {}
     try:
         with SessionLocal() as db:
-            # The old code executed one SELECT * query per submission. For a
-            # 1,300-outlet summary that meant ~1,300 database round trips. Load
-            # rows in chunks instead, reducing that to only a few queries.
-            statement = text(
-                "SELECT * FROM public.kobo_submissions_wide "
-                "WHERE submission_id IN :submission_ids"
-            ).bindparams(bindparam("submission_ids", expanding=True))
-
-            chunk_size = 400
-            for start in range(0, len(ids), chunk_size):
-                chunk = ids[start:start + chunk_size]
-                rows = db.execute(
-                    statement,
-                    {"submission_ids": chunk},
-                ).mappings().all()
-                for row in rows:
-                    payload = IndexedPayload(dict(row))
-                    sid = str(payload.get("submission_id", "") or "").strip()
-                    if sid:
-                        out[sid] = payload
+            for sid in ids:
+                row = db.execute(
+                    text("SELECT * FROM public.kobo_submissions_wide WHERE submission_id = :sid"),
+                    {"sid": sid},
+                ).mappings().first()
+                if row:
+                    out[sid] = dict(row)
     except Exception as exc:
         # Report generation must continue even if the wide fallback is not
         # available, for example during unit tests or before the wide table is
         # created.
         print(f"⚠️ Wide Kobo fallback unavailable: {exc}")
     return out
+
 
 
 def load_wide_payloads(submissions: list[Any]) -> dict[str, dict[str, Any]]:
@@ -1488,52 +1473,63 @@ def aggregate_submissions(
     wide_map = wide_map if wide_map is not None else _wide_payloads_by_submission(submissions)
 
     for product in OWN_PRODUCTS:
-        metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
+        if product == "EXPREZ Can 330ml":
+            # Old submissions stored this item as a competitor. Use those rows
+            # as a fallback until the submission is edited/re-synced under V46.
+            metrics = [
+                pm.get(product)
+                or pm.get(_product_lookup_key(product))
+                or cm.get(product)
+                or cm.get(_product_lookup_key(product))
+                for pm, cm in zip(product_maps, competitor_maps)
+            ]
+        else:
+            metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
 
         movement_values = [
             v for s, m in zip(submissions, metrics)
             if (v := _movement_from_wide_or_metric(s, m, product, is_competitor=False, wide_map=wide_map)) is not None
         ]
 
-        # Read only fields that are active in the current Kobo form. Most own
-        # products now collect Status + Movement only; recalculating hidden
-        # Stock/BBE/Price/Volume fields for every outlet wasted most export CPU.
-        bbe_values = [
-            _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
-            for s, m in zip(submissions, metrics)
-        ] if own_product_field_allowed(product, "bbe") else []
-        stock_values = [
-            _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
-            for s, m in zip(submissions, metrics)
-        ] if own_product_field_allowed(product, "stock") else []
-        buy_in_values = [
-            _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=False, wide_map=wide_map)
-            for s, m in zip(submissions, metrics)
-        ] if own_product_field_allowed(product, "buy_in") else []
-        sell_out_values = [
-            _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=False, wide_map=wide_map)
-            for s, m in zip(submissions, metrics)
-        ] if own_product_field_allowed(product, "sell_out") else []
-        ring_pull_values = [
-            _value_from_wide_or_metric(s, m, product, "ring_pull_value", is_competitor=False, wide_map=wide_map)
-            for s, m in zip(submissions, metrics)
-        ] if own_product_field_allowed(product, "ring_pull") else []
-        volume_values = [
-            to_float(_value_from_wide_or_metric(s, m, product, "volume_ctn", is_competitor=False, wide_map=wide_map)) or 0
-            for s, m in zip(submissions, metrics)
-        ] if own_product_field_allowed(product, "volume") else []
+        volume_values = (
+            [
+                to_float(_value_from_wide_or_metric(s, m, product, "volume_ctn", is_competitor=False, wide_map=wide_map)) or 0
+                for s, m in zip(submissions, metrics)
+            ]
+            if own_product_field_allowed(product, "volume")
+            else []
+        )
         volume_sum = sum(volume_values)
 
         pdata: dict[str, Any] = {
-            "bbe": mode(bbe_values),
+            "bbe": mode([
+                _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
+                for s, m in zip(submissions, metrics)
+            ]) if own_product_field_allowed(product, "bbe") else None,
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
-            "stock": stock_summary(stock_values),
-            "buy_in": mode_number(buy_in_values),
-            "sell_out": mode_number(sell_out_values),
-            "ring_pull": mode_number(ring_pull_values),
-            "new_purchase": 0,
-            "volume": report_number(volume_sum) if volume_sum else None,
+            "_movement_values": movement_values,
+            "stock": stock_summary([
+                _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
+                for s, m in zip(submissions, metrics)
+            ]) if own_product_field_allowed(product, "stock") else None,
+            "buy_in": mode_number([
+                _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=False, wide_map=wide_map)
+                for s, m in zip(submissions, metrics)
+            ]) if own_product_field_allowed(product, "buy_in") else None,
+            "sell_out": mode_number([
+                _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=False, wide_map=wide_map)
+                for s, m in zip(submissions, metrics)
+            ]) if own_product_field_allowed(product, "sell_out") else None,
+            "ring_pull": mode_number([
+                _value_from_wide_or_metric(s, m, product, "ring_pull_value", is_competitor=False, wide_map=wide_map)
+                for s, m in zip(submissions, metrics)
+            ]) if own_product_field_allowed(product, "ring_pull") else None,
+            "new_purchase": (
+                sum(1 for m in metrics if bool(_value(m, "new_outlet_purchase")))
+                if own_product_field_allowed(product, "new_purchase") else 0
+            ),
+            "volume": report_number(volume_sum) if volume_sum and own_product_field_allowed(product, "volume") else None,
         }
 
         counts = Counter()
@@ -1553,20 +1549,12 @@ def aggregate_submissions(
                 is_competitor=True,
             )
         ]
-        availability = Counter()
-        for submission, metric in zip(submissions, metrics):
-            if _competitor_available_from_wide_or_metric(
-                submission, metric, product, wide_map
-            ):
-                availability[submission.outlet_type or "Unknown"] += 1
-
         cdata: dict[str, Any] = {
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
             "_movement_values": movement_values,
-            "availability": availability,
-            # Current competitor questions collect only Sale Status + Movement.
-            # Keep detail columns blank instead of scanning hidden legacy fields.
+            # V46 competitors collect only Sale Status and Movement Score.
+            # Keep report detail columns blank even when old DB rows contain values.
             "stock": None,
             "buy_in": None,
             "sell_out": None,
@@ -1616,13 +1604,12 @@ def aggregate_submissions(
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
             result["competitors"][alias] = gb
 
-        if gb_values:
-            print(
-                "✅ AGG GB Original final:",
-                "values=", gb_values,
-                "avg=", gb.get("_mov_avg"),
-                "mov=", gb.get("mov"),
-            )
+        print(
+            "✅ AGG GB Original final:",
+            "values=", gb_values,
+            "avg=", gb.get("_mov_avg"),
+            "mov=", gb.get("mov"),
+        )
 
     # Apply the comparison-row normalization after every raw average and
     # rounded movement is ready. Each row gets exactly one movement 10.
@@ -1642,3 +1629,4 @@ def aggregate_submissions(
     while len(result["suggestions"]) < 4:
         result["suggestions"].append("")
     return result
+
