@@ -11,12 +11,7 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import sync_kobo
-from app.kobo.parser import normalize_dealer
-from app.reports.aggregator import (
-    aggregate_submissions,
-    is_final_summary_outlet_name,
-    normalize_summary_report_type,
-)
+from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
@@ -122,36 +117,14 @@ def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[
 
 
 def _is_channel_specialist_submission(s: KoboSubmission) -> bool:
-    return (getattr(s, "outlet_type", None) or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
-
-
-def _summary_row_matches_report_type(s: KoboSubmission, report_type: ReportType) -> bool:
-    return (
-        is_final_summary_outlet_name(getattr(s, "outlet_name", None))
-        and normalize_summary_report_type(getattr(s, "summary_report_type", None)) == report_type
-    )
+    return (s.outlet_type or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
 
 
 def _filter_by_report_type(submissions: list[KoboSubmission], report_type: ReportType) -> list[KoboSubmission]:
-    """Route outlet rows by channel and summary rows by form selector.
-
-    Blank Summary Template belongs to GENERAL. A summary row explicitly marked
-    CHANNEL SPECIALIST belongs only to the Channel Specialist report. Summary
-    rows are retained even though they do not have a normal outlet type.
-    """
-    filtered: list[KoboSubmission] = []
-    for submission in submissions:
-        if is_final_summary_outlet_name(getattr(submission, "outlet_name", None)):
-            if _summary_row_matches_report_type(submission, report_type):
-                filtered.append(submission)
-            continue
-
-        is_channel = _is_channel_specialist_submission(submission)
-        if report_type == "CHANNEL_SPECIALIST" and is_channel:
-            filtered.append(submission)
-        elif report_type == "GENERAL" and not is_channel:
-            filtered.append(submission)
-    return filtered
+    if report_type == "CHANNEL_SPECIALIST":
+        return [s for s in submissions if _is_channel_specialist_submission(s)]
+    # General report excludes Channel Specialist outlet types.
+    return [s for s in submissions if not _is_channel_specialist_submission(s)]
 
 
 def get_submissions(dealer: str | None, report_date: date, report_type: ReportType | None = None):
@@ -167,11 +140,7 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
             .where(KoboSubmission.report_date == report_date)
         )
         if dealer:
-            normalized_dealer = normalize_dealer(dealer)
-            dealer_codes = [normalized_dealer]
-            if normalized_dealer == "KDL1":
-                dealer_codes.append("KD1")
-            stmt = stmt.where(KoboSubmission.dealer.in_(dealer_codes))
+            stmt = stmt.where(KoboSubmission.dealer == dealer.upper())
 
         rows = list(db.scalars(stmt).all())
 
@@ -231,7 +200,7 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
             " Run /sync_kobo once and retry."
         )
 
-    agg = aggregate_submissions(submissions, report_type=report_type)
+    agg = aggregate_submissions(submissions)
     agg["report_type"] = report_type
     agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
 
@@ -248,7 +217,7 @@ def generate_today_all_dealers(report_date_str: str | None = None):
     grouped = {}
     for s in submissions:
         grouped.setdefault(s.dealer, []).append(s)
-    aggs = {dealer: aggregate_submissions(rows, report_type="GENERAL") for dealer, rows in grouped.items() if dealer}
+    aggs = {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items() if dealer}
     for agg in aggs.values():
         agg["report_type"] = "GENERAL"
         agg["channel"] = "GENERAL"
@@ -335,7 +304,7 @@ def generate_multi_dealer_reports(
         rows = grouped[dealer]
         if not rows:
             continue
-        agg = aggregate_submissions(rows, report_type=report_type)
+        agg = aggregate_submissions(rows)
         agg["report_type"] = report_type
         agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
         aggs[dealer] = agg

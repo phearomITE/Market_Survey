@@ -8,6 +8,7 @@ from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
     debug_kobo_cmd,
+    export_cmd,
     help_cmd,
     report_cmd,
     report_multi_cmd,
@@ -120,6 +121,7 @@ def main():
     app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
+    app.add_handler(CommandHandler("export", export_cmd))
 
     print("✅ KB Market Survey Bot running...")
     app.run_polling(close_loop=False)

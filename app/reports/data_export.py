@@ -49,6 +49,13 @@ SUMMARY_HEADERS = [
     "Sport Club",
     "Motor Shop",
     "Product",
+    "WS",
+    "DS",
+    "WM",
+    "TL",
+    "LE",
+    "CB",
+    "MS",
     "Movement",
 ]
 
@@ -97,6 +104,17 @@ OUTLET_TYPE_KEYS = {
     "motorshop": {"motorshop"},
 }
 
+# General movement must match the GENERAL Market Improvement Report exactly.
+# These outlet types are therefore excluded only from movement calculation;
+# they are still included in total outlet counts and product availability.
+CHANNEL_SPECIALIST_TYPE_KEYS = set().union(
+    OUTLET_TYPE_KEYS["localeat"],
+    OUTLET_TYPE_KEYS["coffeebakery"],
+    OUTLET_TYPE_KEYS["canteen"],
+    OUTLET_TYPE_KEYS["sportclub"],
+    OUTLET_TYPE_KEYS["motorshop"],
+)
+
 SUMMARY_REQUIRED_HEADER_KEYS = {
     "region",
     "dealer",
@@ -104,6 +122,13 @@ SUMMARY_REQUIRED_HEADER_KEYS = {
     "member",
     "totaloutlets",
     "product",
+    "ws",
+    "ds",
+    "wm",
+    "tl",
+    "le",
+    "cb",
+    "ms",
     "movement",
 }
 LOCATION_REQUIRED_HEADER_KEYS = {
@@ -290,8 +315,11 @@ def _write_summary_data(
 ) -> tuple[int, int]:
     """Write one row per Dealer + Product using the uploaded template columns.
 
-    The exporter never replaces row 1. It maps values by each existing header,
-    so the approved 16-column template remains exactly as the user designed it.
+    Dealer-level outlet totals use every real outlet submission. Product-level
+    WS/DS/WM/TL/LE/CB/MS counts show how many outlets of each type sell the
+    product. Movement is calculated from GENERAL outlet types only so it is
+    exactly the same final normalized value shown by /report and /summary.
+    The exporter never replaces or reorders the user's row-1 headers.
     """
     groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for submission in submissions:
@@ -305,8 +333,23 @@ def _write_summary_data(
 
     output_rows: list[list[Any]] = []
     for (region, dealer), rows in sorted(groups.items(), key=_group_sort_key):
+        # All-outlet aggregate supplies dealer totals and product-specific
+        # availability counts for both General and Channel Specialist outlets.
         aggregate = aggregate_submissions(rows, wide_map=wide_map)
         outlet_counts = aggregate.get("outlet_types") or {}
+
+        # Movement must match the GENERAL final report and /summary. Use only
+        # Wholesale, Drink Shop, Wet Market and Trolley rows for final movement.
+        general_rows = [
+            row for row in rows
+            if _normalize_outlet_type(getattr(row, "outlet_type", None))
+            not in CHANNEL_SPECIALIST_TYPE_KEYS
+        ]
+        movement_aggregate = (
+            aggregate_submissions(general_rows, wide_map=wide_map)
+            if general_rows
+            else {}
+        )
 
         combined_location = (
             _joined_locations(rows)
@@ -342,14 +385,17 @@ def _write_summary_data(
             product_values.update(
                 {
                     "product": PRODUCT_DISPLAY_ALIASES.get(product, product),
-                    "movement": _movement_for_product(aggregate, product),
-                    "mov": _movement_for_product(aggregate, product),
+                    "movement": _movement_for_product(movement_aggregate, product),
+                    "mov": _movement_for_product(movement_aggregate, product),
                     # Optional compatibility when an older/custom template has
                     # product-specific outlet columns.
                     "ws": _count_type(availability, OUTLET_TYPE_KEYS["wholesale"]),
                     "ds": _count_type(availability, OUTLET_TYPE_KEYS["drinkshop"]),
                     "wm": _count_type(availability, OUTLET_TYPE_KEYS["wetmarket"]),
                     "tl": _count_type(availability, OUTLET_TYPE_KEYS["trolley"]),
+                    "le": _count_type(availability, OUTLET_TYPE_KEYS["localeat"]),
+                    "cb": _count_type(availability, OUTLET_TYPE_KEYS["coffeebakery"]),
+                    "ms": _count_type(availability, OUTLET_TYPE_KEYS["motorshop"]),
                 }
             )
             output_rows.append(_summary_row_values(headers, product_values))
@@ -363,6 +409,7 @@ def _write_summary_data(
                 "totaloutlets", "wholesale", "drinkshop", "wetmarket", "trolley",
                 "localeat", "coffebakery", "coffeebakery", "canteen",
                 "sportclub", "motorshop", "movement", "mov", "ws", "ds", "wm", "tl",
+                "le", "cb", "ms",
             }:
                 cell.number_format = "0"
             elif header_key == "member":

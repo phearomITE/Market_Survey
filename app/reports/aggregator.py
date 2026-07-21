@@ -883,58 +883,10 @@ def _summary_points(value: Any, limit: int = 4) -> list[str]:
     return cleaned
 
 
-def normalize_summary_report_type(value: Any) -> str:
-    """Normalize the optional summary template selector.
-
-    Blank means GENERAL for backward compatibility. The Kobo form stores
-    ``channel_specialist`` when the user explicitly selects CHANNEL SPECIALIST.
-    """
-    if value in (None, ""):
-        return "GENERAL"
-    normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
-    if normalized in {"CHANNEL", "CHANNEL_SPECIALIST", "SPECIALIST", "CS"}:
-        return "CHANNEL_SPECIALIST"
-    return "GENERAL"
-
-
-def _summary_type_from_submission(
-    submission: Any,
-    wide_map: dict[str, dict[str, Any]] | None = None,
-) -> str:
-    """Read summary type from the DB column, with wide-table fallback."""
-    value = getattr(submission, "summary_report_type", None)
-    if value in (None, "") and wide_map:
-        sid = str(getattr(submission, "submission_id", "") or "")
-        payload = wide_map.get(sid, {})
-        value = first_value(
-            payload,
-            [
-                "final_summary_report_type",
-                "summary_report_type",
-                "summary_template_type",
-                "key_issues_suggestion_group/final_summary_report_type",
-            ],
-        )
-    return normalize_summary_report_type(value)
-
-
-def _latest_manual_summary(
-    submissions: list,
-    report_type: str = "GENERAL",
-    wide_map: dict[str, dict[str, Any]] | None = None,
-) -> tuple[list[str], list[str]]:
-    """Select the latest summary row for the requested report template.
-
-    Blank selector belongs only to GENERAL. A row explicitly marked CHANNEL
-    SPECIALIST belongs only to the Channel Specialist report.
-    """
-    target_type = normalize_summary_report_type(report_type)
-    candidates = [
-        s
-        for s in submissions
-        if _is_summary_submission(s)
-        and _summary_type_from_submission(s, wide_map) == target_type
-    ]
+def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
+    # Summary selection is controlled only by Outlet Name. The Key Issues and
+    # Suggestion fields contain the actual summary text and need no keyword.
+    candidates = [s for s in submissions if _is_summary_submission(s)]
     if not candidates:
         return [], []
     latest = max(
@@ -1382,7 +1334,6 @@ def aggregate_submissions(
     submissions: list,
     *,
     wide_map: dict[str, dict[str, Any]] | None = None,
-    report_type: str = "GENERAL",
 ) -> dict:
     all_submissions = list(submissions or [])
 
@@ -1398,12 +1349,6 @@ def aggregate_submissions(
         "dealer": getattr(first_submission, "dealer", "") if first_submission else "",
         "region": getattr(first_submission, "region", "") if first_submission else "",
         "report_date": getattr(first_submission, "report_date", None) if first_submission else None,
-        "report_type": normalize_summary_report_type(report_type),
-        "channel": (
-            "CHANNEL SPECIALIST"
-            if normalize_summary_report_type(report_type) == "CHANNEL_SPECIALIST"
-            else "GENERAL"
-        ),
         "total_outlets": len(data_submissions),
         "outlet_types": outlet_types,
         "group_no": to_int(mode([s.group_no for s in header_submissions])) or 2,
@@ -1571,11 +1516,7 @@ def aggregate_submissions(
         qtys = [to_int(_value(m, "qty_ctn")) or 0 for m in metrics]
         result["ring_pull"][product] = {"total_outlets": sum(1 for q in qtys if q > 0), "qty": sum(qtys)}
 
-    key_issues, suggestions = _latest_manual_summary(
-        all_submissions,
-        report_type=report_type,
-        wide_map=wide_map,
-    )
+    key_issues, suggestions = _latest_manual_summary(all_submissions)
     result["key_issues"] = key_issues[:4]
     result["suggestions"] = suggestions[:4]
     while len(result["key_issues"]) < 4:
