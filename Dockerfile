@@ -4,12 +4,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive \
-    HOME=/tmp
+    HOME=/tmp \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    KHMER_PDF_FONT="Noto Sans Khmer" \
+    LIBREOFFICE_UNO_PYTHON=/usr/bin/python3
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
+        python3-uno \
         fonts-noto-core \
         fonts-noto-extra \
         fontconfig \

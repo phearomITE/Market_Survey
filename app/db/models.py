@@ -37,6 +37,7 @@ class KoboSubmission(Base):
 
     outlet_name: Mapped[str | None] = mapped_column(String(255))
     outlet_type: Mapped[str | None] = mapped_column(String(80), index=True)
+    summary_report_type: Mapped[str | None] = mapped_column(String(40), index=True)
     is_new_outlet: Mapped[bool | None] = mapped_column(Boolean)
 
     submitter_name: Mapped[str | None] = mapped_column(String(255))

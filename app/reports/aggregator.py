@@ -8,7 +8,7 @@ import difflib
 import re
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from app.db.database import SessionLocal
 
@@ -200,6 +200,24 @@ STATUS_TO_MOVEMENT = {
 
 STATUS_AVAILABLE = {"sale", "fast_sale", "មានលក់", "លក់ដាច់"}
 STOCK_LABEL = {"full": "គ្រប់", "low": "ខ្វះ", "no_stock": "ដាច់ស្តុក"}
+
+# Current Kobo own-product field policy.  sync.py imports this helper when
+# deciding which legacy fields may still be read/stored.  Keep it in the
+# aggregator module so sync and report code stay version-compatible.
+DEFAULT_OWN_PRODUCT_FIELDS = frozenset({"status", "mov"})
+OWN_PRODUCT_FIELD_POLICY = {
+    "CB LITE ORD": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out"}),
+    "CBC 4.4 NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CB Original NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CB LITE NCP": frozenset({"status", "mov", "stock", "bbe", "buy_in", "sell_out", "ring_pull"}),
+    "CAMBODIA ED": frozenset({"status", "mov", "stock"}),
+    "EXPREZ Can 330ml": DEFAULT_OWN_PRODUCT_FIELDS,
+}
+
+
+def own_product_field_allowed(product: str, field: str) -> bool:
+    """Return whether an own-product field is active in the current Kobo form."""
+    return field in OWN_PRODUCT_FIELD_POLICY.get(product, DEFAULT_OWN_PRODUCT_FIELDS)
 
 
 def slug(text: str) -> str:
@@ -865,10 +883,58 @@ def _summary_points(value: Any, limit: int = 4) -> list[str]:
     return cleaned
 
 
-def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
-    # Summary selection is controlled only by Outlet Name. The Key Issues and
-    # Suggestion fields contain the actual summary text and need no keyword.
-    candidates = [s for s in submissions if _is_summary_submission(s)]
+def normalize_summary_report_type(value: Any) -> str:
+    """Normalize the optional summary template selector.
+
+    Blank means GENERAL for backward compatibility. The Kobo form stores
+    ``channel_specialist`` when the user explicitly selects CHANNEL SPECIALIST.
+    """
+    if value in (None, ""):
+        return "GENERAL"
+    normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
+    if normalized in {"CHANNEL", "CHANNEL_SPECIALIST", "SPECIALIST", "CS"}:
+        return "CHANNEL_SPECIALIST"
+    return "GENERAL"
+
+
+def _summary_type_from_submission(
+    submission: Any,
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    """Read summary type from the DB column, with wide-table fallback."""
+    value = getattr(submission, "summary_report_type", None)
+    if value in (None, "") and wide_map:
+        sid = str(getattr(submission, "submission_id", "") or "")
+        payload = wide_map.get(sid, {})
+        value = first_value(
+            payload,
+            [
+                "final_summary_report_type",
+                "summary_report_type",
+                "summary_template_type",
+                "key_issues_suggestion_group/final_summary_report_type",
+            ],
+        )
+    return normalize_summary_report_type(value)
+
+
+def _latest_manual_summary(
+    submissions: list,
+    report_type: str = "GENERAL",
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Select the latest summary row for the requested report template.
+
+    Blank selector belongs only to GENERAL. A row explicitly marked CHANNEL
+    SPECIALIST belongs only to the Channel Specialist report.
+    """
+    target_type = normalize_summary_report_type(report_type)
+    candidates = [
+        s
+        for s in submissions
+        if _is_summary_submission(s)
+        and _summary_type_from_submission(s, wide_map) == target_type
+    ]
     if not candidates:
         return [], []
     latest = max(
@@ -1149,36 +1215,64 @@ def _metric_or_payload_available(submission: Any, metric: Any, product: str) -> 
 
 
 
-def _wide_payloads_by_submission(submissions: list[Any]) -> dict[str, dict[str, Any]]:
-    """Read normalized/wide Kobo rows for report fallback.
+def load_wide_payloads(
+    submissions: list[Any] | tuple[Any, ...],
+    *,
+    chunk_size: int = 500,
+) -> dict[str, dict[str, Any]]:
+    """Load Kobo wide rows in batches for report aggregation.
 
-    The production schema removed the raw JSONB payload from kobo_submissions,
-    but kobo_submissions_wide still stores each Kobo question as a real SQL
-    column. Reading it here fixes cases where a metric row was created with an
-    old product label or stale value, for example GB Original showing only one
-    outlet value instead of all submitted outlet values.
+    The previous implementation executed one ``SELECT *`` query for every
+    submission. A date with about 1,300 outlets therefore caused about 1,300
+    database round trips for /summary and /export. Railway network latency made
+    those commands take many minutes.
+
+    This loader de-duplicates submission IDs and fetches them in a few expanding
+    ``IN`` queries. The returned map can be shared by every dealer aggregation
+    for the requested date, so the same wide rows are never queried again.
     """
-    ids = [str(getattr(s, "submission_id", "") or "").strip() for s in submissions]
-    ids = [sid for sid in ids if sid]
+    ids: list[str] = []
+    seen: set[str] = set()
+    for submission in submissions or ():
+        sid = str(getattr(submission, "submission_id", "") or "").strip()
+        if sid and sid not in seen:
+            seen.add(sid)
+            ids.append(sid)
+
     if not ids:
         return {}
+
+    chunk_size = max(1, int(chunk_size or 500))
+    statement = text(
+        "SELECT * FROM public.kobo_submissions_wide "
+        "WHERE submission_id IN :submission_ids"
+    ).bindparams(bindparam("submission_ids", expanding=True))
 
     out: dict[str, dict[str, Any]] = {}
     try:
         with SessionLocal() as db:
-            for sid in ids:
-                row = db.execute(
-                    text("SELECT * FROM public.kobo_submissions_wide WHERE submission_id = :sid"),
-                    {"sid": sid},
-                ).mappings().first()
-                if row:
-                    out[sid] = dict(row)
+            for start in range(0, len(ids), chunk_size):
+                chunk = ids[start:start + chunk_size]
+                rows = db.execute(
+                    statement,
+                    {"submission_ids": chunk},
+                ).mappings().all()
+                for row in rows:
+                    payload = dict(row)
+                    sid = str(payload.get("submission_id") or "").strip()
+                    if sid:
+                        out[sid] = payload
     except Exception as exc:
         # Report generation must continue even if the wide fallback is not
         # available, for example during unit tests or before the wide table is
         # created.
         print(f"⚠️ Wide Kobo fallback unavailable: {exc}")
     return out
+
+
+def _wide_payloads_by_submission(submissions: list[Any]) -> dict[str, dict[str, Any]]:
+    """Backward-compatible wrapper for existing callers."""
+    return load_wide_payloads(submissions)
 
 
 def _wide_payload_for_submission(submission: Any, wide_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -1252,7 +1346,44 @@ def _available_from_wide_or_metric(
 
     return _metric_or_payload_available(submission, metric, product)
 
-def aggregate_submissions(submissions: list) -> dict:
+
+def _competitor_available_from_wide_or_metric(
+    submission: Any,
+    metric: Any,
+    product: str,
+    wide_map: dict[str, dict[str, Any]],
+) -> bool:
+    """Return whether a competitor product is sold in one outlet.
+
+    Competitor questions now collect Sale Status and Movement only. Status is
+    the primary source. Movement greater than zero is a compatibility fallback
+    for older submissions where status was not stored correctly.
+    """
+    wide_payload = _wide_payload_for_submission(submission, wide_map)
+    if wide_payload:
+        status = first_value(wide_payload, competitor_field(product, "status"))
+        if status not in (None, ""):
+            normalized = str(status).strip()
+            return normalized.lower() in STATUS_AVAILABLE or normalized in STATUS_AVAILABLE
+
+        movement = _movement_from_payload(wide_payload, product, is_competitor=True)
+        if movement is not None:
+            return (to_int(movement) or 0) > 0
+
+    status = _value(metric, "status")
+    if status not in (None, ""):
+        normalized = str(status).strip()
+        return normalized.lower() in STATUS_AVAILABLE or normalized in STATUS_AVAILABLE
+
+    movement = _value(metric, "movement_score")
+    return movement not in (None, "") and (to_int(movement) or 0) > 0
+
+def aggregate_submissions(
+    submissions: list,
+    *,
+    wide_map: dict[str, dict[str, Any]] | None = None,
+    report_type: str = "GENERAL",
+) -> dict:
     all_submissions = list(submissions or [])
 
     # A row whose Outlet Name is a summary marker is a control/summary row,
@@ -1267,6 +1398,12 @@ def aggregate_submissions(submissions: list) -> dict:
         "dealer": getattr(first_submission, "dealer", "") if first_submission else "",
         "region": getattr(first_submission, "region", "") if first_submission else "",
         "report_date": getattr(first_submission, "report_date", None) if first_submission else None,
+        "report_type": normalize_summary_report_type(report_type),
+        "channel": (
+            "CHANNEL SPECIALIST"
+            if normalize_summary_report_type(report_type) == "CHANNEL_SPECIALIST"
+            else "GENERAL"
+        ),
         "total_outlets": len(data_submissions),
         "outlet_types": outlet_types,
         "group_no": to_int(mode([s.group_no for s in header_submissions])) or 2,
@@ -1286,7 +1423,8 @@ def aggregate_submissions(submissions: list) -> dict:
     product_maps = [_metric_by_product(list(getattr(s, "product_metrics", []) or [])) for s in submissions]
     competitor_maps = [_metric_by_product(list(getattr(s, "competitor_metrics", []) or [])) for s in submissions]
     ring_maps = [_metric_by_product(list(getattr(s, "ring_pull_metrics", []) or [])) for s in submissions]
-    wide_map = _wide_payloads_by_submission(submissions)
+    if wide_map is None:
+        wide_map = load_wide_payloads(submissions)
 
     for product in OWN_PRODUCTS:
         metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
@@ -1346,10 +1484,18 @@ def aggregate_submissions(submissions: list) -> dict:
                 is_competitor=True,
             )
         ]
+        availability = Counter()
+        for submission, metric in zip(submissions, metrics):
+            if _competitor_available_from_wide_or_metric(
+                submission, metric, product, wide_map
+            ):
+                availability[submission.outlet_type or "Unknown"] += 1
+
         cdata: dict[str, Any] = {
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
             "_movement_values": movement_values,
+            "availability": availability,
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1425,7 +1571,11 @@ def aggregate_submissions(submissions: list) -> dict:
         qtys = [to_int(_value(m, "qty_ctn")) or 0 for m in metrics]
         result["ring_pull"][product] = {"total_outlets": sum(1 for q in qtys if q > 0), "qty": sum(qtys)}
 
-    key_issues, suggestions = _latest_manual_summary(all_submissions)
+    key_issues, suggestions = _latest_manual_summary(
+        all_submissions,
+        report_type=report_type,
+        wide_map=wide_map,
+    )
     result["key_issues"] = key_issues[:4]
     result["suggestions"] = suggestions[:4]
     while len(result["key_issues"]) < 4:

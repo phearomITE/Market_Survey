@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 from copy import copy
+import unicodedata
 
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
@@ -14,6 +15,34 @@ from openpyxl.worksheet.worksheet import Worksheet
 from app.core.config import settings
 from app.data.dealers import ALL_DEALERS
 from app.reports.aggregator import OWN_PRODUCTS, COMPETITOR_PRODUCTS, RING_PRODUCTS
+
+
+def _contains_khmer(value: object) -> bool:
+    return isinstance(value, str) and any("\u1780" <= ch <= "\u17ff" for ch in value)
+
+
+def _prepare_khmer_cells_for_libreoffice(workbook) -> None:
+    """Normalize Khmer strings and assign a Khmer-capable font before export.
+
+    Microsoft Excel can display Khmer correctly even when the XLSX cell keeps a
+    Latin font. LibreOffice on Linux may then choose a bad complex-script
+    fallback and detach combining marks in the PDF/PNG. Applying Noto Sans
+    Khmer only to cells that contain Khmer preserves the English template style
+    while making words such as ``គ្រប់`` render correctly.
+    """
+    for worksheet in workbook.worksheets:
+        for row in worksheet.iter_rows():
+            for cell in row:
+                value = cell.value
+                if not _contains_khmer(value):
+                    continue
+                normalized = unicodedata.normalize("NFC", value).replace("\u200b", "")
+                if normalized != value:
+                    cell.value = normalized
+                font = copy(cell.font)
+                font.name = "Noto Sans Khmer"
+                cell.font = font
+
 
 # Exact cell layout from template_by_dealer.xlsx.
 # General Trade report uses 4 outlet-type columns.
@@ -78,6 +107,8 @@ PRODUCT_NAME_MAP = {
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
     "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
+    "EXPREZ Can 330ml": "EXPREZ Can 330ml",
+    "EXPREZ Can 330mL": "EXPREZ Can 330ml",
     "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 300mL": "CAMBODIA Sport 300mL",
@@ -250,7 +281,12 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
     """
     canonical = _product_key(template_name)
     competitors = agg.get("competitors") or {}
-    if not competitors:
+    products = agg.get("products") or {}
+
+    # Comparison columns may contain cross-over own products. V46 adds
+    # EXPREZ Can 330ml to that group, so search both result buckets.
+    buckets = [competitors, products]
+    if not competitors and not products:
         return None
 
     target = _norm_lookup_key(canonical)
@@ -284,27 +320,30 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
 
     candidates: list[dict] = []
 
-    # 1) Direct alias matches.
-    for key in candidate_names:
-        val = competitors.get(key)
-        if isinstance(val, dict):
-            candidates.append(val)
+    # 1) Direct alias matches across competitor and cross-over own products.
+    for bucket in buckets:
+        for key in candidate_names:
+            val = bucket.get(key)
+            if isinstance(val, dict):
+                candidates.append(val)
 
     # 2) Normalized full-name matches.
-    for key, val in competitors.items():
-        if not isinstance(val, dict):
-            continue
-        if _norm_lookup_key(key) == target:
-            candidates.append(val)
+    for bucket in buckets:
+        for key, val in bucket.items():
+            if not isinstance(val, dict):
+                continue
+            if _norm_lookup_key(key) == target:
+                candidates.append(val)
 
     # 3) Fuzzy contains match for renamed/legacy GB Original keys.
     if target in {"gboriginal", "gboriginalncp"}:
-        for key, val in competitors.items():
-            if not isinstance(val, dict):
-                continue
-            nk = _norm_lookup_key(key)
-            if "gb" in nk and "original" in nk:
-                candidates.append(val)
+        for bucket in buckets:
+            for key, val in bucket.items():
+                if not isinstance(val, dict):
+                    continue
+                nk = _norm_lookup_key(key)
+                if "gb" in nk and "original" in nk:
+                    candidates.append(val)
 
     if not candidates:
         return None
@@ -877,6 +916,7 @@ def create_report_workbook(aggs: list[dict], output_path: Path) -> Path:
 
     if not aggs:
         template.title = "No Data"
+        _prepare_khmer_cells_for_libreoffice(wb)
         wb.save(output_path)
         return output_path
 
@@ -898,6 +938,7 @@ def create_report_workbook(aggs: list[dict], output_path: Path) -> Path:
             wb.remove(ws)
 
     wb.active = 0
+    _prepare_khmer_cells_for_libreoffice(wb)
     wb.save(output_path)
     return output_path
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from time import perf_counter
 from typing import Literal
 
 from sqlalchemy import select
@@ -10,11 +11,17 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import sync_kobo
-from app.reports.aggregator import aggregate_submissions
+from app.kobo.parser import normalize_dealer
+from app.reports.aggregator import (
+    aggregate_submissions,
+    is_final_summary_outlet_name,
+    normalize_summary_report_type,
+)
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
+from app.reports.data_export import create_data_export
 
 ReportType = Literal["GENERAL", "CHANNEL_SPECIALIST"]
 
@@ -115,14 +122,36 @@ def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[
 
 
 def _is_channel_specialist_submission(s: KoboSubmission) -> bool:
-    return (s.outlet_type or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
+    return (getattr(s, "outlet_type", None) or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
+
+
+def _summary_row_matches_report_type(s: KoboSubmission, report_type: ReportType) -> bool:
+    return (
+        is_final_summary_outlet_name(getattr(s, "outlet_name", None))
+        and normalize_summary_report_type(getattr(s, "summary_report_type", None)) == report_type
+    )
 
 
 def _filter_by_report_type(submissions: list[KoboSubmission], report_type: ReportType) -> list[KoboSubmission]:
-    if report_type == "CHANNEL_SPECIALIST":
-        return [s for s in submissions if _is_channel_specialist_submission(s)]
-    # General report excludes Channel Specialist outlet types.
-    return [s for s in submissions if not _is_channel_specialist_submission(s)]
+    """Route outlet rows by channel and summary rows by form selector.
+
+    Blank Summary Template belongs to GENERAL. A summary row explicitly marked
+    CHANNEL SPECIALIST belongs only to the Channel Specialist report. Summary
+    rows are retained even though they do not have a normal outlet type.
+    """
+    filtered: list[KoboSubmission] = []
+    for submission in submissions:
+        if is_final_summary_outlet_name(getattr(submission, "outlet_name", None)):
+            if _summary_row_matches_report_type(submission, report_type):
+                filtered.append(submission)
+            continue
+
+        is_channel = _is_channel_specialist_submission(submission)
+        if report_type == "CHANNEL_SPECIALIST" and is_channel:
+            filtered.append(submission)
+        elif report_type == "GENERAL" and not is_channel:
+            filtered.append(submission)
+    return filtered
 
 
 def get_submissions(dealer: str | None, report_date: date, report_type: ReportType | None = None):
@@ -138,7 +167,11 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
             .where(KoboSubmission.report_date == report_date)
         )
         if dealer:
-            stmt = stmt.where(KoboSubmission.dealer == dealer.upper())
+            normalized_dealer = normalize_dealer(dealer)
+            dealer_codes = [normalized_dealer]
+            if normalized_dealer == "KDL1":
+                dealer_codes.append("KD1")
+            stmt = stmt.where(KoboSubmission.dealer.in_(dealer_codes))
 
         rows = list(db.scalars(stmt).all())
 
@@ -198,7 +231,7 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
             " Run /sync_kobo once and retry."
         )
 
-    agg = aggregate_submissions(submissions)
+    agg = aggregate_submissions(submissions, report_type=report_type)
     agg["report_type"] = report_type
     agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
 
@@ -215,7 +248,7 @@ def generate_today_all_dealers(report_date_str: str | None = None):
     grouped = {}
     for s in submissions:
         grouped.setdefault(s.dealer, []).append(s)
-    aggs = {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items() if dealer}
+    aggs = {dealer: aggregate_submissions(rows, report_type="GENERAL") for dealer, rows in grouped.items() if dealer}
     for agg in aggs.values():
         agg["report_type"] = "GENERAL"
         agg["channel"] = "GENERAL"
@@ -302,7 +335,7 @@ def generate_multi_dealer_reports(
         rows = grouped[dealer]
         if not rows:
             continue
-        agg = aggregate_submissions(rows)
+        agg = aggregate_submissions(rows, report_type=report_type)
         agg["report_type"] = report_type
         agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
         aggs[dealer] = agg
@@ -331,17 +364,81 @@ def generate_multi_dealer_reports(
 
 
 def generate_region_dealer_summary(report_date_str: str | None = None):
+    started = perf_counter()
     d = parse_report_date(report_date_str)
+
+    db_started = perf_counter()
     submissions = get_submissions(None, d)
     if settings.auto_sync_before_report or not submissions:
         submissions = _sync_and_retry_if_empty(None, d, submissions)
+    db_seconds = perf_counter() - db_started
+
+    aggregate_started = perf_counter()
     rows = build_summary_rows(submissions)
+    aggregate_seconds = perf_counter() - aggregate_started
+
+    excel_started = perf_counter()
     path = create_summary_report(rows, d)
+    excel_seconds = perf_counter() - excel_started
+    total_seconds = perf_counter() - started
+
+    print(
+        f"⏱️ Summary {d}: DB/sync={db_seconds:.1f}s | "
+        f"aggregate={aggregate_seconds:.1f}s | Excel={excel_seconds:.1f}s | "
+        f"total={total_seconds:.1f}s"
+    )
+
     submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
     total_submissions = sum(r.get("total_submissions", 0) for r in rows)
     total_outlets = sum(r.get("total_outlets", 0) for r in rows)
     return (
         path,
         f"Generated summary for {d}: {submitted_dealers}/65 dealers submitted, "
-        f"{total_submissions} submissions, {total_outlets} outlets"
+        f"{total_submissions} submissions, {total_outlets} outlets "
+        f"in {total_seconds:.1f}s"
     )
+
+def generate_data_export(report_date_str: str | None = None):
+    """Generate the BI export without repeating a full Kobo sync unnecessarily.
+
+    Auto-sync already runs every 60 seconds in production. When the requested
+    date exists in PostgreSQL and AUTO_SYNC_BEFORE_REPORT is false, use those
+    rows immediately. Run a targeted full-date sync only when explicitly
+    configured or when the database has no rows for that date.
+    """
+    started = perf_counter()
+    d = parse_report_date(report_date_str)
+    sync_warning = ""
+
+    db_started = perf_counter()
+    submissions = get_submissions(None, d, report_type=None)
+    if settings.auto_sync_before_report or not submissions:
+        try:
+            submissions = _sync_and_retry_if_empty(None, d, submissions)
+        except Exception as exc:
+            sync_warning = f" Sync warning: {exc}"
+    db_seconds = perf_counter() - db_started
+
+    if not submissions:
+        return None, f"No submissions found for {d}.{sync_warning}"
+
+    export_started = perf_counter()
+    path, stats = create_data_export(submissions, d)
+    export_seconds = perf_counter() - export_started
+    total_seconds = perf_counter() - started
+
+    print(
+        f"⏱️ Export {d}: DB/sync={db_seconds:.1f}s | "
+        f"aggregate+Excel={export_seconds:.1f}s | total={total_seconds:.1f}s"
+    )
+
+    text = (
+        f"Generated data export for {d}: "
+        f"{stats['location_rows']} outlet locations, "
+        f"{stats['dealer_groups']} dealer groups, "
+        f"{stats['summary_rows']} product rows "
+        f"in {total_seconds:.1f}s."
+        f"{sync_warning}"
+    )
+    return path, text
+

@@ -88,6 +88,13 @@ ALIASES = {
         "5. Key Issues and Initiative Idea / Suggestion / Initiative Idea / Suggestion",
         "5. Key Issues and Initiative Idea / Suggestion/Initiative Idea / Suggestion",
     ],
+    "summary_report_type": [
+        "final_summary_report_type", "summary_report_type", "summary_template_type",
+        "Summary Template", "Summary Template / ប្រភេទរបាយការណ៍",
+        "key_issues_suggestion_group/final_summary_report_type",
+        "4. FINAL KEY ISSUES & INITIATIVE IDEA / SUGGESTION / Summary Template",
+        "4. FINAL KEY ISSUES & INITIATIVE IDEA / SUGGESTION/Summary Template",
+    ],
     "report_date": [
         "report_date", "survey_date", "date", "today", "report_info/report_date", "outlet_info/report_date",
         "1. Report / Outlet Visit Information / Report Date",
@@ -196,10 +203,37 @@ def normalize_region(value: Any) -> str | None:
     return REGION_LABELS.get(s.lower(), s.upper() if s.lower().startswith("r") else s)
 
 
+DEALER_ALIASES = {
+    # The historical Kobo choice name was accidentally saved as "kd1" while
+    # its visible label was KDL1. Kobo exports the choice name, so normalize
+    # both old and corrected submissions to the official dealer code.
+    "KD1": "KDL1",
+}
+
+
 def normalize_dealer(value: Any) -> str:
     if not value:
         return ""
-    return str(value).strip().upper()
+    dealer = str(value).strip().upper()
+    return DEALER_ALIASES.get(dealer, dealer)
+
+
+def normalize_summary_report_type(value: Any) -> str | None:
+    """Normalize the optional final-summary template selector.
+
+    Blank means GENERAL for backward compatibility. Normal outlet rows also
+    remain blank because the selector is shown only for summary-marker rows.
+    """
+    if value in (None, ""):
+        return None
+    raw = str(value).strip()
+    normalized = raw.lower().replace("_", " ").replace("-", " ")
+    normalized = " ".join(normalized.split())
+    if normalized in {"channel specialist", "specialist", "cs"}:
+        return "CHANNEL_SPECIALIST"
+    if normalized in {"general", "general trade", "gt"}:
+        return "GENERAL"
+    return raw.upper().replace(" ", "_")
 
 
 def normalize_outlet_type(value: Any) -> str | None:
@@ -290,5 +324,8 @@ def normalize_submission(row: dict) -> dict:
         "gps_longitude": to_float(get_any(row, ALIASES["gps_longitude"])),
         "key_issue_text": get_any(row, ALIASES["key_issue_text"]),
         "suggestion_text": get_any(row, ALIASES["suggestion_text"]),
+        "summary_report_type": normalize_summary_report_type(
+            get_any(row, ALIASES["summary_report_type"])
+        ),
         "_flat": flat,  # transient only; sync.py converts it to SQL metric rows, not DB JSON.
     }
