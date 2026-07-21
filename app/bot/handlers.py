@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.db.database import init_db
 from app.kobo.sync import sync_kobo
 from app.services.report_service import (
-    generate_data_export,
     generate_dealer_report,
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
@@ -32,14 +31,12 @@ Commands:
 /report_today
 /report_today 2026-06-06
 /summary 2026-07-05
-/export 2026-07-18
 /help
 
 /report = generate one dealer report and send large PNG file preview first, then Excel only.
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/export = export Summary_Data + Location_Outlet using the approved Excel template.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -261,30 +258,4 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
-
-async def export_data_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
-        await update.effective_message.reply_text("Usage: /export 2026-07-18")
-        return
-
-    rdate = context.args[0].strip()
-    wait = await update.effective_message.reply_text(
-        f"📤 Exporting Summary_Data and Location_Outlet for {rdate}..."
-    )
-    try:
-        path, text = await asyncio.to_thread(generate_data_export, rdate)
-        if not path:
-            await wait.edit_text(f"⚠️ {text}")
-            return
-
-        await wait.edit_text(f"✅ {text}\n📎 Uploading data export...")
-        with path.open("rb") as file_obj:
-            await update.effective_message.reply_document(
-                document=InputFile(file_obj, filename=path.name),
-                caption=f"📤 Market survey data export ({rdate})",
-            )
-    except ValueError as exc:
-        await wait.edit_text(f"❌ Invalid export date: {exc}")
-    except Exception as exc:
-        await wait.edit_text(f"❌ Export failed: {exc}")
 

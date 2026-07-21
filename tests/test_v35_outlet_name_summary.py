@@ -26,9 +26,8 @@ from app.reports.excel_report import (
 
 
 def test_exact_report_rows():
-    assert len(OWN_PRODUCTS) == 19
+    assert len(OWN_PRODUCTS) == 18
     assert OWN_PRODUCTS[0] == "CB LITE ORD"
-    assert "EXPREZ Can 330ml" in OWN_PRODUCTS
     assert OWN_PRODUCTS[-1] == "CAMBODIA WATER 1500mL"
     assert "King Kong Ice" in COMPETITOR_PRODUCTS
     assert "Poweram" not in COMPETITOR_PRODUCTS
@@ -44,14 +43,13 @@ def test_new_kobo_field_names():
     assert "fresh_movement_score_cb_original_ncp" in competitor_field("CB Original NCP", "mov")
 
 
-def _submission(idx, outlet_name, issue="", suggestion="", hour=8, summary_report_type=None):
+def _submission(idx, outlet_name, issue="", suggestion="", hour=8):
     return SimpleNamespace(
         id=idx, submission_id="", submission_time=datetime(2026, 7, 14, hour, 0),
         dealer="CA1", region="R1", report_date=datetime(2026, 7, 14).date(),
         group_no=2, member_no=4, location_text="Phnom Penh", outlet_name=outlet_name,
         outlet_type="Wholesale", total_outlet_visit_target=19,
         key_issue_text=issue, suggestion_text=suggestion,
-        summary_report_type=summary_report_type,
         product_metrics=[], competitor_metrics=[], ring_pull_metrics=[],
     )
 
@@ -100,32 +98,3 @@ def test_normal_outlet_comments_are_not_used_for_final_report_summary():
     assert result["suggestions"][:2] == ["Final action one", "Final action two"]
     assert "Normal outlet issue" not in result["key_issues"]
     assert "Normal outlet action" not in result["suggestions"]
-
-
-def test_general_and_channel_specialist_summaries_are_independent():
-    submissions = [
-        _submission(
-            1,
-            "បូកសរុបរួម",
-            "General issue",
-            "General action",
-            16,
-            summary_report_type=None,
-        ),
-        _submission(
-            2,
-            "បូកសរុបរួម",
-            "Channel issue",
-            "Channel action",
-            17,
-            summary_report_type="CHANNEL_SPECIALIST",
-        ),
-    ]
-
-    general_issues, general_actions = _latest_manual_summary(submissions, "GENERAL")
-    channel_issues, channel_actions = _latest_manual_summary(submissions, "CHANNEL_SPECIALIST")
-
-    assert general_issues == ["General issue"]
-    assert general_actions == ["General action"]
-    assert channel_issues == ["Channel issue"]
-    assert channel_actions == ["Channel action"]
