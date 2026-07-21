@@ -15,7 +15,6 @@ from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import (
     aggregate_submissions,
     is_final_summary_outlet_name,
-    load_wide_payloads,
 )
 from app.reports.excel_report import final_report_movement_value
 
@@ -179,10 +178,10 @@ def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
         if dealer:
             grouped[dealer].append(submission)
 
-    # Load all wide Kobo rows once for the entire date. This removes the old
-    # one-query-per-outlet bottleneck while allowing the movement columns to use
-    # the exact same aggregate_submissions() path as the final dealer report.
-    wide_map = load_wide_payloads(all_submissions)
+    # Correctness-first mode: do not use the optimized shared-wide-data path.
+    # Every dealer is aggregated exactly like an individual /report command.
+    # This is intentionally slower, but it keeps summary movement identical to
+    # the known-good uploaded project calculation.
 
     rows: list[dict[str, Any]] = []
     for region, dealers in REGION_DEALERS.items():
@@ -226,15 +225,10 @@ def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
             movement_summary = movement_comparison_from_aggregate(None)
             if movement_rows:
                 try:
-                    # Use the exact same aggregation path as /report so the
-                    # summary can never differ from the final dealer report.
-                    # The wide rows are still bulk-loaded once above, which
-                    # keeps this much faster than the old one-query-per-outlet
-                    # implementation.
-                    final_aggregate = aggregate_submissions(
-                        movement_rows,
-                        wide_map=wide_map,
-                    )
+                    # Use the original full aggregation path with no shared
+                    # fast cache. This is the same correctness-first path used
+                    # by the uploaded slow project and by an individual report.
+                    final_aggregate = aggregate_submissions(movement_rows)
                     movement_summary = movement_comparison_from_aggregate(final_aggregate)
                 except Exception as exc:
                     # One dealer should never prevent the full 65-dealer summary
