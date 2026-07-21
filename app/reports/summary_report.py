@@ -13,7 +13,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import (
-    aggregate_movement_comparison,
+    aggregate_submissions,
     is_final_summary_outlet_name,
     load_wide_payloads,
 )
@@ -167,11 +167,10 @@ def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
         if dealer:
             grouped[dealer].append(submission)
 
-    # Load all wide Kobo rows once for the entire date. The previous code
-    # reopened the database for every dealer and then ran the full 57-product
-    # aggregation even though /summary needs only five movement products.
+    # Load all wide Kobo rows once for the entire date. This removes the old
+    # one-query-per-outlet bottleneck while allowing the movement columns to use
+    # the exact same aggregate_submissions() path as the final dealer report.
     wide_map = load_wide_payloads(all_submissions)
-    comparison_products = (CB_LITE_NCP, *CB_LITE_NCP_COMPETITORS)
 
     rows: list[dict[str, Any]] = []
     for region, dealers in REGION_DEALERS.items():
@@ -215,9 +214,13 @@ def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
             movement_summary = movement_comparison_from_aggregate(None)
             if movement_rows:
                 try:
-                    final_aggregate = aggregate_movement_comparison(
+                    # Use the exact same aggregation path as /report so the
+                    # summary can never differ from the final dealer report.
+                    # The wide rows are still bulk-loaded once above, which
+                    # keeps this much faster than the old one-query-per-outlet
+                    # implementation.
+                    final_aggregate = aggregate_submissions(
                         movement_rows,
-                        comparison_products,
                         wide_map=wide_map,
                     )
                     movement_summary = movement_comparison_from_aggregate(final_aggregate)
