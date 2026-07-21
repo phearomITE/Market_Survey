@@ -12,7 +12,11 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
-from app.reports.aggregator import aggregate_submissions, is_final_summary_outlet_name
+from app.reports.aggregator import (
+    aggregate_movement_comparison,
+    is_final_summary_outlet_name,
+    load_wide_payloads,
+)
 
 
 HEADER_FILL = "1F4E78"
@@ -156,11 +160,18 @@ def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
     (Wholesale / Drink Shop / Wet Market / Trolley), using the same
     aggregate_submissions() calculation as the Market Improvement Report.
     """
+    all_submissions = list(submissions or [])
     grouped: dict[str, list[Any]] = defaultdict(list)
-    for submission in submissions:
+    for submission in all_submissions:
         dealer = _clean(getattr(submission, "dealer", "")).upper()
         if dealer:
             grouped[dealer].append(submission)
+
+    # Load all wide Kobo rows once for the entire date. The previous code
+    # reopened the database for every dealer and then ran the full 57-product
+    # aggregation even though /summary needs only five movement products.
+    wide_map = load_wide_payloads(all_submissions)
+    comparison_products = (CB_LITE_NCP, *CB_LITE_NCP_COMPETITORS)
 
     rows: list[dict[str, Any]] = []
     for region, dealers in REGION_DEALERS.items():
@@ -204,7 +215,11 @@ def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
             movement_summary = movement_comparison_from_aggregate(None)
             if movement_rows:
                 try:
-                    final_aggregate = aggregate_submissions(movement_rows)
+                    final_aggregate = aggregate_movement_comparison(
+                        movement_rows,
+                        comparison_products,
+                        wide_map=wide_map,
+                    )
                     movement_summary = movement_comparison_from_aggregate(final_aggregate)
                 except Exception as exc:
                     # One dealer should never prevent the full 65-dealer summary

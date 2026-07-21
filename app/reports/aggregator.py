@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 import difflib
+from functools import lru_cache
 import re
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from app.db.database import SessionLocal
 
@@ -224,10 +225,12 @@ def slug(text: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in str(text)).strip("_").replace("__", "_")
 
 
+@lru_cache(maxsize=16384)
 def _normalize_key(key: str) -> str:
     return str(key).strip().lower().split("/")[-1]
 
 
+@lru_cache(maxsize=16384)
 def _loose_key(key: str) -> str:
     """Loose key for matching Kobo field labels.
 
@@ -238,6 +241,7 @@ def _loose_key(key: str) -> str:
     return "".join(ch for ch in s if ch.isalnum())
 
 
+@lru_cache(maxsize=32768)
 def _key_norm(value: Any) -> str:
     """Normalize Kobo/wide-table field names for tolerant matching.
 
@@ -253,7 +257,34 @@ def _key_norm(value: Any) -> str:
     return "".join(ch for ch in text_value if ch.isalnum())
 
 
-def first_value(payload: dict, keys: list[str]):
+class IndexedPayload(dict):
+    """Dictionary with precomputed lookup indexes for Kobo wide rows.
+
+    The old implementation rebuilt lowercase/normalized maps on every single
+    product-field read. A dealer export can perform hundreds of thousands of
+    reads, so rebuilding those maps repeatedly was the main CPU bottleneck.
+    """
+
+    __slots__ = ("_lower_map", "_norm_map", "_leaf_map")
+
+    def __init__(self, data: dict[str, Any] | None = None):
+        super().__init__(data or {})
+        self._lower_map = {str(key).strip().lower(): key for key in self.keys()}
+        self._norm_map = {_key_norm(key): key for key in self.keys()}
+        self._leaf_map = {_normalize_key(key): key for key in self.keys()}
+
+
+def _payload_lookup_maps(payload: dict) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    if isinstance(payload, IndexedPayload):
+        return payload._lower_map, payload._norm_map, payload._leaf_map
+    return (
+        {str(key).strip().lower(): key for key in payload.keys()},
+        {_key_norm(key): key for key in payload.keys()},
+        {_normalize_key(key): key for key in payload.keys()},
+    )
+
+
+def first_value(payload: dict, keys: list[str] | tuple[str, ...]):
     """Return the first non-empty payload value for many possible field names.
 
     Kobo can return fields as XLSForm names, full group paths, human labels, or
@@ -269,7 +300,7 @@ def first_value(payload: dict, keys: list[str]):
             return payload[key]
 
     # 2) Case-insensitive exact match.
-    lower_map = {str(k).strip().lower(): k for k in payload.keys()}
+    lower_map, norm_map, leaf_map = _payload_lookup_maps(payload)
     for key in keys:
         real_key = lower_map.get(str(key).strip().lower())
         if real_key is not None and payload.get(real_key) not in (None, ""):
@@ -277,14 +308,12 @@ def first_value(payload: dict, keys: list[str]):
 
     # 3) Normalized match. This fixes fields like
     #    gb_original_movement_score_0_10 vs GB Original - Movement Score 0-10.
-    norm_map = {_key_norm(k): k for k in payload.keys()}
     for key in keys:
         real_key = norm_map.get(_key_norm(key))
         if real_key is not None and payload.get(real_key) not in (None, ""):
             return payload.get(real_key)
 
     # 4) Backward-compatible group-path leaf-name match.
-    leaf_map = {_normalize_key(k): k for k in payload.keys()}
     for key in keys:
         real_key = leaf_map.get(_normalize_key(key))
         if real_key is not None and payload.get(real_key) not in (None, ""):
@@ -694,7 +723,8 @@ def stock_summary(values: list[Any]) -> str | None:
 
 
 
-def _field_label_aliases(product: str, field: str) -> list[str]:
+@lru_cache(maxsize=None)
+def _field_label_aliases(product: str, field: str) -> tuple[str, ...]:
     """Return label aliases for current and legacy Kobo product names."""
     labels: list[str] = []
     names = PRODUCT_LABEL_ALIASES.get(product, [product])
@@ -747,13 +777,14 @@ def _field_label_aliases(product: str, field: str) -> list[str]:
         more.append(label.replace("  ", " "))
         more.append(label.replace("GB Original", "GB  Original"))
         more.append(label.replace("GB  Original", "GB Original"))
-    return list(dict.fromkeys(labels + more))
+    return tuple(dict.fromkeys(labels + more))
 
 
-def product_field(product: str, field: str) -> list[str]:
+@lru_cache(maxsize=None)
+def product_field(product: str, field: str) -> tuple[str, ...]:
     codes = PRODUCT_CODES.get(product, [slug(product)])
     keys: list[str] = []
-    keys += _field_label_aliases(product, field)
+    keys += list(_field_label_aliases(product, field))
     for code in codes:
         field_aliases = [field]
         if field == "mov":
@@ -781,18 +812,19 @@ def product_field(product: str, field: str) -> list[str]:
                 f"fresh_{code}_group/fresh_{fa}_{code}",
                 f"freshness_availability_group/fresh_{code}_group/fresh_{fa}_{code}",
             ]
-    return keys
+    return tuple(keys)
 
 
-def competitor_field(product: str, field: str) -> list[str]:
+@lru_cache(maxsize=None)
+def competitor_field(product: str, field: str) -> tuple[str, ...]:
     codes = COMPETITOR_CODES.get(product, [slug(product)])
     keys: list[str] = []
-    keys += _field_label_aliases(product, field)
+    keys += list(_field_label_aliases(product, field))
     # Some report comparison items are also own-product freshness rows
     # (CB Original NCP and CAMBODIA Sport 300ml). Reuse their own form fields.
     own_alias = "CAMBODIA Sport 300mL" if product == "CAMBODIA Sport 300ml" else product
     if own_alias in OWN_PRODUCTS:
-        keys += product_field(own_alias, field)
+        keys += list(product_field(own_alias, field))
     for code in codes:
         field_aliases = [field]
         if field == "mov":
@@ -820,7 +852,7 @@ def competitor_field(product: str, field: str) -> list[str]:
                 f"comp_{code}_group/comp_{fa}_{code}",
                 f"competitor_group/comp_{code}_group/comp_{fa}_{code}",
             ]
-    return keys
+    return tuple(keys)
 
 
 def is_available(payload: dict, product: str) -> bool:
@@ -979,11 +1011,12 @@ def _payload_of_submission(submission: Any) -> dict:
 
 
 
-def _loose_product_tokens(product: str) -> list[str]:
+@lru_cache(maxsize=None)
+def _loose_product_tokens(product: str) -> tuple[str, ...]:
     """Tokens used for loose movement-field detection."""
     normalized = _canonical_product_name(product)
     tokens = re.findall(r"[a-z0-9]+", normalized.lower())
-    return [t for t in tokens if t not in {"ml", "m", "l", "all", "skus"}]
+    return tuple(t for t in tokens if t not in {"ml", "m", "l", "all", "skus"})
 
 
 def _is_movement_key_for_product(key: Any, product: str, is_competitor: bool) -> bool:
@@ -1181,22 +1214,43 @@ def _wide_payloads_by_submission(submissions: list[Any]) -> dict[str, dict[str, 
     if not ids:
         return {}
 
+    # Preserve order while removing duplicates. Summary/export may include a
+    # summary-marker row alongside the same dealer's outlet rows.
+    ids = list(dict.fromkeys(ids))
     out: dict[str, dict[str, Any]] = {}
     try:
         with SessionLocal() as db:
-            for sid in ids:
-                row = db.execute(
-                    text("SELECT * FROM public.kobo_submissions_wide WHERE submission_id = :sid"),
-                    {"sid": sid},
-                ).mappings().first()
-                if row:
-                    out[sid] = dict(row)
+            # The old code executed one SELECT * query per submission. For a
+            # 1,300-outlet summary that meant ~1,300 database round trips. Load
+            # rows in chunks instead, reducing that to only a few queries.
+            statement = text(
+                "SELECT * FROM public.kobo_submissions_wide "
+                "WHERE submission_id IN :submission_ids"
+            ).bindparams(bindparam("submission_ids", expanding=True))
+
+            chunk_size = 400
+            for start in range(0, len(ids), chunk_size):
+                chunk = ids[start:start + chunk_size]
+                rows = db.execute(
+                    statement,
+                    {"submission_ids": chunk},
+                ).mappings().all()
+                for row in rows:
+                    payload = IndexedPayload(dict(row))
+                    sid = str(payload.get("submission_id", "") or "").strip()
+                    if sid:
+                        out[sid] = payload
     except Exception as exc:
         # Report generation must continue even if the wide fallback is not
         # available, for example during unit tests or before the wide table is
         # created.
         print(f"⚠️ Wide Kobo fallback unavailable: {exc}")
     return out
+
+
+def load_wide_payloads(submissions: list[Any]) -> dict[str, dict[str, Any]]:
+    """Public bulk loader shared by summary and export generation."""
+    return _wide_payloads_by_submission(list(submissions or []))
 
 
 def _wide_payload_for_submission(submission: Any, wide_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -1302,7 +1356,86 @@ def _competitor_available_from_wide_or_metric(
     movement = _value(metric, "movement_score")
     return movement not in (None, "") and (to_int(movement) or 0) > 0
 
-def aggregate_submissions(submissions: list) -> dict:
+
+def aggregate_movement_comparison(
+    submissions: list[Any],
+    products: list[str] | tuple[str, ...],
+    *,
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Aggregate only the requested movement-comparison products.
+
+    `/summary` needs five movement values, but the previous implementation ran
+    the full 57-product report aggregation for every dealer. This lightweight
+    path reads only movement for the requested comparison group and then uses
+    the same final normalization rule as the dealer report.
+    """
+    data_submissions = [
+        submission
+        for submission in list(submissions or [])
+        if not _is_summary_submission(submission)
+    ]
+    result: dict[str, Any] = {
+        "products": {},
+        "competitors": {},
+    }
+    if not data_submissions:
+        return result
+
+    product_maps = [
+        _metric_by_product(list(getattr(submission, "product_metrics", []) or []))
+        for submission in data_submissions
+    ]
+    competitor_maps = [
+        _metric_by_product(list(getattr(submission, "competitor_metrics", []) or []))
+        for submission in data_submissions
+    ]
+    wide_map = (
+        wide_map
+        if wide_map is not None
+        else _wide_payloads_by_submission(data_submissions)
+    )
+
+    for product in products:
+        # A product can appear in both lists for report cross-over purposes.
+        # Prefer the own-product bucket when it is an actual own product.
+        is_own = product in OWN_PRODUCTS
+        metric_maps = product_maps if is_own else competitor_maps
+        metrics = [
+            metric_map.get(product) or metric_map.get(_product_lookup_key(product))
+            for metric_map in metric_maps
+        ]
+        movement_values = []
+        for submission, metric in zip(data_submissions, metrics):
+            movement = _movement_from_wide_or_metric(
+                submission,
+                metric,
+                product,
+                is_competitor=not is_own,
+                wide_map=wide_map,
+            )
+            if is_own:
+                if movement is not None:
+                    movement_values.append(movement)
+            elif _include_movement_value(movement, is_competitor=True):
+                movement_values.append(movement)
+
+        product_data = {
+            "mov": final_offtake_movement(movement_values),
+            "_mov_avg": movement_average(movement_values),
+            "_movement_values": movement_values,
+        }
+        bucket = "products" if is_own else "competitors"
+        result[bucket][product] = product_data
+
+    _apply_offtake_comparison_goal(result)
+    return result
+
+def aggregate_submissions(
+    submissions: list,
+    *,
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> dict:
     all_submissions = list(submissions or [])
 
     # A row whose Outlet Name is a summary marker is a control/summary row,
@@ -1336,7 +1469,7 @@ def aggregate_submissions(submissions: list) -> dict:
     product_maps = [_metric_by_product(list(getattr(s, "product_metrics", []) or [])) for s in submissions]
     competitor_maps = [_metric_by_product(list(getattr(s, "competitor_metrics", []) or [])) for s in submissions]
     ring_maps = [_metric_by_product(list(getattr(s, "ring_pull_metrics", []) or [])) for s in submissions]
-    wide_map = _wide_payloads_by_submission(submissions)
+    wide_map = wide_map if wide_map is not None else _wide_payloads_by_submission(submissions)
 
     for product in OWN_PRODUCTS:
         metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
@@ -1346,36 +1479,44 @@ def aggregate_submissions(submissions: list) -> dict:
             if (v := _movement_from_wide_or_metric(s, m, product, is_competitor=False, wide_map=wide_map)) is not None
         ]
 
+        # Read only fields that are active in the current Kobo form. Most own
+        # products now collect Status + Movement only; recalculating hidden
+        # Stock/BBE/Price/Volume fields for every outlet wasted most export CPU.
+        bbe_values = [
+            _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
+            for s, m in zip(submissions, metrics)
+        ] if own_product_field_allowed(product, "bbe") else []
+        stock_values = [
+            _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
+            for s, m in zip(submissions, metrics)
+        ] if own_product_field_allowed(product, "stock") else []
+        buy_in_values = [
+            _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=False, wide_map=wide_map)
+            for s, m in zip(submissions, metrics)
+        ] if own_product_field_allowed(product, "buy_in") else []
+        sell_out_values = [
+            _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=False, wide_map=wide_map)
+            for s, m in zip(submissions, metrics)
+        ] if own_product_field_allowed(product, "sell_out") else []
+        ring_pull_values = [
+            _value_from_wide_or_metric(s, m, product, "ring_pull_value", is_competitor=False, wide_map=wide_map)
+            for s, m in zip(submissions, metrics)
+        ] if own_product_field_allowed(product, "ring_pull") else []
         volume_values = [
             to_float(_value_from_wide_or_metric(s, m, product, "volume_ctn", is_competitor=False, wide_map=wide_map)) or 0
             for s, m in zip(submissions, metrics)
-        ]
+        ] if own_product_field_allowed(product, "volume") else []
         volume_sum = sum(volume_values)
 
         pdata: dict[str, Any] = {
-            "bbe": mode([
-                _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
+            "bbe": mode(bbe_values),
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
-            "stock": stock_summary([
-                _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "buy_in": mode_number([
-                _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=False, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "sell_out": mode_number([
-                _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=False, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "ring_pull": mode_number([
-                _value_from_wide_or_metric(s, m, product, "ring_pull_value", is_competitor=False, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "new_purchase": sum(1 for m in metrics if bool(_value(m, "new_outlet_purchase"))),
+            "stock": stock_summary(stock_values),
+            "buy_in": mode_number(buy_in_values),
+            "sell_out": mode_number(sell_out_values),
+            "ring_pull": mode_number(ring_pull_values),
+            "new_purchase": 0,
             "volume": report_number(volume_sum) if volume_sum else None,
         }
 
@@ -1408,18 +1549,11 @@ def aggregate_submissions(submissions: list) -> dict:
             "_mov_avg": movement_average(movement_values),
             "_movement_values": movement_values,
             "availability": availability,
-            "stock": stock_summary([
-                _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "buy_in": mode_number([
-                _value_from_wide_or_metric(s, m, product, "buy_in_price", is_competitor=True, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
-            "sell_out": mode_number([
-                _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=True, wide_map=wide_map)
-                for s, m in zip(submissions, metrics)
-            ]),
+            # Current competitor questions collect only Sale Status + Movement.
+            # Keep detail columns blank instead of scanning hidden legacy fields.
+            "stock": None,
+            "buy_in": None,
+            "sell_out": None,
         }
         result["competitors"][product] = cdata
 
@@ -1466,12 +1600,13 @@ def aggregate_submissions(submissions: list) -> dict:
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
             result["competitors"][alias] = gb
 
-        print(
-            "✅ AGG GB Original final:",
-            "values=", gb_values,
-            "avg=", gb.get("_mov_avg"),
-            "mov=", gb.get("mov"),
-        )
+        if gb_values:
+            print(
+                "✅ AGG GB Original final:",
+                "values=", gb_values,
+                "avg=", gb.get("_mov_avg"),
+                "mov=", gb.get("mov"),
+            )
 
     # Apply the comparison-row normalization after every raw average and
     # rounded movement is ready. Each row gets exactly one movement 10.

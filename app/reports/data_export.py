@@ -15,6 +15,7 @@ from app.reports.aggregator import (
     OFFTAKE_COMPARE_GROUPS,
     aggregate_submissions,
     combine_location_visit,
+    load_wide_payloads,
 )
 from app.reports.member_mode import most_frequent_member
 
@@ -280,7 +281,13 @@ def _summary_row_values(headers: list[str], values: dict[str, Any]) -> list[Any]
     return [values.get(_header_key(header), "") for header in headers]
 
 
-def _write_summary_data(ws, submissions: Iterable[Any], headers: list[str]) -> tuple[int, int]:
+def _write_summary_data(
+    ws,
+    submissions: Iterable[Any],
+    headers: list[str],
+    *,
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> tuple[int, int]:
     """Write one row per Dealer + Product using the uploaded template columns.
 
     The exporter never replaces row 1. It maps values by each existing header,
@@ -298,7 +305,7 @@ def _write_summary_data(ws, submissions: Iterable[Any], headers: list[str]) -> t
 
     output_rows: list[list[Any]] = []
     for (region, dealer), rows in sorted(groups.items(), key=_group_sort_key):
-        aggregate = aggregate_submissions(rows)
+        aggregate = aggregate_submissions(rows, wide_map=wide_map)
         outlet_counts = aggregate.get("outlet_types") or {}
 
         combined_location = (
@@ -457,10 +464,14 @@ def create_data_export(
     _clear_data_rows(location_ws)
 
     submission_list = list(submissions or [])
+    # Load all wide rows once. The old exporter reopened PostgreSQL for every
+    # dealer and then issued one query per outlet inside each aggregation.
+    wide_map = load_wide_payloads(submission_list)
     dealer_groups, summary_rows = _write_summary_data(
         summary_ws,
         submission_list,
         summary_headers,
+        wide_map=wide_map,
     )
     location_rows = _write_location_data(
         location_ws,

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from time import perf_counter
 from typing import Literal
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 
 from app.core.config import settings
 from app.db.database import SessionLocal, init_db
@@ -126,18 +127,31 @@ def _filter_by_report_type(submissions: list[KoboSubmission], report_type: Repor
     return [s for s in submissions if not _is_channel_specialist_submission(s)]
 
 
-def get_submissions(dealer: str | None, report_date: date, report_type: ReportType | None = None):
+def get_submissions(
+    dealer: str | None,
+    report_date: date,
+    report_type: ReportType | None = None,
+    *,
+    load_metrics: bool = True,
+):
     init_db()
     with SessionLocal() as db:
-        stmt = (
-            select(KoboSubmission)
-            .options(
+        stmt = select(KoboSubmission).where(KoboSubmission.report_date == report_date)
+        if load_metrics:
+            stmt = stmt.options(
                 selectinload(KoboSubmission.product_metrics),
                 selectinload(KoboSubmission.competitor_metrics),
                 selectinload(KoboSubmission.ring_pull_metrics),
             )
-            .where(KoboSubmission.report_date == report_date)
-        )
+        else:
+            # Summary/export read product values from kobo_submissions_wide in
+            # one bulk query. Avoid loading tens of thousands of normalized
+            # child rows that those commands do not need.
+            stmt = stmt.options(
+                noload(KoboSubmission.product_metrics),
+                noload(KoboSubmission.competitor_metrics),
+                noload(KoboSubmission.ring_pull_metrics),
+            )
         if dealer:
             stmt = stmt.where(KoboSubmission.dealer == dealer.upper())
 
@@ -332,19 +346,26 @@ def generate_multi_dealer_reports(
 
 
 def generate_region_dealer_summary(report_date_str: str | None = None):
+    started = perf_counter()
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d)
+    submissions = get_submissions(None, d, load_metrics=False)
     if settings.auto_sync_before_report or not submissions:
         submissions = _sync_and_retry_if_empty(None, d, submissions)
+        # Retry helper loads full metrics for normal report compatibility.
+        # Reload lightweight rows for the optimized summary path.
+        submissions = get_submissions(None, d, load_metrics=False)
     rows = build_summary_rows(submissions)
     path = create_summary_report(rows, d)
     submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
     total_submissions = sum(r.get("total_submissions", 0) for r in rows)
     total_outlets = sum(r.get("total_outlets", 0) for r in rows)
+    elapsed = perf_counter() - started
+    print(f"⏱️ Summary generated in {elapsed:.1f}s for {len(submissions)} DB rows")
     return (
         path,
         f"Generated summary for {d}: {submitted_dealers}/65 dealers submitted, "
-        f"{total_submissions} submissions, {total_outlets} outlets"
+        f"{total_submissions} submissions, {total_outlets} outlets "
+        f"({elapsed:.1f}s)"
     )
 
 def generate_data_export(report_date_str: str | None = None):
@@ -354,38 +375,47 @@ def generate_data_export(report_date_str: str | None = None):
     - Summary_Data: one compact block per Dealer, with one row per Product
     - Location_Outlet: one row per genuine outlet visit
     """
+    started = perf_counter()
     d = parse_report_date(report_date_str)
     sync_warning = ""
 
-    # Always synchronize the complete requested date. An export must not rely on
-    # a partially populated PostgreSQL date where some dealers are already present.
-    try:
-        result = sync_kobo(
-            dealer=None,
-            report_date=d,
-            wait_if_running=True,
-            timeout_seconds=settings.report_sync_wait_seconds,
-        )
-        if result.get("waited_for_existing_sync"):
-            sync_kobo(
+    # Auto-sync already runs every 60 seconds in production. Re-fetching and
+    # normalizing the whole Kobo asset again on every /export adds minutes with
+    # almost no freshness benefit. Use current DB rows when background sync is
+    # enabled; sync only when explicitly configured, auto-sync is disabled, or
+    # the requested date has no rows yet.
+    submissions = get_submissions(None, d, report_type=None, load_metrics=False)
+    should_sync = (
+        settings.auto_sync_before_report
+        or not settings.auto_sync_enabled
+        or not submissions
+    )
+    if should_sync:
+        try:
+            result = sync_kobo(
                 dealer=None,
                 report_date=d,
                 wait_if_running=True,
                 timeout_seconds=settings.report_sync_wait_seconds,
             )
-    except Exception as exc:
-        sync_warning = f" Sync warning: {exc}"
+            if result.get("waited_for_existing_sync") and not result.get("sync_finished"):
+                sync_warning = " Sync warning: timed out waiting for active sync."
+        except Exception as exc:
+            sync_warning = f" Sync warning: {exc}"
+        submissions = get_submissions(None, d, report_type=None, load_metrics=False)
 
-    submissions = get_submissions(None, d, report_type=None)
     if not submissions:
         return None, f"No submissions found for {d}.{sync_warning}"
 
     path, stats = create_data_export(submissions, d)
+    elapsed = perf_counter() - started
+    print(f"⏱️ Data export generated in {elapsed:.1f}s for {len(submissions)} DB rows")
     text = (
         f"Generated data export for {d}: "
         f"{stats['location_rows']} outlet locations, "
         f"{stats['dealer_groups']} dealer groups, "
-        f"{stats['summary_rows']} product rows."
+        f"{stats['summary_rows']} product rows "
+        f"({elapsed:.1f}s)."
         f"{sync_warning}"
     )
     return path, text
