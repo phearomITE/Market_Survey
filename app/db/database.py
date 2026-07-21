@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, text
+from threading import Lock
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.core.config import settings
@@ -15,6 +16,10 @@ engine = create_engine(
     connect_args={"connect_timeout": 15},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+_INIT_LOCK = Lock()
+_DB_INITIALIZED = False
 
 
 def _safe_exec(conn, sql: str) -> None:
@@ -144,15 +149,32 @@ def _ensure_light_migrations() -> None:
             _safe_exec(conn, f"DELETE FROM kobo_competitor_metrics WHERE product_name = '{old_name}'")
 
 
-def init_db() -> None:
-    from app.db import models  # noqa: F401
-    Base.metadata.create_all(bind=engine)
-    _ensure_light_migrations()
-    try:
-        from app.db.kobo_wide import ensure_wide_tables
-        ensure_wide_tables()
-    except Exception as exc:
-        print(f"⚠️ Wide table init warning: {exc}")
+def init_db(*, force: bool = False) -> None:
+    """Initialize schema once per running container.
+
+    Older versions executed every ALTER/UPDATE migration each time /summary,
+    /export, /start, or the 60-second Kobo sync called init_db(). On Railway,
+    those repeated migration scans could add several minutes to report commands.
+    Startup still performs the complete initialization; later calls return
+    immediately unless force=True is explicitly requested.
+    """
+    global _DB_INITIALIZED
+    if _DB_INITIALIZED and not force:
+        return
+
+    with _INIT_LOCK:
+        if _DB_INITIALIZED and not force:
+            return
+
+        from app.db import models  # noqa: F401
+        Base.metadata.create_all(bind=engine)
+        _ensure_light_migrations()
+        try:
+            from app.db.kobo_wide import ensure_wide_tables
+            ensure_wide_tables()
+        except Exception as exc:
+            print(f"⚠️ Wide table init warning: {exc}")
+        _DB_INITIALIZED = True
 
 
 if __name__ == "__main__":

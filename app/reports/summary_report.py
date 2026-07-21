@@ -13,9 +13,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import (
-    aggregate_submissions,
+    build_bulk_dealer_aggregates,
     is_final_summary_outlet_name,
-    load_wide_payloads,
 )
 
 
@@ -150,21 +149,20 @@ def movement_comparison_from_aggregate(aggregate: dict[str, Any] | None) -> dict
     return result
 
 
-def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
+def build_summary_rows(
+    submissions: Iterable[Any],
+    *,
+    dealer_aggregates: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Return one row for every configured dealer, including zero-submit dealers.
 
-    Total Submissions = number of real outlet rows (summary-marker rows excluded).
-    Total Outlets = distinct outlet_name count when available, otherwise row count.
-    Member = most frequent Member value for the dealer/date.
-    Movement values = final normalized values from the GENERAL dealer report
-    (Wholesale / Drink Shop / Wet Market / Trolley), using the same
-    aggregate_submissions() calculation as the Market Improvement Report.
+    Bulk movement is supplied by the fast dealer analytics cache. It uses the
+    same final normalization rules as the GENERAL dealer report without loading
+    tens of thousands of ORM metric objects or recalculating unused fields.
     """
     submission_list = list(submissions or [])
-
-    # Preload all wide Kobo rows once for the complete date. The same map is
-    # reused for all 65 dealer movement calculations.
-    wide_map = load_wide_payloads(submission_list)
+    if dealer_aggregates is None:
+        dealer_aggregates, _cache_hit = build_bulk_dealer_aggregates(submission_list)
 
     grouped: dict[str, list[Any]] = defaultdict(list)
     for submission in submission_list:
@@ -199,31 +197,9 @@ def build_summary_rows(submissions: Iterable[Any]) -> list[dict[str, Any]]:
             targets = [target for target in targets if target is not None]
             target = max(targets) if targets else None
 
-            # Movement columns must match the GENERAL final dealer report shown
-            # in the Market Improvement Report (Wholesale / Drink Shop / Wet
-            # Market / Trolley). Channel Specialist outlet types are excluded
-            # from this movement-only calculation, while the summary submission
-            # and outlet totals above continue to include all real dealer rows.
-            movement_rows = [
-                submission
-                for submission in dealer_rows
-                if _clean(getattr(submission, "outlet_type", ""))
-                not in CHANNEL_SPECIALIST_OUTLET_TYPES
-            ]
-
-            movement_summary = movement_comparison_from_aggregate(None)
-            if movement_rows:
-                try:
-                    final_aggregate = aggregate_submissions(
-                        movement_rows,
-                        wide_map=wide_map,
-                    )
-                    movement_summary = movement_comparison_from_aggregate(final_aggregate)
-                except Exception as exc:
-                    # One dealer should never prevent the full 65-dealer summary
-                    # from being generated. Leave its movement cells blank and
-                    # print the exact dealer for Railway diagnostics.
-                    print(f"⚠️ Summary movement aggregation failed for {dealer}: {exc}")
+            movement_summary = movement_comparison_from_aggregate(
+                (dealer_aggregates or {}).get(dealer)
+            )
 
             rows.append(
                 {

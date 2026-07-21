@@ -13,9 +13,8 @@ from openpyxl.utils import get_column_letter
 from app.core.config import BASE_DIR, settings
 from app.reports.aggregator import (
     OFFTAKE_COMPARE_GROUPS,
-    aggregate_submissions,
+    build_bulk_dealer_aggregates,
     combine_location_visit,
-    load_wide_payloads,
 )
 from app.reports.member_mode import most_frequent_member
 
@@ -311,7 +310,7 @@ def _write_summary_data(
     submissions: Iterable[Any],
     headers: list[str],
     *,
-    wide_map: dict[str, dict[str, Any]] | None = None,
+    dealer_aggregates: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[int, int]:
     """Write one row per Dealer + Product using the uploaded template columns.
 
@@ -331,25 +330,15 @@ def _write_summary_data(
         )
         groups[key].append(submission)
 
+    if dealer_aggregates is None:
+        dealer_aggregates, _cache_hit = build_bulk_dealer_aggregates(list(submissions))
+
     output_rows: list[list[Any]] = []
     for (region, dealer), rows in sorted(groups.items(), key=_group_sort_key):
-        # All-outlet aggregate supplies dealer totals and product-specific
-        # availability counts for both General and Channel Specialist outlets.
-        aggregate = aggregate_submissions(rows, wide_map=wide_map)
+        # One cached aggregate already contains all-outlet availability and
+        # GENERAL-only final movement. No second dealer aggregation is needed.
+        aggregate = (dealer_aggregates or {}).get(dealer, {})
         outlet_counts = aggregate.get("outlet_types") or {}
-
-        # Movement must match the GENERAL final report and /summary. Use only
-        # Wholesale, Drink Shop, Wet Market and Trolley rows for final movement.
-        general_rows = [
-            row for row in rows
-            if _normalize_outlet_type(getattr(row, "outlet_type", None))
-            not in CHANNEL_SPECIALIST_TYPE_KEYS
-        ]
-        movement_aggregate = (
-            aggregate_submissions(general_rows, wide_map=wide_map)
-            if general_rows
-            else {}
-        )
 
         combined_location = (
             _joined_locations(rows)
@@ -385,8 +374,8 @@ def _write_summary_data(
             product_values.update(
                 {
                     "product": PRODUCT_DISPLAY_ALIASES.get(product, product),
-                    "movement": _movement_for_product(movement_aggregate, product),
-                    "mov": _movement_for_product(movement_aggregate, product),
+                    "movement": _movement_for_product(aggregate, product),
+                    "mov": _movement_for_product(aggregate, product),
                     # Optional compatibility when an older/custom template has
                     # product-specific outlet columns.
                     "ws": _count_type(availability, OUTLET_TYPE_KEYS["wholesale"]),
@@ -484,6 +473,8 @@ def create_data_export(
     report_date: date,
     template_path: Path | str | None = None,
     output_path: Path | str | None = None,
+    *,
+    dealer_aggregates: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[Path, dict[str, int]]:
     template = Path(template_path or DATA_EXPORT_TEMPLATE)
     if not template.exists():
@@ -511,15 +502,14 @@ def create_data_export(
     _clear_data_rows(location_ws)
 
     submission_list = list(submissions or [])
+    if dealer_aggregates is None:
+        dealer_aggregates, _cache_hit = build_bulk_dealer_aggregates(submission_list)
 
-    # One batched wide-table load is shared by every dealer. Without this,
-    # each dealer aggregation re-queried every outlet row individually.
-    wide_map = load_wide_payloads(submission_list)
     dealer_groups, summary_rows = _write_summary_data(
         summary_ws,
         submission_list,
         summary_headers,
-        wide_map=wide_map,
+        dealer_aggregates=dealer_aggregates,
     )
     location_rows = _write_location_data(
         location_ws,

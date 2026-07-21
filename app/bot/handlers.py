@@ -252,10 +252,14 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     rdate = context.args[0].strip()
-    wait = await update.effective_message.reply_text(f"📊 Generating Region/Dealer summary for {rdate}...")
+    wait = await update.effective_message.reply_text(
+        f"📊 Generating Region/Dealer summary for {rdate} from the latest synced data..."
+    )
     try:
-        await _maybe_sync_before_report(update.effective_message)
         path, text = await asyncio.to_thread(generate_region_dealer_summary, rdate)
+        if not path:
+            await wait.edit_text(f"⚠️ {text}")
+            return
         await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
@@ -271,7 +275,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     rdate = context.args[0].strip()
     wait = await update.effective_message.reply_text(
-        f"📦 Generating market survey data export for {rdate}..."
+        f"📦 Generating market survey data export for {rdate} from the latest synced data..."
     )
     try:
         path, text = await asyncio.to_thread(generate_data_export, rdate)

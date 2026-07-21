@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from dataclasses import dataclass, field
+from pathlib import Path
+from threading import Lock
+from typing import Any
 from time import perf_counter
 from typing import Literal
 
@@ -11,7 +15,14 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import sync_kobo
-from app.reports.aggregator import aggregate_submissions
+from app.kobo.parser import normalize_dealer
+from app.reports.aggregator import (
+    aggregate_submissions,
+    build_bulk_dealer_aggregates,
+    bulk_snapshot_signature,
+    is_final_summary_outlet_name,
+    normalize_summary_report_type,
+)
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
@@ -27,6 +38,43 @@ CHANNEL_SPECIALIST_OUTLET_TYPES = {
     "Sport Club",
     "Motor Shop",
 }
+
+
+@dataclass(slots=True)
+class BulkSubmissionRow:
+    """Lightweight database row for /summary and /export.
+
+    Child metric relationships intentionally remain empty because bulk analytics
+    read product data from the already-synchronized wide table. This avoids
+    loading roughly 70,000 ORM metric objects for a 1,300-outlet date.
+    """
+
+    id: int
+    submission_id: str
+    submission_time: Any
+    report_date: Any
+    region: Any
+    dealer: Any
+    group_no: Any
+    member_no: Any
+    total_outlet_visit_target: Any
+    outlet_name: Any
+    outlet_type: Any
+    phone_number: Any
+    location_text: Any
+    gps_text: Any
+    gps_latitude: Any
+    gps_longitude: Any
+    updated_at: Any
+    product_metrics: tuple[Any, ...] = field(default_factory=tuple)
+    competitor_metrics: tuple[Any, ...] = field(default_factory=tuple)
+    ring_pull_metrics: tuple[Any, ...] = field(default_factory=tuple)
+    key_issue_text: str = ""
+    suggestion_text: str = ""
+
+
+_BULK_FILE_CACHE: dict[tuple[str, tuple[Any, ...]], tuple[Path, Any]] = {}
+_BULK_FILE_CACHE_LOCK = Lock()
 
 
 def parse_report_date(value: str | None) -> date:
@@ -117,14 +165,36 @@ def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[
 
 
 def _is_channel_specialist_submission(s: KoboSubmission) -> bool:
-    return (s.outlet_type or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
+    return (getattr(s, "outlet_type", None) or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
+
+
+def _summary_row_matches_report_type(s: KoboSubmission, report_type: ReportType) -> bool:
+    return (
+        is_final_summary_outlet_name(getattr(s, "outlet_name", None))
+        and normalize_summary_report_type(getattr(s, "summary_report_type", None)) == report_type
+    )
 
 
 def _filter_by_report_type(submissions: list[KoboSubmission], report_type: ReportType) -> list[KoboSubmission]:
-    if report_type == "CHANNEL_SPECIALIST":
-        return [s for s in submissions if _is_channel_specialist_submission(s)]
-    # General report excludes Channel Specialist outlet types.
-    return [s for s in submissions if not _is_channel_specialist_submission(s)]
+    """Route outlet rows by channel and summary rows by form selector.
+
+    Blank Summary Template belongs to GENERAL. A summary row explicitly marked
+    CHANNEL SPECIALIST belongs only to the Channel Specialist report. Summary
+    rows are retained even though they do not have a normal outlet type.
+    """
+    filtered: list[KoboSubmission] = []
+    for submission in submissions:
+        if is_final_summary_outlet_name(getattr(submission, "outlet_name", None)):
+            if _summary_row_matches_report_type(submission, report_type):
+                filtered.append(submission)
+            continue
+
+        is_channel = _is_channel_specialist_submission(submission)
+        if report_type == "CHANNEL_SPECIALIST" and is_channel:
+            filtered.append(submission)
+        elif report_type == "GENERAL" and not is_channel:
+            filtered.append(submission)
+    return filtered
 
 
 def get_submissions(dealer: str | None, report_date: date, report_type: ReportType | None = None):
@@ -140,13 +210,82 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
             .where(KoboSubmission.report_date == report_date)
         )
         if dealer:
-            stmt = stmt.where(KoboSubmission.dealer == dealer.upper())
+            normalized_dealer = normalize_dealer(dealer)
+            dealer_codes = [normalized_dealer]
+            if normalized_dealer == "KDL1":
+                dealer_codes.append("KD1")
+            stmt = stmt.where(KoboSubmission.dealer.in_(dealer_codes))
 
         rows = list(db.scalars(stmt).all())
 
     if report_type:
         rows = _filter_by_report_type(rows, report_type)
     return rows
+
+
+def get_bulk_submissions(report_date: date) -> list[BulkSubmissionRow]:
+    """Load only columns needed by bulk reports in one small SQL query."""
+    with SessionLocal() as db:
+        stmt = (
+            select(
+                KoboSubmission.id,
+                KoboSubmission.submission_id,
+                KoboSubmission.submission_time,
+                KoboSubmission.report_date,
+                KoboSubmission.region,
+                KoboSubmission.dealer,
+                KoboSubmission.group_no,
+                KoboSubmission.member_no,
+                KoboSubmission.total_outlet_visit_target,
+                KoboSubmission.outlet_name,
+                KoboSubmission.outlet_type,
+                KoboSubmission.phone_number,
+                KoboSubmission.location_text,
+                KoboSubmission.gps_text,
+                KoboSubmission.gps_latitude,
+                KoboSubmission.gps_longitude,
+                KoboSubmission.updated_at,
+            )
+            .where(KoboSubmission.report_date == report_date)
+            .order_by(KoboSubmission.id)
+        )
+        return [BulkSubmissionRow(*row) for row in db.execute(stmt).all()]
+
+
+def _bulk_rows_with_empty_retry(d: date) -> tuple[list[BulkSubmissionRow], str]:
+    """Use the 60-second DB snapshot immediately; sync only when date is empty."""
+    rows = get_bulk_submissions(d)
+    if rows:
+        return rows, ""
+
+    warning = ""
+    try:
+        sync_kobo(
+            dealer=None,
+            report_date=d,
+            wait_if_running=True,
+            timeout_seconds=settings.report_sync_wait_seconds,
+        )
+    except Exception as exc:
+        warning = f" Sync warning: {exc}"
+    return get_bulk_submissions(d), warning
+
+
+def _cached_bulk_file(kind: str, signature: tuple[Any, ...]):
+    with _BULK_FILE_CACHE_LOCK:
+        entry = _BULK_FILE_CACHE.get((kind, signature))
+        if entry and entry[0].exists():
+            return entry
+    return None
+
+
+def _store_bulk_file(kind: str, signature: tuple[Any, ...], path: Path, metadata: Any) -> None:
+    with _BULK_FILE_CACHE_LOCK:
+        _BULK_FILE_CACHE[(kind, signature)] = (path, metadata)
+        # Keep only a few recent date snapshots.
+        if len(_BULK_FILE_CACHE) > 8:
+            oldest = next(iter(_BULK_FILE_CACHE))
+            _BULK_FILE_CACHE.pop(oldest, None)
 
 
 def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, report_type: ReportType | None = None) -> list:
@@ -200,7 +339,7 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
             " Run /sync_kobo once and retry."
         )
 
-    agg = aggregate_submissions(submissions)
+    agg = aggregate_submissions(submissions, report_type=report_type)
     agg["report_type"] = report_type
     agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
 
@@ -217,7 +356,7 @@ def generate_today_all_dealers(report_date_str: str | None = None):
     grouped = {}
     for s in submissions:
         grouped.setdefault(s.dealer, []).append(s)
-    aggs = {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items() if dealer}
+    aggs = {dealer: aggregate_submissions(rows, report_type="GENERAL") for dealer, rows in grouped.items() if dealer}
     for agg in aggs.values():
         agg["report_type"] = "GENERAL"
         agg["channel"] = "GENERAL"
@@ -304,7 +443,7 @@ def generate_multi_dealer_reports(
         rows = grouped[dealer]
         if not rows:
             continue
-        agg = aggregate_submissions(rows)
+        agg = aggregate_submissions(rows, report_type=report_type)
         agg["report_type"] = report_type
         agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
         aggs[dealer] = agg
@@ -337,13 +476,25 @@ def generate_region_dealer_summary(report_date_str: str | None = None):
     d = parse_report_date(report_date_str)
 
     db_started = perf_counter()
-    submissions = get_submissions(None, d)
-    if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions)
+    submissions, sync_warning = _bulk_rows_with_empty_retry(d)
     db_seconds = perf_counter() - db_started
+    if not submissions:
+        return None, f"No submissions found for {d}.{sync_warning}"
+
+    signature = bulk_snapshot_signature(submissions)
+    cached = _cached_bulk_file("summary", signature)
+    if cached:
+        path, metadata = cached
+        total_seconds = perf_counter() - started
+        print(f"⚡ Summary {d}: cached file reused in {total_seconds:.2f}s")
+        return path, f"{metadata} (cached in {total_seconds:.1f}s)"
 
     aggregate_started = perf_counter()
-    rows = build_summary_rows(submissions)
+    dealer_aggregates, analytics_cache_hit = build_bulk_dealer_aggregates(submissions)
+    rows = build_summary_rows(
+        submissions,
+        dealer_aggregates=dealer_aggregates,
+    )
     aggregate_seconds = perf_counter() - aggregate_started
 
     excel_started = perf_counter()
@@ -352,62 +503,75 @@ def generate_region_dealer_summary(report_date_str: str | None = None):
     total_seconds = perf_counter() - started
 
     print(
-        f"⏱️ Summary {d}: DB/sync={db_seconds:.1f}s | "
-        f"aggregate={aggregate_seconds:.1f}s | Excel={excel_seconds:.1f}s | "
-        f"total={total_seconds:.1f}s"
+        f"⏱️ Summary {d}: DB={db_seconds:.1f}s | "
+        f"analytics={aggregate_seconds:.1f}s "
+        f"(cache={'hit' if analytics_cache_hit else 'miss'}) | "
+        f"Excel={excel_seconds:.1f}s | total={total_seconds:.1f}s"
     )
 
-    submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
-    total_submissions = sum(r.get("total_submissions", 0) for r in rows)
-    total_outlets = sum(r.get("total_outlets", 0) for r in rows)
-    return (
-        path,
+    submitted_dealers = sum(1 for row in rows if row.get("total_submissions", 0) > 0)
+    total_submissions = sum(row.get("total_submissions", 0) for row in rows)
+    total_outlets = sum(row.get("total_outlets", 0) for row in rows)
+    message = (
         f"Generated summary for {d}: {submitted_dealers}/65 dealers submitted, "
         f"{total_submissions} submissions, {total_outlets} outlets "
-        f"in {total_seconds:.1f}s"
+        f"in {total_seconds:.1f}s.{sync_warning}"
     )
+    _store_bulk_file("summary", signature, path, message)
+    return path, message
+
 
 def generate_data_export(report_date_str: str | None = None):
-    """Generate the BI export without repeating a full Kobo sync unnecessarily.
+    """Generate the BI export from the latest 60-second DB snapshot.
 
-    Auto-sync already runs every 60 seconds in production. When the requested
-    date exists in PostgreSQL and AUTO_SYNC_BEFORE_REPORT is false, use those
-    rows immediately. Run a targeted full-date sync only when explicitly
-    configured or when the database has no rows for that date.
+    Bulk commands intentionally ignore AUTO_SYNC_BEFORE_REPORT when data exists.
+    A full Kobo fetch of thousands of rows was the main reason commands waited
+    4-20 minutes. Use /sync_kobo first only when an immediate refresh is needed.
     """
     started = perf_counter()
     d = parse_report_date(report_date_str)
-    sync_warning = ""
 
     db_started = perf_counter()
-    submissions = get_submissions(None, d, report_type=None)
-    if settings.auto_sync_before_report or not submissions:
-        try:
-            submissions = _sync_and_retry_if_empty(None, d, submissions)
-        except Exception as exc:
-            sync_warning = f" Sync warning: {exc}"
+    submissions, sync_warning = _bulk_rows_with_empty_retry(d)
     db_seconds = perf_counter() - db_started
-
     if not submissions:
         return None, f"No submissions found for {d}.{sync_warning}"
 
-    export_started = perf_counter()
-    path, stats = create_data_export(submissions, d)
-    export_seconds = perf_counter() - export_started
+    signature = bulk_snapshot_signature(submissions)
+    cached = _cached_bulk_file("export", signature)
+    if cached:
+        path, metadata = cached
+        total_seconds = perf_counter() - started
+        print(f"⚡ Export {d}: cached file reused in {total_seconds:.2f}s")
+        return path, f"{metadata} (cached in {total_seconds:.1f}s)"
+
+    analytics_started = perf_counter()
+    dealer_aggregates, analytics_cache_hit = build_bulk_dealer_aggregates(submissions)
+    analytics_seconds = perf_counter() - analytics_started
+
+    excel_started = perf_counter()
+    path, stats = create_data_export(
+        submissions,
+        d,
+        dealer_aggregates=dealer_aggregates,
+    )
+    excel_seconds = perf_counter() - excel_started
     total_seconds = perf_counter() - started
 
     print(
-        f"⏱️ Export {d}: DB/sync={db_seconds:.1f}s | "
-        f"aggregate+Excel={export_seconds:.1f}s | total={total_seconds:.1f}s"
+        f"⏱️ Export {d}: DB={db_seconds:.1f}s | "
+        f"analytics={analytics_seconds:.1f}s "
+        f"(cache={'hit' if analytics_cache_hit else 'miss'}) | "
+        f"Excel={excel_seconds:.1f}s | total={total_seconds:.1f}s"
     )
 
-    text = (
+    message = (
         f"Generated data export for {d}: "
         f"{stats['location_rows']} outlet locations, "
         f"{stats['dealer_groups']} dealer groups, "
         f"{stats['summary_rows']} product rows "
-        f"in {total_seconds:.1f}s."
-        f"{sync_warning}"
+        f"in {total_seconds:.1f}s.{sync_warning}"
     )
-    return path, text
+    _store_bulk_file("export", signature, path, message)
+    return path, message
 

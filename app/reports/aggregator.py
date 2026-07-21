@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, OrderedDict
 from datetime import datetime
 import difflib
 import re
-from typing import Any
+from typing import Any, Callable, Iterable
+from threading import Lock
+from functools import lru_cache
 
 from sqlalchemy import bindparam, text
 
@@ -253,44 +255,60 @@ def _key_norm(value: Any) -> str:
     return "".join(ch for ch in text_value if ch.isalnum())
 
 
-def first_value(payload: dict, keys: list[str]):
-    """Return the first non-empty payload value for many possible field names.
+class IndexedPayload(dict):
+    """Dictionary with reusable field-name indexes.
 
-    Kobo can return fields as XLSForm names, full group paths, human labels, or
-    SQL-safe wide-table columns. This reader tries exact, lowercase, and strongly
-    normalized matching so renamed labels such as GB Original still resolve.
+    A wide Kobo row can contain hundreds of columns. The old ``first_value``
+    rebuilt lowercase/normalized dictionaries for every product, field and
+    outlet. Bulk reports therefore normalized the same 400-500 keys hundreds
+    of thousands of times. Build the indexes once per row instead.
     """
-    if not payload:
+
+    __slots__ = ("_lower_values", "_norm_values", "_leaf_values")
+
+    def __init__(self, values: dict[str, Any]):
+        super().__init__(values)
+        self._lower_values: dict[str, Any] = {}
+        self._norm_values: dict[str, Any] = {}
+        self._leaf_values: dict[str, Any] = {}
+        for key, value in values.items():
+            if value in (None, ""):
+                continue
+            text_key = str(key).strip()
+            self._lower_values.setdefault(text_key.lower(), value)
+            self._norm_values.setdefault(_key_norm(text_key), value)
+            self._leaf_values.setdefault(_normalize_key(text_key), value)
+
+    def first(self, keys: Iterable[str]):
+        for key in keys:
+            value = self.get(key)
+            if value not in (None, ""):
+                return value
+        for key in keys:
+            value = self._lower_values.get(str(key).strip().lower())
+            if value not in (None, ""):
+                return value
+        for key in keys:
+            value = self._norm_values.get(_key_norm(key))
+            if value not in (None, ""):
+                return value
+        for key in keys:
+            value = self._leaf_values.get(_normalize_key(key))
+            if value not in (None, ""):
+                return value
         return None
 
-    # 1) Exact match.
-    for key in keys:
-        if key in payload and payload[key] not in (None, ""):
-            return payload[key]
 
-    # 2) Case-insensitive exact match.
-    lower_map = {str(k).strip().lower(): k for k in payload.keys()}
-    for key in keys:
-        real_key = lower_map.get(str(key).strip().lower())
-        if real_key is not None and payload.get(real_key) not in (None, ""):
-            return payload.get(real_key)
+def first_value(payload: dict, keys: list[str]):
+    """Return the first non-empty value using cached payload indexes."""
+    if not payload:
+        return None
+    if isinstance(payload, IndexedPayload):
+        return payload.first(keys)
 
-    # 3) Normalized match. This fixes fields like
-    #    gb_original_movement_score_0_10 vs GB Original - Movement Score 0-10.
-    norm_map = {_key_norm(k): k for k in payload.keys()}
-    for key in keys:
-        real_key = norm_map.get(_key_norm(key))
-        if real_key is not None and payload.get(real_key) not in (None, ""):
-            return payload.get(real_key)
-
-    # 4) Backward-compatible group-path leaf-name match.
-    leaf_map = {_normalize_key(k): k for k in payload.keys()}
-    for key in keys:
-        real_key = leaf_map.get(_normalize_key(key))
-        if real_key is not None and payload.get(real_key) not in (None, ""):
-            return payload.get(real_key)
-
-    return None
+    # Small raw payloads used by unit tests or legacy rows still work. Convert
+    # once for this call rather than maintaining duplicate matching code.
+    return IndexedPayload(dict(payload)).first(keys)
 
 
 def to_float(value) -> float | None:
@@ -694,6 +712,7 @@ def stock_summary(values: list[Any]) -> str | None:
 
 
 
+@lru_cache(maxsize=None)
 def _field_label_aliases(product: str, field: str) -> list[str]:
     """Return label aliases for current and legacy Kobo product names."""
     labels: list[str] = []
@@ -750,6 +769,7 @@ def _field_label_aliases(product: str, field: str) -> list[str]:
     return list(dict.fromkeys(labels + more))
 
 
+@lru_cache(maxsize=None)
 def product_field(product: str, field: str) -> list[str]:
     codes = PRODUCT_CODES.get(product, [slug(product)])
     keys: list[str] = []
@@ -784,6 +804,7 @@ def product_field(product: str, field: str) -> list[str]:
     return keys
 
 
+@lru_cache(maxsize=None)
 def competitor_field(product: str, field: str) -> list[str]:
     codes = COMPETITOR_CODES.get(product, [slug(product)])
     keys: list[str] = []
@@ -883,10 +904,58 @@ def _summary_points(value: Any, limit: int = 4) -> list[str]:
     return cleaned
 
 
-def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
-    # Summary selection is controlled only by Outlet Name. The Key Issues and
-    # Suggestion fields contain the actual summary text and need no keyword.
-    candidates = [s for s in submissions if _is_summary_submission(s)]
+def normalize_summary_report_type(value: Any) -> str:
+    """Normalize the optional summary template selector.
+
+    Blank means GENERAL for backward compatibility. The Kobo form stores
+    ``channel_specialist`` when the user explicitly selects CHANNEL SPECIALIST.
+    """
+    if value in (None, ""):
+        return "GENERAL"
+    normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
+    if normalized in {"CHANNEL", "CHANNEL_SPECIALIST", "SPECIALIST", "CS"}:
+        return "CHANNEL_SPECIALIST"
+    return "GENERAL"
+
+
+def _summary_type_from_submission(
+    submission: Any,
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    """Read summary type from the DB column, with wide-table fallback."""
+    value = getattr(submission, "summary_report_type", None)
+    if value in (None, "") and wide_map:
+        sid = str(getattr(submission, "submission_id", "") or "")
+        payload = wide_map.get(sid, {})
+        value = first_value(
+            payload,
+            [
+                "final_summary_report_type",
+                "summary_report_type",
+                "summary_template_type",
+                "key_issues_suggestion_group/final_summary_report_type",
+            ],
+        )
+    return normalize_summary_report_type(value)
+
+
+def _latest_manual_summary(
+    submissions: list,
+    report_type: str = "GENERAL",
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Select the latest summary row for the requested report template.
+
+    Blank selector belongs only to GENERAL. A row explicitly marked CHANNEL
+    SPECIALIST belongs only to the Channel Specialist report.
+    """
+    target_type = normalize_summary_report_type(report_type)
+    candidates = [
+        s
+        for s in submissions
+        if _is_summary_submission(s)
+        and _summary_type_from_submission(s, wide_map) == target_type
+    ]
     if not candidates:
         return [], []
     latest = max(
@@ -979,6 +1048,7 @@ def _payload_of_submission(submission: Any) -> dict:
 
 
 
+@lru_cache(maxsize=None)
 def _loose_product_tokens(product: str) -> list[str]:
     """Tokens used for loose movement-field detection."""
     normalized = _canonical_product_name(product)
@@ -1203,6 +1273,26 @@ def load_wide_payloads(
     out: dict[str, dict[str, Any]] = {}
     try:
         with SessionLocal() as db:
+            # Resolve SQL-safe wide columns back to their original XLSForm
+            # field names once. Exact aliases then succeed immediately instead
+            # of scanning every wide-table column for every product.
+            field_aliases: dict[str, tuple[str, str]] = {}
+            try:
+                field_rows = db.execute(
+                    text(
+                        "SELECT column_name, kobo_key, question_label "
+                        "FROM public.kobo_field_map"
+                    )
+                ).mappings().all()
+                for field_row in field_rows:
+                    column_name = str(field_row.get("column_name") or "").strip()
+                    kobo_key = str(field_row.get("kobo_key") or "").strip()
+                    label = str(field_row.get("question_label") or "").strip()
+                    if column_name:
+                        field_aliases[column_name] = (kobo_key, label)
+            except Exception:
+                field_aliases = {}
+
             for start in range(0, len(ids), chunk_size):
                 chunk = ids[start:start + chunk_size]
                 rows = db.execute(
@@ -1210,10 +1300,25 @@ def load_wide_payloads(
                     {"submission_ids": chunk},
                 ).mappings().all()
                 for row in rows:
-                    payload = dict(row)
-                    sid = str(payload.get("submission_id") or "").strip()
-                    if sid:
-                        out[sid] = payload
+                    raw_payload = dict(row)
+                    sid = str(raw_payload.get("submission_id") or "").strip()
+                    if not sid:
+                        continue
+
+                    # Add original Kobo keys/labels only for answered fields.
+                    # This keeps memory controlled while making field lookup O(1).
+                    payload = dict(raw_payload)
+                    for column_name, (kobo_key, label) in field_aliases.items():
+                        value = raw_payload.get(column_name)
+                        if value in (None, ""):
+                            continue
+                        if kobo_key:
+                            payload.setdefault(kobo_key, value)
+                            payload.setdefault(kobo_key.split("/")[-1], value)
+                        if label:
+                            payload.setdefault(label, value)
+
+                    out[sid] = IndexedPayload(payload)
     except Exception as exc:
         # Report generation must continue even if the wide fallback is not
         # available, for example during unit tests or before the wide table is
@@ -1334,6 +1439,7 @@ def aggregate_submissions(
     submissions: list,
     *,
     wide_map: dict[str, dict[str, Any]] | None = None,
+    report_type: str = "GENERAL",
 ) -> dict:
     all_submissions = list(submissions or [])
 
@@ -1349,6 +1455,12 @@ def aggregate_submissions(
         "dealer": getattr(first_submission, "dealer", "") if first_submission else "",
         "region": getattr(first_submission, "region", "") if first_submission else "",
         "report_date": getattr(first_submission, "report_date", None) if first_submission else None,
+        "report_type": normalize_summary_report_type(report_type),
+        "channel": (
+            "CHANNEL SPECIALIST"
+            if normalize_summary_report_type(report_type) == "CHANNEL_SPECIALIST"
+            else "GENERAL"
+        ),
         "total_outlets": len(data_submissions),
         "outlet_types": outlet_types,
         "group_no": to_int(mode([s.group_no for s in header_submissions])) or 2,
@@ -1516,7 +1628,11 @@ def aggregate_submissions(
         qtys = [to_int(_value(m, "qty_ctn")) or 0 for m in metrics]
         result["ring_pull"][product] = {"total_outlets": sum(1 for q in qtys if q > 0), "qty": sum(qtys)}
 
-    key_issues, suggestions = _latest_manual_summary(all_submissions)
+    key_issues, suggestions = _latest_manual_summary(
+        all_submissions,
+        report_type=report_type,
+        wide_map=wide_map,
+    )
     result["key_issues"] = key_issues[:4]
     result["suggestions"] = suggestions[:4]
     while len(result["key_issues"]) < 4:
@@ -1524,3 +1640,223 @@ def aggregate_submissions(
     while len(result["suggestions"]) < 4:
         result["suggestions"].append("")
     return result
+
+# ---------------------------------------------------------------------------
+# Fast bulk analytics used by /summary and /export
+# ---------------------------------------------------------------------------
+
+_BULK_ANALYTICS_CACHE: "OrderedDict[tuple[Any, ...], dict[str, dict[str, Any]]]" = OrderedDict()
+_BULK_ANALYTICS_LOCK = Lock()
+_BULK_ANALYTICS_CACHE_SIZE = 3
+
+_GENERAL_OUTLET_TYPE_KEYS = {
+    "wholesale",
+    "drinkshop",
+    "wetmarket",
+    "trolley",
+}
+
+
+def _bulk_outlet_type_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def bulk_snapshot_signature(submissions: Iterable[Any]) -> tuple[Any, ...]:
+    """Return a cheap signature that changes when the date snapshot changes."""
+    rows = list(submissions or [])
+    if not rows:
+        return (None, 0, 0, "")
+
+    report_dates = [getattr(row, "report_date", None) for row in rows]
+    ids = [to_int(getattr(row, "id", None)) or 0 for row in rows]
+    updated_values = [
+        getattr(row, "updated_at", None) or getattr(row, "submission_time", None)
+        for row in rows
+    ]
+    latest_updated = max(
+        (value for value in updated_values if value is not None),
+        default=None,
+    )
+    return (
+        max((value for value in report_dates if value is not None), default=None),
+        len(rows),
+        max(ids, default=0),
+        latest_updated.isoformat() if hasattr(latest_updated, "isoformat") else str(latest_updated or ""),
+    )
+
+
+def aggregate_bulk_submissions(
+    submissions: Iterable[Any],
+    *,
+    wide_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Calculate only the fields needed by /summary and /export.
+
+    The normal dealer report needs BBE, stock, prices, Ring Pull and summary
+    text, so ``aggregate_submissions`` remains the source for /report. Bulk
+    commands need only movement and product availability. Skipping unrelated
+    calculations makes 65-dealer summary/export generation much faster while
+    reusing the exact movement readers and comparison normalization rules.
+    """
+    all_rows = list(submissions or [])
+    rows = [row for row in all_rows if not _is_summary_submission(row)]
+    first = rows[0] if rows else (all_rows[0] if all_rows else None)
+
+    result: dict[str, Any] = {
+        "dealer": getattr(first, "dealer", "") if first else "",
+        "region": getattr(first, "region", "") if first else "",
+        "report_date": getattr(first, "report_date", None) if first else None,
+        "total_outlets": len(rows),
+        "outlet_types": Counter((getattr(row, "outlet_type", None) or "Unknown") for row in rows),
+        "group_no": to_int(mode([getattr(row, "group_no", None) for row in rows])) or 2,
+        "member_no": to_int(mode([getattr(row, "member_no", None) for row in rows])),
+        "location_text": combine_location_visit([getattr(row, "location_text", None) for row in rows]),
+        "products": {},
+        "competitors": {},
+        "ring_pull": {},
+        "key_issues": ["", "", "", ""],
+        "suggestions": ["", "", "", ""],
+    }
+
+    if not rows:
+        return result
+
+    movement_rows = {
+        id(row)
+        for row in rows
+        if _bulk_outlet_type_key(getattr(row, "outlet_type", None))
+        in _GENERAL_OUTLET_TYPE_KEYS
+    }
+
+    product_maps = [
+        _metric_by_product(list(getattr(row, "product_metrics", []) or []))
+        for row in rows
+    ]
+    competitor_maps = [
+        _metric_by_product(list(getattr(row, "competitor_metrics", []) or []))
+        for row in rows
+    ]
+
+    # Own-product movement and availability.
+    for product in OWN_PRODUCTS:
+        metrics = [
+            metric_map.get(product) or metric_map.get(_product_lookup_key(product))
+            for metric_map in product_maps
+        ]
+        movement_values: list[Any] = []
+        availability = Counter()
+        for row, metric in zip(rows, metrics):
+            if id(row) in movement_rows:
+                value = _movement_from_wide_or_metric(
+                    row,
+                    metric,
+                    product,
+                    is_competitor=False,
+                    wide_map=wide_map,
+                )
+                if value is not None:
+                    movement_values.append(value)
+            if _available_from_wide_or_metric(row, metric, product, wide_map):
+                availability[getattr(row, "outlet_type", None) or "Unknown"] += 1
+
+        result["products"][product] = {
+            "mov": final_offtake_movement(movement_values),
+            "_mov_avg": movement_average(movement_values),
+            "_movement_values": movement_values,
+            "availability": availability,
+        }
+
+    # Competitor movement and availability.
+    for product in COMPETITOR_PRODUCTS:
+        metrics = [
+            metric_map.get(product) or metric_map.get(_product_lookup_key(product))
+            for metric_map in competitor_maps
+        ]
+        movement_values: list[Any] = []
+        availability = Counter()
+        for row, metric in zip(rows, metrics):
+            if id(row) in movement_rows:
+                value = _movement_from_wide_or_metric(
+                    row,
+                    metric,
+                    product,
+                    is_competitor=True,
+                    wide_map=wide_map,
+                )
+                if _include_movement_value(value, is_competitor=True):
+                    movement_values.append(value)
+            if _competitor_available_from_wide_or_metric(
+                row,
+                metric,
+                product,
+                wide_map,
+            ):
+                availability[getattr(row, "outlet_type", None) or "Unknown"] += 1
+
+        data = {
+            "mov": final_offtake_movement(movement_values),
+            "_mov_avg": movement_average(movement_values),
+            "_movement_values": movement_values,
+            "availability": availability,
+        }
+        result["competitors"][product] = data
+        result["competitors"][_product_lookup_key(product)] = data
+        result["competitors"][_canonical_product_name(product)] = data
+
+        if product == "GB Original NCP":
+            for alias in (
+                "GB  Original",
+                "GB Original",
+                "GB Original NCP",
+                "gboriginal",
+                "gboriginalncp",
+            ):
+                result["competitors"][alias] = data
+
+    _apply_offtake_comparison_goal(result)
+    return result
+
+
+def build_bulk_dealer_aggregates(
+    submissions: Iterable[Any],
+) -> tuple[dict[str, dict[str, Any]], bool]:
+    """Build/cache one movement+availability aggregate per dealer.
+
+    Returns ``(aggregates, cache_hit)``. The same cached snapshot is shared by
+    /summary and /export, so running the second command for the same unchanged
+    date avoids reloading and recalculating all product data.
+    """
+    rows = list(submissions or [])
+    signature = bulk_snapshot_signature(rows)
+
+    with _BULK_ANALYTICS_LOCK:
+        cached = _BULK_ANALYTICS_CACHE.get(signature)
+        if cached is not None:
+            _BULK_ANALYTICS_CACHE.move_to_end(signature)
+            return cached, True
+
+    wide_map = load_wide_payloads(rows)
+    grouped: dict[str, list[Any]] = {}
+    for row in rows:
+        dealer = str(getattr(row, "dealer", "") or "").strip().upper()
+        if dealer:
+            grouped.setdefault(dealer, []).append(row)
+
+    aggregates = {
+        dealer: aggregate_bulk_submissions(dealer_rows, wide_map=wide_map)
+        for dealer, dealer_rows in grouped.items()
+    }
+
+    with _BULK_ANALYTICS_LOCK:
+        _BULK_ANALYTICS_CACHE[signature] = aggregates
+        _BULK_ANALYTICS_CACHE.move_to_end(signature)
+        while len(_BULK_ANALYTICS_CACHE) > _BULK_ANALYTICS_CACHE_SIZE:
+            _BULK_ANALYTICS_CACHE.popitem(last=False)
+
+    return aggregates, False
+
+
+def clear_bulk_analytics_cache() -> None:
+    """Clear cached bulk calculations after an explicit data repair if needed."""
+    with _BULK_ANALYTICS_LOCK:
+        _BULK_ANALYTICS_CACHE.clear()
