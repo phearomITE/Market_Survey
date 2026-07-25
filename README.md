@@ -21,9 +21,6 @@ Railway-ready Telegram bot for:
 /report5 CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today 2026-07-14
 /summary 2026-07-14
-/alert_submit
-/alert_submit 10
-/alert_submit 2026-07-25 20
 ```
 
 ## Local Windows run
@@ -107,26 +104,18 @@ Railway should then automatically build and deploy the new GitHub commit. After 
 /report CPH2 2026-07-14
 ```
 
-## Dealer submission alerts
+## V66 summary movement totals and outlet detail
 
-The bot sends daily alerts using `APP_TIMEZONE` (default `Asia/Phnom_Penh`):
+`/summary YYYY-MM-DD` now includes six management totals:
 
-- `09:30` — dealers with fewer than 10 real outlet submissions
-- `10:30` — dealers with fewer than 20 real outlet submissions
+- dealers whose final CB LITE NCP movement is `<5`
+- dealers in `5 to 8`
+- dealers in `9 to 10`
+- dealers led by `GB SNOW NCP = 10`
+- dealers led by `Hanuman LITE NCP = 10`
+- dealers led by `Greet LITE NCP = 10`
 
-Final summary rows such as `បូកសរុបរួម` are excluded from the counts.
-Dealers with zero submissions are included.
-
-Run `/alert_submit` once inside the Telegram **General** group to save that
-group as the automatic alert target. The command can also be used manually:
-
-```text
-/alert_submit
-/alert_submit 10
-/alert_submit 20
-/alert_submit 2026-07-25 10
-```
-
-`/alert_submit` uses the `<10` threshold before 10:30 AM and `<20` at or
-after 10:30 AM. Railway variables can override the saved group with
-`SUBMIT_ALERT_CHAT_ID`. Leave `SUBMIT_ALERT_THREAD_ID` empty to post in General.
+The `Detail` sheet lists only outlets with an explicitly submitted CB LITE NCP
+movement score from 0 to 4, including stock, BBE, dealer competitor leader, and
+a clickable Google Maps link created from latitude/longitude. Summary movement
+uses the same final normalized General-report values as `/report`.

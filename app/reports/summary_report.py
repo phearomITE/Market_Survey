@@ -1,21 +1,19 @@
-# app/reports/summary_report.py
-
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from copy import copy
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterable
+import re
+from typing import Iterable, Any
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
-from app.reports.aggregator import (
-    build_bulk_dealer_aggregates,
-    is_final_summary_outlet_name,
-)
+from app.reports.aggregator import is_final_summary_outlet_name
 
 
 HEADER_FILL = "1F4E78"
@@ -24,26 +22,34 @@ ZERO_FILL = "FCE4D6"
 PARTIAL_FILL = "FFF2CC"
 OK_FILL = "E2F0D9"
 BORDER_COLOR = "D9E2F3"
+RED_FILL = "D00000"
+YELLOW_FILL = "FFC000"
+GREEN_FILL = "00B050"
 
-MOVEMENT_RED = "C00000"
-MOVEMENT_YELLOW = "FFC000"
-MOVEMENT_GREEN = "00B050"
-MOVEMENT_TITLE_RED = "FF0000"
-
-CHANNEL_SPECIALIST_OUTLET_TYPES = {
-    "Local Eat",
-    "Coffee,Bakery",
-    "Canteen",
-    "Sport Club",
-    "Motor Shop",
+CB_LITE_PRODUCT = "CB LITE NCP"
+CB_LITE_ALIASES = {
+    "cblitencp",
+    "cbclitencp",
+    "cblite",
+    "cbclite",
 }
-
-CB_LITE_NCP = "CB LITE NCP"
-CB_LITE_NCP_COMPETITORS = (
+CB_LITE_COMPETITORS = [
     "GB SNOW NCP",
     "Hanuman LITE NCP",
     "Krud LITE NCP",
     "Greet LITE NCP",
+]
+# The user-approved top KPI block contains exactly these three lead columns.
+LEAD_TOTAL_PRODUCTS = [
+    "GB SNOW NCP",
+    "Hanuman LITE NCP",
+    "Greet LITE NCP",
+]
+
+SUMMARY_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "templates"
+    / "Market_Survey_Summary_Template.xlsx"
 )
 
 
@@ -68,109 +74,96 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
-def _member_value(value: Any) -> str:
-    """Normalize Member values so 7, 7.0 and '7' are counted together."""
+def _member_key(value: Any) -> str:
     parsed = _safe_int(value)
     if parsed is not None:
         return str(parsed)
     return _clean(value)
 
 
-def most_frequent_member(submissions: Iterable[Any]) -> str:
-    """Return only the Member value occurring most often.
+def most_frequent_member(submissions: Iterable) -> str:
+    """Return the most common nonblank Member value.
 
-    When counts tie, keep the value that appeared first in the dealer's rows.
-    Blank values are ignored.
+    Equal counts are resolved by first appearance so results stay stable.
     """
-    values = [
-        value
-        for submission in submissions
-        if (value := _member_value(getattr(submission, "member_no", None)))
-    ]
-    if not values:
+    ordered: list[str] = []
+    counts: Counter[str] = Counter()
+    for submission in submissions:
+        value = _member_key(getattr(submission, "member_no", None))
+        if not value:
+            continue
+        if value not in counts:
+            ordered.append(value)
+        counts[value] += 1
+    if not counts:
         return ""
-
-    counts = Counter(values)
-    highest_count = max(counts.values())
-    return next(value for value in values if counts[value] == highest_count)
+    highest = max(counts.values())
+    return next(value for value in ordered if counts[value] == highest)
 
 
-def _movement_from_bucket(bucket: dict[str, Any] | None, product: str) -> int | None:
-    if not isinstance(bucket, dict):
-        return None
-    metrics = bucket.get(product)
-    if not isinstance(metrics, dict):
-        return None
-    value = _safe_int(metrics.get("mov"))
-    if value is None:
-        return None
-    return max(0, min(10, value))
+def _lookup_product_data(aggregate: dict, product: str) -> dict:
+    for bucket_name in ("products", "competitors"):
+        bucket = aggregate.get(bucket_name) or {}
+        value = bucket.get(product)
+        if isinstance(value, dict):
+            return value
+        loose = "".join(ch for ch in product.lower() if ch.isalnum())
+        value = bucket.get(loose)
+        if isinstance(value, dict):
+            return value
+    return {}
 
 
-def movement_comparison_from_aggregate(aggregate: dict[str, Any] | None) -> dict[str, Any]:
-    """Build the five summary columns from final report movement values.
+def movement_summary_from_aggregate(aggregate: dict | None) -> dict[str, Any]:
+    """Return CB LITE NCP band and the final competitor leader.
 
-    CB LITE NCP is written into exactly one movement band:
-      * <5
-      * 5 to 8
-      * 9 to 10
-
-    Product Competitor and Movement Lead are shown only when a competitor in
-    the CB LITE NCP comparison group has the final normalized movement 10.
-    This is the same final value used by the dealer Market Improvement Report.
+    All values come from aggregate_submissions(), which already applies the
+    same final comparison normalization used by the dealer Excel/PNG report.
     """
     aggregate = aggregate or {}
-    own_movement = _movement_from_bucket(aggregate.get("products"), CB_LITE_NCP)
+    cb_mov = _safe_int(_lookup_product_data(aggregate, CB_LITE_PRODUCT).get("mov"))
 
-    result: dict[str, Any] = {
-        "movement_under_5": None,
-        "movement_5_to_8": None,
-        "movement_9_to_10": None,
-        "competitor_product": "",
-        "competitor_movement_lead": None,
-    }
+    band_lt5 = cb_mov if cb_mov is not None and cb_mov < 5 else None
+    band_5_8 = cb_mov if cb_mov is not None and 5 <= cb_mov <= 8 else None
+    band_9_10 = cb_mov if cb_mov is not None and 9 <= cb_mov <= 10 else None
 
-    if own_movement is not None:
-        if own_movement < 5:
-            result["movement_under_5"] = own_movement
-        elif own_movement <= 8:
-            result["movement_5_to_8"] = own_movement
-        else:
-            result["movement_9_to_10"] = own_movement
-
-    competitors = aggregate.get("competitors") or {}
-    for product in CB_LITE_NCP_COMPETITORS:
-        movement = _movement_from_bucket(competitors, product)
+    lead_product = ""
+    lead_movement: int | None = None
+    for product in CB_LITE_COMPETITORS:
+        movement = _safe_int(_lookup_product_data(aggregate, product).get("mov"))
         if movement == 10:
-            result["competitor_product"] = product
-            result["competitor_movement_lead"] = 10
+            lead_product = product
+            lead_movement = 10
             break
 
-    return result
+    return {
+        "cb_lite_movement": cb_mov,
+        "movement_lt5": band_lt5,
+        "movement_5_8": band_5_8,
+        "movement_9_10": band_9_10,
+        "product_competitor": lead_product,
+        "movement_lead": lead_movement,
+    }
 
 
 def build_summary_rows(
-    submissions: Iterable[Any],
-    *,
-    dealer_aggregates: dict[str, dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
+    submissions: Iterable,
+    dealer_aggregates: dict[str, dict] | None = None,
+) -> list[dict]:
     """Return one row for every configured dealer, including zero-submit dealers.
 
-    Bulk movement is supplied by the fast dealer analytics cache. It uses the
-    same final normalization rules as the GENERAL dealer report without loading
-    tens of thousands of ORM metric objects or recalculating unused fields.
+    Submission totals use every real outlet row. Movement values are injected
+    from dealer_aggregates created from GENERAL rows so /summary matches the
+    final General dealer report exactly.
     """
-    submission_list = list(submissions or [])
-    if dealer_aggregates is None:
-        dealer_aggregates, _cache_hit = build_bulk_dealer_aggregates(submission_list)
-
-    grouped: dict[str, list[Any]] = defaultdict(list)
-    for submission in submission_list:
+    dealer_aggregates = dealer_aggregates or {}
+    grouped: dict[str, list] = defaultdict(list)
+    for submission in submissions:
         dealer = _clean(getattr(submission, "dealer", "")).upper()
         if dealer:
             grouped[dealer].append(submission)
 
-    rows: list[dict[str, Any]] = []
+    rows: list[dict] = []
     for region, dealers in REGION_DEALERS.items():
         for dealer in dealers:
             dealer_rows = grouped.get(dealer, [])
@@ -184,7 +177,7 @@ def build_summary_rows(
             total_submissions = len(outlet_rows)
 
             outlet_names = {
-                _clean(getattr(submission, "outlet_name", "")).lower()
+                _clean(getattr(submission, "outlet_name", "")).casefold()
                 for submission in outlet_rows
                 if _clean(getattr(submission, "outlet_name", ""))
             }
@@ -197,225 +190,454 @@ def build_summary_rows(
             targets = [target for target in targets if target is not None]
             target = max(targets) if targets else None
 
-            movement_summary = movement_comparison_from_aggregate(
-                (dealer_aggregates or {}).get(dealer)
+            row = {
+                "region": region,
+                "dealer": dealer,
+                "member": most_frequent_member(outlet_rows),
+                "total_submissions": total_submissions,
+                "total_outlets": total_outlets,
+                "target": target,
+                "status": _status(total_submissions, total_outlets, target),
+            }
+            row.update(
+                movement_summary_from_aggregate(dealer_aggregates.get(dealer))
             )
-
-            rows.append(
-                {
-                    "region": region,
-                    "dealer": dealer,
-                    "member": most_frequent_member(outlet_rows),
-                    "total_submissions": total_submissions,
-                    "total_outlets": total_outlets,
-                    "target": target,
-                    "status": _status(total_submissions, total_outlets, target),
-                    **movement_summary,
-                }
-            )
+            rows.append(row)
     return rows
 
 
-def _style_summary_sheet(ws) -> None:
+def _metric_product_key(value: Any) -> str:
+    return "".join(ch for ch in _clean(value).casefold() if ch.isalnum())
+
+
+def _cb_lite_metric(submission: Any):
+    for metric in list(getattr(submission, "product_metrics", None) or []):
+        if _metric_product_key(getattr(metric, "product_name", "")) in CB_LITE_ALIASES:
+            return metric
+    return None
+
+
+def _coordinates(submission: Any) -> tuple[float | None, float | None]:
+    lat = getattr(submission, "gps_latitude", None)
+    lon = getattr(submission, "gps_longitude", None)
+    try:
+        if lat not in (None, "") and lon not in (None, ""):
+            return float(lat), float(lon)
+    except Exception:
+        pass
+
+    gps_text = _clean(getattr(submission, "gps_text", ""))
+    numbers = re.findall(r"[-+]?\d+(?:\.\d+)?", gps_text)
+    if len(numbers) >= 2:
+        try:
+            return float(numbers[0]), float(numbers[1])
+        except Exception:
+            pass
+    return None, None
+
+
+def _map_url(submission: Any) -> str:
+    lat, lon = _coordinates(submission)
+    if lat is None or lon is None:
+        return ""
+    return f"https://www.google.com/maps?q={lat:.7f},{lon:.7f}"
+
+
+def build_detail_rows(
+    general_submissions: Iterable,
+    dealer_aggregates: dict[str, dict],
+) -> list[dict]:
+    """Build outlet detail for explicit CB LITE NCP movement scores below 5.
+
+    Blank/no-sale movement fields are not listed. A row is included only when
+    the outlet has a real numeric score from 0 to 4 and the dealer's final
+    normalized CB LITE NCP movement is also below 5.
+    """
+    rows: list[dict] = []
+    for submission in general_submissions:
+        if is_final_summary_outlet_name(getattr(submission, "outlet_name", None)):
+            continue
+
+        dealer = _clean(getattr(submission, "dealer", "")).upper()
+        aggregate = dealer_aggregates.get(dealer) or {}
+        movement_info = movement_summary_from_aggregate(aggregate)
+        dealer_movement = movement_info.get("cb_lite_movement")
+        if dealer_movement is None or dealer_movement >= 5:
+            continue
+
+        metric = _cb_lite_metric(submission)
+        outlet_movement = _safe_int(getattr(metric, "movement_score", None))
+        if outlet_movement is None or outlet_movement >= 5:
+            continue
+
+        rows.append(
+            {
+                "date": getattr(submission, "report_date", None),
+                "region": _clean(getattr(submission, "region", "")),
+                "dealer": dealer,
+                "outlet_name": _clean(getattr(submission, "outlet_name", "")),
+                "phone_number": _clean(getattr(submission, "phone_number", "")),
+                "outlet_type": _clean(getattr(submission, "outlet_type", "")),
+                "stock_status": _clean(getattr(metric, "stock_status", "")),
+                "freshness_date": _clean(getattr(metric, "bbe_date", "")),
+                "movement_lt5": outlet_movement,
+                "product_competitor": movement_info.get("product_competitor", ""),
+                "movement_lead": movement_info.get("movement_lead"),
+                "link_map": _map_url(submission),
+            }
+        )
+
+    region_order = {region: index for index, region in enumerate(REGION_DEALERS)}
+    dealer_order = {
+        dealer: index
+        for index, dealer in enumerate(
+            dealer for dealers in REGION_DEALERS.values() for dealer in dealers
+        )
+    }
+    rows.sort(
+        key=lambda row: (
+            region_order.get(row["region"], 999),
+            dealer_order.get(row["dealer"], 999),
+            row["outlet_name"].casefold(),
+        )
+    )
+    return rows
+
+
+def _fallback_workbook() -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["KB Market Survey - Region & Dealer Submission Summary"])
+    ws.append([None])
+    ws.append([None])
+    ws.append(
+        [
+            "Total Regions",
+            "Total Dealers",
+            "Submitted Dealers",
+            "No Submit Dealers",
+            "Total Submissions",
+            "<5",
+            "5 to 8",
+            "9 to 10",
+            "GB SNOW NCP",
+            "Hanuman LITE NCP",
+            "Greet LITE NCP",
+        ]
+    )
+    ws.append([None] * 11)
+    ws.append([None] * 11)
+    ws.append([None] * 6 + ["Movement CB LITE NCP compare to Competitors"])
+    ws.append(
+        [
+            "Region",
+            "Dealer",
+            "Member",
+            "Total Submissions",
+            "Total Outlets",
+            "Status",
+            "<5",
+            "5 to 8",
+            "9 to 10",
+            "Product Competitor",
+            "Movement Lead",
+        ]
+    )
+    detail = wb.create_sheet("Detail")
+    detail.append(
+        [
+            "Date",
+            "Region",
+            "Dealer",
+            "Outlet Name",
+            "Phone Number Outlet",
+            "Outlet Type",
+            "Stock Status",
+            "Freshness Date",
+            "<5",
+            "Product Competitor",
+            "Movement Lead",
+            "Link Map",
+        ]
+    )
+    return wb
+
+
+def _copy_row_style(ws, source_row: int, target_row: int, max_col: int) -> None:
+    for col in range(1, max_col + 1):
+        source = ws.cell(source_row, col)
+        target = ws.cell(target_row, col)
+        if source.has_style:
+            target._style = copy(source._style)
+        if source.number_format:
+            target.number_format = source.number_format
+        target.alignment = copy(source.alignment)
+    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+
+
+def _apply_summary_styles(ws) -> None:
     thin = Side(style="thin", color=BORDER_COLOR)
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    for row in ws.iter_rows():
-        for cell in row:
-            cell.border = border
-            cell.alignment = Alignment(vertical="center", horizontal="center")
-            cell.font = Font(name="Calibri", size=11)
+    ws.merge_cells("A1:K1")
+    ws.merge_cells("A2:K2")
+    # Keep the movement title centered over the five movement columns.
+    for merged in list(ws.merged_cells.ranges):
+        if str(merged) in {"G7:K7", "G7:H7", "G7:I7"}:
+            ws.unmerge_cells(str(merged))
+    ws.merge_cells("G7:K7")
 
-    # Main title rows.
-    ws["A1"].font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+    for row in ws.iter_rows(min_row=1, max_row=max(81, ws.max_row), min_col=1, max_col=11):
+        for cell in row:
+            if isinstance(cell, MergedCell):
+                continue
+            cell.border = border
+            cell.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
+            if not cell.font or not cell.font.name:
+                cell.font = Font(name="Calibri", size=11)
+
     ws["A1"].fill = PatternFill("solid", fgColor=HEADER_FILL)
+    ws["A1"].font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
     ws["A2"].font = Font(name="Calibri", size=11, italic=True, color="666666")
 
-    # KPI block.
-    for row in range(4, 7):
-        for col in range(1, 8):
-            cell = ws.cell(row, col)
-            cell.fill = PatternFill("solid", fgColor="F8FBFD")
-            cell.font = Font(name="Calibri", size=11, bold=(row == 4))
+    for col in range(1, 12):
+        ws.cell(4, col).font = Font(name="Calibri", size=11, bold=True)
+        ws.cell(4, col).fill = PatternFill("solid", fgColor="F8FBFD")
+        ws.cell(5, col).fill = PatternFill("solid", fgColor="F8FBFD")
 
-    # Movement section title.
-    ws["G7"].font = Font(
-        name="Calibri", size=13, bold=False, color=MOVEMENT_TITLE_RED
-    )
-    ws["G7"].alignment = Alignment(horizontal="center", vertical="center")
-
-    # Main headers A:F.
-    for col in range(1, 7):
+    for col in range(1, 12):
         cell = ws.cell(8, col)
         cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
         cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
 
-    # Movement band headers G:I.
-    band_headers = {
-        7: MOVEMENT_RED,
-        8: MOVEMENT_YELLOW,
-        9: MOVEMENT_GREEN,
-    }
-    for col, color in band_headers.items():
-        cell = ws.cell(8, col)
-        cell.fill = PatternFill("solid", fgColor=color)
-        cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    for row in (4, 8):
+        ws.cell(row, 6).fill = PatternFill("solid", fgColor=RED_FILL)
+        ws.cell(row, 7).fill = PatternFill("solid", fgColor=YELLOW_FILL)
+        ws.cell(row, 8).fill = PatternFill("solid", fgColor=GREEN_FILL)
+        for col in (6, 7, 8):
+            ws.cell(row, col).font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
 
-    # Competitor headers J:K.
-    for col in range(10, 12):
-        cell = ws.cell(8, col)
-        cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
-        cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-
-    # Dealer data rows.
     for row in range(9, ws.max_row + 1):
-        status = str(ws.cell(row, 6).value or "")
-        fill = None
-        if "No Submit" in status:
+        status = _clean(ws.cell(row, 6).value)
+        if ws.cell(row, 2).value == "Region Total":
+            fill = PatternFill("solid", fgColor=REGION_FILL)
+        elif "No Submit" in status:
             fill = PatternFill("solid", fgColor=ZERO_FILL)
         elif "Partial" in status:
             fill = PatternFill("solid", fgColor=PARTIAL_FILL)
-        elif "✅" in status:
+        else:
             fill = PatternFill("solid", fgColor=OK_FILL)
-        if fill:
-            for col in range(1, 12):
-                ws.cell(row, col).fill = fill
-
+        for col in range(1, 12):
+            ws.cell(row, col).fill = fill
         ws.cell(row, 1).font = Font(bold=True)
         ws.cell(row, 2).font = Font(bold=True)
+        if ws.cell(row, 7).value not in (None, ""):
+            ws.cell(row, 7).font = Font(bold=True, color="D00000")
+        if ws.cell(row, 8).value not in (None, ""):
+            ws.cell(row, 8).font = Font(bold=True, color="C69200")
+        if ws.cell(row, 9).value not in (None, ""):
+            ws.cell(row, 9).font = Font(bold=True, color="00A651")
+        if ws.cell(row, 11).value not in (None, ""):
+            ws.cell(row, 11).font = Font(bold=True, color="00A651")
 
-        # Keep the status-row background, but make the movement values follow
-        # the requested red / yellow / green color convention.
-        ws.cell(row, 7).font = Font(bold=True, color=MOVEMENT_RED)
-        ws.cell(row, 8).font = Font(bold=True, color="F4A000")
-        ws.cell(row, 9).font = Font(bold=True, color=MOVEMENT_GREEN)
-        ws.cell(row, 10).font = Font(bold=True, color="1F1F1F")
-        ws.cell(row, 11).font = Font(bold=True, color=MOVEMENT_GREEN)
-
-    ws.freeze_panes = "A9"
     widths = {
         "A": 12,
         "B": 14,
         "C": 14,
         "D": 20,
         "E": 16,
-        "F": 20,
+        "F": 22,
         "G": 14,
         "H": 14,
         "I": 14,
-        "J": 24,
+        "J": 22,
         "K": 16,
     }
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A9"
 
-    for row in range(1, ws.max_row + 1):
-        ws.row_dimensions[row].height = 22
-    ws.row_dimensions[7].height = 28
-    ws.row_dimensions[8].height = 26
+
+def _apply_detail_styles(ws, max_row: int) -> None:
+    thin = Side(style="thin", color=BORDER_COLOR)
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for col in range(1, 13):
+        cell = ws.cell(1, col)
+        cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
+        cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+
+    for row in range(2, max_row + 1):
+        if row > 2:
+            _copy_row_style(ws, 2, row, 12)
+        for col in range(1, 13):
+            cell = ws.cell(row, col)
+            cell.border = border
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        ws.cell(row, 9).font = Font(bold=True, color="D00000")
+        ws.cell(row, 11).font = Font(bold=True, color="00A651")
+
+    widths = {
+        "A": 13,
+        "B": 10,
+        "C": 12,
+        "D": 28,
+        "E": 20,
+        "F": 18,
+        "G": 16,
+        "H": 16,
+        "I": 10,
+        "J": 22,
+        "K": 15,
+        "L": 18,
+    }
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:L{max(2, max_row)}"
 
 
 def create_summary_report(
-    rows: list[dict[str, Any]],
+    rows: list[dict],
     report_date: date,
+    detail_rows: list[dict] | None = None,
     output_path: Path | None = None,
 ) -> Path:
     settings.export_path.mkdir(parents=True, exist_ok=True)
-    output_path = output_path or settings.export_path / (
-        f"Market_Survey_Summary_{report_date}.xlsx"
-    )
+    output_path = output_path or settings.export_path / f"Market_Survey_Summary_{report_date}.xlsx"
+    detail_rows = detail_rows or []
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Summary"
+    wb = load_workbook(SUMMARY_TEMPLATE) if SUMMARY_TEMPLATE.exists() else _fallback_workbook()
+    ws = wb["Summary"]
+    detail_ws = wb["Detail"] if "Detail" in wb.sheetnames else wb.create_sheet("Detail")
+
+    # Clear all old values while preserving the approved workbook formatting.
+    for row in ws.iter_rows(min_row=2, max_row=max(ws.max_row, 81), min_col=1, max_col=11):
+        if row[0].row not in (4, 7, 8):
+            for cell in row:
+                if not isinstance(cell, MergedCell):
+                    cell.value = None
+    for row in detail_ws.iter_rows(min_row=2, max_row=max(detail_ws.max_row, len(detail_rows) + 2), min_col=1, max_col=12):
+        for cell in row:
+            cell.value = None
+            cell.hyperlink = None
 
     total_dealers = len(rows)
     submitted_dealers = sum(1 for row in rows if row["total_submissions"] > 0)
     no_submit = total_dealers - submitted_dealers
     total_submissions = sum(row["total_submissions"] for row in rows)
-    total_outlets = sum(row["total_outlets"] for row in rows)
-    completion = submitted_dealers / total_dealers if total_dealers else 0
 
-    ws.merge_cells("A1:K1")
-    ws["A1"] = "KB Market Survey - Region & Dealer Submission Summary"
-    ws.merge_cells("A2:K2")
-    ws["A2"] = (
-        f"Report Date: {report_date} | Generated: "
-        f"{datetime.now():%d/%m/%Y %H:%M:%S}"
+    movement_lt5_total = sum(1 for row in rows if row.get("movement_lt5") is not None)
+    movement_5_8_total = sum(1 for row in rows if row.get("movement_5_8") is not None)
+    movement_9_10_total = sum(1 for row in rows if row.get("movement_9_10") is not None)
+    lead_totals = Counter(
+        row.get("product_competitor")
+        for row in rows
+        if row.get("product_competitor")
     )
 
+    ws["A1"] = "KB Market Survey - Region & Dealer Submission Summary"
+    ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
+
     kpis = [
-        ("Total Regions", len(set(row["region"] for row in rows))),
-        ("Total Dealers", total_dealers),
-        ("Submitted Dealers", submitted_dealers),
-        ("No Submit Dealers", no_submit),
-        ("Total Submissions", total_submissions),
-        ("Total Outlets", total_outlets),
-        ("Completion", f"{completion:.1%}"),
+        len(set(row["region"] for row in rows)),
+        total_dealers,
+        submitted_dealers,
+        no_submit,
+        total_submissions,
+        movement_lt5_total,
+        movement_5_8_total,
+        movement_9_10_total,
+        lead_totals.get("GB SNOW NCP", 0),
+        lead_totals.get("Hanuman LITE NCP", 0),
+        lead_totals.get("Greet LITE NCP", 0),
     ]
-    for idx, (label, value) in enumerate(kpis, start=1):
-        ws.cell(4, idx).value = label
-        ws.cell(5, idx).value = value
-
-    ws.merge_cells("G7:K7")
-    ws["G7"] = "Movement CB LITE NCP compare to Competitors"
-
-    headers = [
-        "Region",
-        "Dealer",
-        "Member",
-        "Total Submissions",
-        "Total Outlets",
-        "Status",
-        "<5",
-        "5 to 8",
-        "9 to 10",
-        "Product Competitor",
-        "Movement Lead",
-    ]
-    for col, value in enumerate(headers, start=1):
-        ws.cell(8, col).value = value
+    for col, value in enumerate(kpis, start=1):
+        ws.cell(5, col).value = value
 
     current_row = 9
     for region in REGION_DEALERS:
         region_rows = [row for row in rows if row["region"] == region]
-        for row_data in region_rows:
+        for row in region_rows:
             values = [
-                row_data["region"],
-                row_data["dealer"],
-                row_data.get("member", ""),
-                row_data["total_submissions"],
-                row_data["total_outlets"],
-                row_data["status"],
-                row_data.get("movement_under_5"),
-                row_data.get("movement_5_to_8"),
-                row_data.get("movement_9_to_10"),
-                row_data.get("competitor_product", ""),
-                row_data.get("competitor_movement_lead"),
+                row["region"],
+                row["dealer"],
+                row.get("member", ""),
+                row["total_submissions"],
+                row["total_outlets"],
+                row["status"],
+                row.get("movement_lt5"),
+                row.get("movement_5_8"),
+                row.get("movement_9_10"),
+                row.get("product_competitor", ""),
+                row.get("movement_lead"),
             ]
             for col, value in enumerate(values, start=1):
                 ws.cell(current_row, col).value = value
             current_row += 1
 
-        # Region subtotal row.
-        ws.cell(current_row, 1).value = region
-        ws.cell(current_row, 2).value = "Region Total"
-        ws.cell(current_row, 3).value = ""
-        ws.cell(current_row, 4).value = sum(
-            row["total_submissions"] for row in region_rows
-        )
-        ws.cell(current_row, 5).value = sum(row["total_outlets"] for row in region_rows)
-        submitted = sum(1 for row in region_rows if row["total_submissions"] > 0)
-        ws.cell(current_row, 6).value = (
-            f"{submitted}/{len(region_rows)} dealers submitted"
-        )
-        for col in range(1, 12):
-            ws.cell(current_row, col).fill = PatternFill(
-                "solid", fgColor=REGION_FILL
-            )
-            ws.cell(current_row, col).font = Font(bold=True)
+        subtotal_values = [
+            region,
+            "Region Total",
+            "",
+            sum(row["total_submissions"] for row in region_rows),
+            sum(row["total_outlets"] for row in region_rows),
+            f"{sum(1 for row in region_rows if row['total_submissions'] > 0)}/{len(region_rows)} dealers submitted",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ]
+        for col, value in enumerate(subtotal_values, start=1):
+            ws.cell(current_row, col).value = value
         current_row += 1
 
-    _style_summary_sheet(ws)
+    _apply_summary_styles(ws)
+
+    headers = [
+        "Date",
+        "Region",
+        "Dealer",
+        "Outlet Name",
+        "Phone Number Outlet",
+        "Outlet Type",
+        "Stock Status",
+        "Freshness Date",
+        "<5",
+        "Product Competitor",
+        "Movement Lead",
+        "Link Map",
+    ]
+    for col, header in enumerate(headers, start=1):
+        detail_ws.cell(1, col).value = header
+
+    for row_index, row in enumerate(detail_rows, start=2):
+        values = [
+            row.get("date"),
+            row.get("region"),
+            row.get("dealer"),
+            row.get("outlet_name"),
+            row.get("phone_number"),
+            row.get("outlet_type"),
+            row.get("stock_status"),
+            row.get("freshness_date"),
+            row.get("movement_lt5"),
+            row.get("product_competitor"),
+            row.get("movement_lead"),
+            "Open Map" if row.get("link_map") else "",
+        ]
+        for col, value in enumerate(values, start=1):
+            detail_ws.cell(row_index, col).value = value
+        if isinstance(row.get("date"), date):
+            detail_ws.cell(row_index, 1).number_format = "dd/mm/yyyy"
+        link = row.get("link_map")
+        if link:
+            detail_ws.cell(row_index, 12).hyperlink = link
+            detail_ws.cell(row_index, 12).style = "Hyperlink"
+
+    _apply_detail_styles(detail_ws, max(2, len(detail_rows) + 1))
     wb.save(output_path)
     return output_path
