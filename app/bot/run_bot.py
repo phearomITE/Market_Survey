@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
+    alert_submit_cmd,
     debug_kobo_cmd,
-    export_cmd,
     help_cmd,
     report_cmd,
     report_multi_cmd,
@@ -21,9 +21,19 @@ from app.bot.handlers import (
 from app.core.config import settings
 from app.db.database import init_db
 from app.kobo.sync import sync_kobo
+from app.services.submission_alert_service import (
+    alert_was_sent,
+    format_submission_alert,
+    local_now,
+    mark_alert_sent,
+    parse_hhmm,
+    release_alert_claim,
+    resolve_alert_target,
+)
 
 
 _auto_sync_task: asyncio.Task | None = None
+_submit_alert_task: asyncio.Task | None = None
 _last_auto_sync: dict | None = None
 
 
@@ -63,20 +73,146 @@ async def _auto_sync_loop() -> None:
         await asyncio.sleep(interval_seconds)
 
 
+
+def _submit_alert_schedules() -> list[tuple[str, int]]:
+    return [
+        (settings.submit_alert_first_time, int(settings.submit_alert_first_threshold)),
+        (settings.submit_alert_second_time, int(settings.submit_alert_second_threshold)),
+    ]
+
+
+async def _send_scheduled_submit_alert(
+    app: Application,
+    report_date,
+    threshold: int,
+    schedule_value: str,
+) -> bool:
+    chat_id, thread_id = await asyncio.to_thread(resolve_alert_target)
+    if chat_id is None:
+        print(
+            "⚠️ Submit alert target is not configured. Run /alert_submit once in "
+            "the Telegram General group or set SUBMIT_ALERT_CHAT_ID."
+        )
+        return True
+
+    scheduled = parse_hhmm(schedule_value, "09:30")
+    display_time = scheduled.strftime("%I:%M %p").lstrip("0")
+
+    if await asyncio.to_thread(
+        alert_was_sent,
+        report_date,
+        threshold,
+        schedule_value,
+        chat_id,
+    ):
+        return True
+
+    # Reserve the unique history row before sending so overlapping Railway
+    # containers cannot both post the same scheduled alert.
+    claimed = await asyncio.to_thread(
+        mark_alert_sent,
+        report_date,
+        threshold,
+        schedule_value,
+        chat_id,
+    )
+    if not claimed:
+        return True
+
+    try:
+        text = await asyncio.to_thread(
+            format_submission_alert,
+            report_date,
+            threshold,
+            None,
+            display_time,
+        )
+        kwargs = {"chat_id": chat_id, "text": text}
+        if thread_id:
+            kwargs["message_thread_id"] = thread_id
+        await app.bot.send_message(**kwargs)
+        print(
+            f"✅ Submit alert sent: date={report_date} threshold=<{threshold} "
+            f"time={display_time} chat={chat_id}"
+        )
+        return True
+    except Exception as exc:
+        await asyncio.to_thread(
+            release_alert_claim,
+            report_date,
+            threshold,
+            schedule_value,
+            chat_id,
+        )
+        print(f"⚠️ Scheduled submit alert failed: {exc}")
+        return False
+
+
+async def _submit_alert_loop(app: Application) -> None:
+    """Send daily dealer submission alerts in Asia/Phnom_Penh time."""
+    grace_minutes = max(1, int(settings.submit_alert_grace_minutes or 30))
+    schedule_text = ", ".join(
+        f"{value} (<{threshold})" for value, threshold in _submit_alert_schedules()
+    )
+    print(f"⏰ Submit alerts enabled: {schedule_text} [{settings.app_timezone}]")
+
+    while True:
+        try:
+            now = local_now()
+            attempted = False
+            failed = False
+
+            for schedule_value, threshold in _submit_alert_schedules():
+                scheduled_time = parse_hhmm(schedule_value, "09:30")
+                scheduled_at = now.replace(
+                    hour=scheduled_time.hour,
+                    minute=scheduled_time.minute,
+                    second=0,
+                    microsecond=0,
+                )
+                grace_end = scheduled_at + timedelta(minutes=grace_minutes)
+
+                if scheduled_at <= now < grace_end:
+                    attempted = True
+                    ok = await _send_scheduled_submit_alert(
+                        app,
+                        now.date(),
+                        threshold,
+                        schedule_value,
+                    )
+                    failed = failed or not ok
+
+            if failed:
+                await asyncio.sleep(60)
+                continue
+
+            # Check once per minute. This also catches a Railway restart inside
+            # the configured grace window without sending stale alerts hours late.
+            await asyncio.sleep(60 if attempted else 30)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"⚠️ Submit alert scheduler error: {exc}")
+            await asyncio.sleep(60)
+
+
 async def _post_init(app: Application) -> None:
-    global _auto_sync_task
+    global _auto_sync_task, _submit_alert_task
     if settings.auto_sync_enabled:
         _auto_sync_task = asyncio.create_task(_auto_sync_loop())
+    if settings.submit_alert_enabled:
+        _submit_alert_task = asyncio.create_task(_submit_alert_loop(app))
 
 
 async def _post_shutdown(app: Application) -> None:
-    global _auto_sync_task
-    if _auto_sync_task:
-        _auto_sync_task.cancel()
-        try:
-            await _auto_sync_task
-        except asyncio.CancelledError:
-            pass
+    global _auto_sync_task, _submit_alert_task
+    for task in (_auto_sync_task, _submit_alert_task):
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 def _safe_database_target() -> str:
@@ -121,7 +257,7 @@ def main():
     app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
-    app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
 
     print("✅ KB Market Survey Bot running...")
     app.run_polling(close_loop=False)

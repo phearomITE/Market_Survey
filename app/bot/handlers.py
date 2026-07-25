@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
+
 
 from telegram import Update, InputFile
 from telegram.ext import ContextTypes
@@ -13,11 +15,17 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
-    generate_data_export,
     parse_multi_report_command_args,
     parse_report_command_args,
 )
 from app.services.render_service import excel_to_png, excel_to_pdf
+from app.services.submission_alert_service import (
+    current_manual_threshold,
+    format_submission_alert,
+    local_now,
+    resolve_alert_target,
+    save_group_alert_target,
+)
 
 HELP_TEXT = """
 ✅ KB Market Survey Bot
@@ -32,14 +40,16 @@ Commands:
 /report_today
 /report_today 2026-06-06
 /summary 2026-07-05
-/export 2026-07-18
+/alert_submit
+/alert_submit 10
+/alert_submit 2026-07-25 20
 /help
 
 /report = generate one dealer report and send large PNG file preview first, then Excel only.
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/export = generate Summary_Data and Location_Outlet using the approved template.
+/alert_submit = manually send the current dealer submit-count alert.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -252,14 +262,10 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     rdate = context.args[0].strip()
-    wait = await update.effective_message.reply_text(
-        f"📊 Generating Region/Dealer summary for {rdate} from the latest synced data..."
-    )
+    wait = await update.effective_message.reply_text(f"📊 Generating Region/Dealer summary for {rdate}...")
     try:
+        await _maybe_sync_before_report(update.effective_message)
         path, text = await asyncio.to_thread(generate_region_dealer_summary, rdate)
-        if not path:
-            await wait.edit_text(f"⚠️ {text}")
-            return
         await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
@@ -268,25 +274,78 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.effective_message.reply_text("Usage: /export 2026-07-18")
+
+def _parse_alert_submit_args(args: list[str] | tuple[str, ...]):
+    """Parse /alert_submit [date] [threshold]."""
+    report_date = local_now().date()
+    threshold = current_manual_threshold()
+
+    for raw in args:
+        token = str(raw or "").strip()
+        if not token:
+            continue
+        if len(token) == 10 and token[4] == "-" and token[7] == "-":
+            try:
+                report_date = datetime.strptime(token, "%Y-%m-%d").date()
+            except ValueError as exc:
+                raise ValueError("Date must use YYYY-MM-DD, for example 2026-07-25.") from exc
+            continue
+        if token.isdigit():
+            threshold = int(token)
+            continue
+        raise ValueError(
+            "Usage: /alert_submit, /alert_submit 10, or /alert_submit 2026-07-25 20"
+        )
+
+    if threshold <= 0 or threshold > 1000:
+        raise ValueError("Threshold must be between 1 and 1000.")
+    return report_date, threshold
+
+
+async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually send dealer submit-count alert and register the General group."""
+    try:
+        report_date, threshold = _parse_alert_submit_args(context.args)
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ {exc}")
         return
 
-    rdate = context.args[0].strip()
     wait = await update.effective_message.reply_text(
-        f"📦 Generating market survey data export for {rdate} from the latest synced data..."
+        f"🔎 Checking dealer submissions for {report_date} (<{threshold})..."
     )
+
     try:
-        path, text = await asyncio.to_thread(generate_data_export, rdate)
-        if not path:
-            await wait.edit_text(f"⚠️ {text}")
+        now = local_now()
+        text = await asyncio.to_thread(
+            format_submission_alert,
+            report_date,
+            threshold,
+            None,
+            now.strftime("%I:%M %p"),
+        )
+
+        chat = update.effective_chat
+        if chat and chat.type in {"group", "supergroup"}:
+            # The command should be run in the Telegram General topic. Save only
+            # the group ID; future automatic messages omit message_thread_id and
+            # therefore post to General.
+            await asyncio.to_thread(save_group_alert_target, chat.id)
+            await wait.edit_text(text)
             return
-        await wait.edit_text(f"✅ {text}\n📎 Uploading data export...")
-        with path.open("rb") as file_obj:
-            await update.effective_message.reply_document(
-                document=InputFile(file_obj, filename=path.name),
-                caption=f"📤 Market survey data export ({rdate})",
+
+        target_chat_id, thread_id = await asyncio.to_thread(resolve_alert_target)
+        if target_chat_id is None:
+            await wait.edit_text(
+                text
+                + "\n\n⚠️ Auto-alert group is not configured. Run /alert_submit once "
+                "inside the target Telegram General group, or set SUBMIT_ALERT_CHAT_ID."
             )
+            return
+
+        kwargs = {"chat_id": target_chat_id, "text": text}
+        if thread_id:
+            kwargs["message_thread_id"] = thread_id
+        await context.bot.send_message(**kwargs)
+        await wait.edit_text("✅ Submit-count alert sent to the configured Telegram group.")
     except Exception as exc:
-        await wait.edit_text(f"❌ Export failed: {exc}")
+        await wait.edit_text(f"❌ Submit alert failed: {exc}")
