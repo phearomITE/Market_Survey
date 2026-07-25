@@ -352,7 +352,7 @@ def average_int(values: list[Any]) -> int | None:
 
 
 def movement_average(values: list[Any]) -> float | None:
-    """Return raw average movement score from outlet submissions."""
+    """Return raw average from entered movement scores only."""
     nums = [to_float(v) for v in values]
     nums = [v for v in nums if v is not None]
     if not nums:
@@ -1056,69 +1056,71 @@ def _loose_movement_value(payload: dict, product: str, is_competitor: bool) -> i
 
 
 def _movement_from_payload(payload: dict, product: str, is_competitor: bool) -> int | None:
-    """Read product movement directly from Kobo payload/wide row.
+    """Return only a movement score that was actually submitted.
 
-    Order:
-    1. Known aliases from XLSForm/template labels.
-    2. Loose scan of all wide-table/raw payload columns.
-    3. Status-to-movement fallback.
+    Movement is never inferred from Sale Status. This is important because an
+    unanswered numeric Kobo field can be stored as 0 in a wide/database row.
+    Those synthetic zeros must not increase the denominator.
+
+    Rules:
+    - Positive scores 1..10 are included when found in the movement field.
+    - Score 0 is included only when status is Sale/Fast Sale, which indicates
+      the movement question was genuinely answered with 0.
+    - Blank, no-sale, out-of-range and invalid values return None.
     """
     keys = competitor_field(product, "mov") if is_competitor else product_field(product, "mov")
     value = first_value(payload, keys)
-    mov = to_int(value)
-    if mov is not None:
-        return mov
+    movement = to_int(value)
 
-    # Critical fallback for renamed/sanitized columns such as GB Original.
-    mov = _loose_movement_value(payload, product, is_competitor)
-    if mov is not None:
-        return mov
+    if movement is None:
+        # Compatibility fallback for renamed/sanitized wide-table columns.
+        movement = _loose_movement_value(payload, product, is_competitor)
 
-    status_keys = competitor_field(product, "status") if is_competitor else product_field(product, "status")
-    status_value = first_value(payload, status_keys)
+    if movement is None or movement < 0 or movement > 10:
+        return None
 
-# For competitors, blank status should NOT become 0.
-# Only use status fallback when the user actually answered status.
-    if status_value not in (None, ""):
-       return _status_to_mov(status_value)
+    if movement == 0:
+        status_keys = competitor_field(product, "status") if is_competitor else product_field(product, "status")
+        status = first_value(payload, status_keys)
+        status_text = str(status or "").strip()
+        if status_text.lower() not in STATUS_AVAILABLE and status_text not in STATUS_AVAILABLE:
+            return None
 
-    return None
+    return movement
 
 def _metric_or_payload_movement(submission: Any, metric: Any, product: str, is_competitor: bool) -> int | None:
-    """Use metric table movement first, then fallback to raw Kobo payload."""
-    mov = _value(metric, "movement_score")
-    if mov is not None:
-        return to_int(mov)
-    return _movement_from_payload(_payload_of_submission(submission), product, is_competitor)
+    """Read a genuinely submitted movement value from raw payload or metric.
 
+    Raw payload is preferred because it preserves the difference between a
+    blank movement and a real numeric zero. Metric-only legacy rows are accepted
+    only when their value/status combination proves the score was answered.
+    """
+    payload = _payload_of_submission(submission)
+    if payload:
+        return _movement_from_payload(payload, product, is_competitor)
 
-def _include_movement_value(value: Any, is_competitor: bool) -> bool:
-    """Decide whether a movement value should be included in averaging.
+    movement = to_int(_value(metric, "movement_score"))
+    if movement is None or movement < 0 or movement > 10:
+        return None
 
-    Important for competitor products:
-    In the KoBo wide export, blank competitor fields can appear as 0. Those 0s
-    mean "not answered / not selected", not a real movement score. If we include
-    those zeros, GB Original values like [7, 2, 10, 10, 10, 10] become polluted
-    as [10, 0, 10, 0, ...] and the final movement incorrectly becomes 2.
+    if movement == 0:
+        status = str(_value(metric, "status") or "").strip()
+        if status.lower() not in STATUS_AVAILABLE and status not in STATUS_AVAILABLE:
+            return None
 
-    Rule:
-    - Own products: keep 0 because own-product no-sale/0 can be meaningful.
-    - Competitors: ignore 0 and blanks; count only filled competitor ratings 1-10.
+    return movement
+
+def _include_movement_value(value: Any, is_competitor: bool = False) -> bool:
+    """Validate one already-detected submitted movement score.
+
+    Both own and competitor products now follow the same denominator rule.
+    Blank/no-sale values are removed earlier by the movement readers. A real
+    submitted score from 0 through 10 is valid here.
     """
     if value in (None, "", "nan"):
         return False
-
-    mov = to_int(value)
-    if mov is None:
-        return False
-
-    if is_competitor and mov == 0:
-        return False
-
-    return True
-
-
-
+    movement = to_int(value)
+    return movement is not None and 0 <= movement <= 10
 
 def _metric_or_payload_value(submission: Any, metric: Any, product: str, field: str, is_competitor: bool):
     """Generic fallback reader for report fields.
@@ -1219,20 +1221,17 @@ def _movement_from_wide_or_metric(
     is_competitor: bool,
     wide_map: dict[str, dict[str, Any]],
 ) -> int | None:
-    """Use kobo_submissions_wide first, then metric table fallback.
+    """Read submitted movement once, preferring the Kobo wide row.
 
-    Wide table values are closest to the raw Kobo submitted fields and are not
-    affected by old metric product-name aliases. This is especially important
-    after renaming `GB  Original` to `GB Original`.
+    When a wide row exists and its movement cell is blank, return None directly.
+    Do not fall back to a stale metric-table zero, because that would incorrectly
+    count an unanswered outlet in the movement average.
     """
     wide_payload = _wide_payload_for_submission(submission, wide_map)
     if wide_payload:
-        mov = _movement_from_payload(wide_payload, product, is_competitor)
-        if mov is not None:
-            return mov
+        return _movement_from_payload(wide_payload, product, is_competitor)
 
     return _metric_or_payload_movement(submission, metric, product, is_competitor)
-
 
 def _value_from_wide_or_metric(
     submission: Any,
@@ -1319,7 +1318,10 @@ def aggregate_submissions(submissions: list) -> dict:
 
         movement_values = [
             v for s, m in zip(submissions, metrics)
-            if (v := _movement_from_wide_or_metric(s, m, product, is_competitor=False, wide_map=wide_map)) is not None
+            if _include_movement_value(
+                (v := _movement_from_wide_or_metric(s, m, product, is_competitor=False, wide_map=wide_map)),
+                is_competitor=False,
+            )
         ]
 
         volume_values = [
@@ -1335,6 +1337,7 @@ def aggregate_submissions(submissions: list) -> dict:
             ]),
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
+            "_mov_count": len(movement_values),
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1375,6 +1378,7 @@ def aggregate_submissions(submissions: list) -> dict:
         cdata: dict[str, Any] = {
             "mov": final_offtake_movement(movement_values),
             "_mov_avg": movement_average(movement_values),
+            "_mov_count": len(movement_values),
             "_movement_values": movement_values,
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
