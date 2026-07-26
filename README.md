@@ -104,25 +104,19 @@ Railway should then automatically build and deploy the new GitHub commit. After 
 /report CPH2 2026-07-14
 ```
 
-## Manual dealer submission alert
 
-Dealer submission alerts run only when a user sends a command. There is no 9:30 AM or 10:30 AM background schedule.
+## Raw movement export
+
+Commands:
 
 ```text
-/alert_submit                    # today: show both <10 and <20
-/alert_submit 10                 # today: only <10
-/alert_submit 20                 # today: only <20
-/alert_submit 2026-07-25         # selected date: both sections
-/alert_submit 2026-07-25 10      # selected date: only <10
+/raw_movement 2026-07-25
+/raw_movement CHANNEL SPECIALIST 2026-07-25
 ```
 
-## V71: Fast export and unified final movement
+The generated workbook contains:
 
-- `/export YYYY-MM-DD` is registered in Telegram and generates `Summary_Data` and `Location_Outlet`.
-- `/report`, `/summary`, and `/export` use the same shared final movement values.
-- Movement average uses only explicitly submitted positive scores from 1 to 10. Blank and zero values are excluded.
-- The product with the highest raw average in each comparison group is raised to 10.
-- The same increase is added to every other scored product in that group.
-- Duplicate positive final ratings are resolved by raw-average ranking, so each comparison group has one Movement 10.
-- Bulk summary/export analytics use batched Kobo-wide queries and an in-memory snapshot cache.
-- Dealer submission alerts are manual only with `/alert_submit`; no 09:30 or 10:30 scheduler runs.
+- `Raw_Movement`: Date, Region, Dealer, Product, Movement Rate. One row per explicitly submitted 1-10 movement score.
+- `All_Products`: Date, Region, Dealer, followed by all 57 products as columns. Each cell is the raw average before final movement normalization.
+
+Blank values, status-only answers, zero placeholders, and final-summary control rows are excluded. The GENERAL command uses the same outlet-type scope as the General final report.
