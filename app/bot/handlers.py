@@ -20,11 +20,9 @@ from app.services.report_service import (
 )
 from app.services.render_service import excel_to_png, excel_to_pdf
 from app.services.submission_alert_service import (
-    current_manual_threshold,
+    dealer_submission_counts,
     format_submission_alert,
     local_now,
-    resolve_alert_target,
-    save_group_alert_target,
 )
 
 HELP_TEXT = """
@@ -272,13 +270,13 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
 
-
-
-
 def _parse_alert_submit_args(args: list[str] | tuple[str, ...]):
-    """Parse /alert_submit [date] [threshold]."""
+    """Parse /alert_submit [YYYY-MM-DD] [10|20].
+
+    With no threshold, both <10 and <20 sections are returned.
+    """
     report_date = local_now().date()
-    threshold = current_manual_threshold()
+    threshold: int | None = None
 
     for raw in args:
         token = str(raw or "").strip()
@@ -294,58 +292,42 @@ def _parse_alert_submit_args(args: list[str] | tuple[str, ...]):
             threshold = int(token)
             continue
         raise ValueError(
-            "Usage: /alert_submit, /alert_submit 10, or /alert_submit 2026-07-25 20"
+            "Usage: /alert_submit, /alert_submit 10, /alert_submit 20, "
+            "or /alert_submit 2026-07-25 10"
         )
 
-    if threshold <= 0 or threshold > 1000:
-        raise ValueError("Threshold must be between 1 and 1000.")
-    return report_date, threshold
+    if threshold is not None and threshold not in {10, 20}:
+        raise ValueError("Threshold must be 10 or 20.")
+
+    thresholds = [threshold] if threshold is not None else [10, 20]
+    return report_date, thresholds
 
 
 async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually send dealer submit-count alert and register the General group."""
+    """Generate dealer submission alerts only when this command is used."""
     try:
-        report_date, threshold = _parse_alert_submit_args(context.args)
+        report_date, thresholds = _parse_alert_submit_args(context.args)
     except ValueError as exc:
         await update.effective_message.reply_text(f"❌ {exc}")
         return
 
+    threshold_label = " and ".join(f"<{value}" for value in thresholds)
     wait = await update.effective_message.reply_text(
-        f"🔎 Checking dealer submissions for {report_date} (<{threshold})..."
+        f"🔎 Checking dealer submissions for {report_date} ({threshold_label})..."
     )
 
     try:
-        now = local_now()
-        text = await asyncio.to_thread(
-            format_submission_alert,
-            report_date,
-            threshold,
-            None,
-            now.strftime("%I:%M %p"),
-        )
-
-        chat = update.effective_chat
-        if chat and chat.type in {"group", "supergroup"}:
-            # The command should be run in the Telegram General topic. Save only
-            # the group ID; future automatic messages omit message_thread_id and
-            # therefore post to General.
-            await asyncio.to_thread(save_group_alert_target, chat.id)
-            await wait.edit_text(text)
-            return
-
-        target_chat_id, thread_id = await asyncio.to_thread(resolve_alert_target)
-        if target_chat_id is None:
-            await wait.edit_text(
-                text
-                + "\n\n⚠️ Auto-alert group is not configured. Run /alert_submit once "
-                "inside the target Telegram General group, or set SUBMIT_ALERT_CHAT_ID."
-            )
-            return
-
-        kwargs = {"chat_id": target_chat_id, "text": text}
-        if thread_id:
-            kwargs["message_thread_id"] = thread_id
-        await context.bot.send_message(**kwargs)
-        await wait.edit_text("✅ Submit-count alert sent to the configured Telegram group.")
+        # One database query is reused for both threshold sections.
+        counts = await asyncio.to_thread(dealer_submission_counts, report_date)
+        sections = [
+            format_submission_alert(report_date, threshold, counts)
+            for threshold in thresholds
+        ]
+        # Keep each alert below Telegram's message-size limit. With no argument,
+        # edit the waiting message with <10 and send <20 as a second message.
+        await wait.edit_text(sections[0])
+        for section in sections[1:]:
+            await update.effective_message.reply_text(section)
     except Exception as exc:
         await wait.edit_text(f"❌ Submit alert failed: {exc}")
+

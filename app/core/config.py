@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Dealer submission-count alerts. The dedicated chat ID overrides
     # TELEGRAM_CHAT_ID. Leave SUBMIT_ALERT_THREAD_ID empty/0 to post in the
     # Telegram forum General topic.
-    submit_alert_enabled: bool = True
+    submit_alert_enabled: bool = False
     submit_alert_chat_id: str = ""
     submit_alert_thread_id: str = ""
     submit_alert_first_time: str = "09:30"

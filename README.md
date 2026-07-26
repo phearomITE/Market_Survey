@@ -119,3 +119,15 @@ The `Detail` sheet lists only outlets with an explicitly submitted CB LITE NCP
 movement score from 0 to 4, including stock, BBE, dealer competitor leader, and
 a clickable Google Maps link created from latitude/longitude. Summary movement
 uses the same final normalized General-report values as `/report`.
+
+## Manual dealer submission alert
+
+Dealer submission alerts run only when a user sends a command. There is no 9:30 AM or 10:30 AM background schedule.
+
+```text
+/alert_submit                    # today: show both <10 and <20
+/alert_submit 10                 # today: only <10
+/alert_submit 20                 # today: only <20
+/alert_submit 2026-07-25         # selected date: both sections
+/alert_submit 2026-07-25 10      # selected date: only <10
+```
