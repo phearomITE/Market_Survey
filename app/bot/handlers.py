@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 
-
 from telegram import Update, InputFile
 from telegram.ext import ContextTypes
 
@@ -15,6 +14,7 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
+    generate_data_export,
     parse_multi_report_command_args,
     parse_report_command_args,
 )
@@ -38,16 +38,15 @@ Commands:
 /report_today
 /report_today 2026-06-06
 /summary 2026-07-05
-/alert_submit
-/alert_submit 10
-/alert_submit 2026-07-25 20
+/export 2026-07-18
 /help
 
 /report = generate one dealer report and send large PNG file preview first, then Excel only.
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/alert_submit = manually send the current dealer submit-count alert.
+/alert_submit = manually show dealer submission counts; no automatic schedule.
+/export = generate Summary_Data and Location_Outlet using the approved template.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -269,6 +268,31 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
+
+
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.effective_message.reply_text("Usage: /export 2026-07-18")
+        return
+
+    rdate = context.args[0].strip()
+    wait = await update.effective_message.reply_text(
+        f"📦 Generating market survey data export for {rdate}..."
+    )
+    try:
+        path, text = await asyncio.to_thread(generate_data_export, rdate)
+        if not path:
+            await wait.edit_text(f"⚠️ {text}")
+            return
+        await wait.edit_text(f"✅ {text}\n📎 Uploading data export...")
+        with path.open("rb") as file_obj:
+            await update.effective_message.reply_document(
+                document=InputFile(file_obj, filename=path.name),
+                caption=f"📤 Market survey data export ({rdate})",
+            )
+    except Exception as exc:
+        await wait.edit_text(f"❌ Export failed: {exc}")
 
 def _parse_alert_submit_args(args: list[str] | tuple[str, ...]):
     """Parse /alert_submit [YYYY-MM-DD] [10|20].

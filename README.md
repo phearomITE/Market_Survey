@@ -104,22 +104,6 @@ Railway should then automatically build and deploy the new GitHub commit. After 
 /report CPH2 2026-07-14
 ```
 
-## V66 summary movement totals and outlet detail
-
-`/summary YYYY-MM-DD` now includes six management totals:
-
-- dealers whose final CB LITE NCP movement is `<5`
-- dealers in `5 to 8`
-- dealers in `9 to 10`
-- dealers led by `GB SNOW NCP = 10`
-- dealers led by `Hanuman LITE NCP = 10`
-- dealers led by `Greet LITE NCP = 10`
-
-The `Detail` sheet lists only outlets with an explicitly submitted CB LITE NCP
-movement score from 0 to 4, including stock, BBE, dealer competitor leader, and
-a clickable Google Maps link created from latitude/longitude. Summary movement
-uses the same final normalized General-report values as `/report`.
-
 ## Manual dealer submission alert
 
 Dealer submission alerts run only when a user sends a command. There is no 9:30 AM or 10:30 AM background schedule.
@@ -131,3 +115,14 @@ Dealer submission alerts run only when a user sends a command. There is no 9:30 
 /alert_submit 2026-07-25         # selected date: both sections
 /alert_submit 2026-07-25 10      # selected date: only <10
 ```
+
+## V71: Fast export and unified final movement
+
+- `/export YYYY-MM-DD` is registered in Telegram and generates `Summary_Data` and `Location_Outlet`.
+- `/report`, `/summary`, and `/export` use the same shared final movement values.
+- Movement average uses only explicitly submitted positive scores from 1 to 10. Blank and zero values are excluded.
+- The product with the highest raw average in each comparison group is raised to 10.
+- The same increase is added to every other scored product in that group.
+- Duplicate positive final ratings are resolved by raw-average ranking, so each comparison group has one Movement 10.
+- Bulk summary/export analytics use batched Kobo-wide queries and an in-memory snapshot cache.
+- Dealer submission alerts are manual only with `/alert_submit`; no 09:30 or 10:30 scheduler runs.

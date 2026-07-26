@@ -63,8 +63,8 @@ def _product_metrics_from_flat(flat: dict) -> list[dict]:
         status = first_value(flat, product_field(product, "status"))
         score = first_value(flat, product_field(product, "mov"))
         movement = to_int(score)
-        if movement is None:
-            movement = _status_to_mov(status)
+        if movement is None or not 1 <= movement <= 10:
+            movement = None
         available = False
         if status not in (None, ""):
             available = str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
@@ -117,8 +117,8 @@ def _competitor_metrics_from_flat(flat: dict) -> list[dict]:
         status = first_value(flat, competitor_field(product, "status"))
         score = first_value(flat, competitor_field(product, "mov"))
         movement = to_int(score)
-        if movement is None:
-            movement = _status_to_mov(status)
+        if movement is None or not 1 <= movement <= 10:
+            movement = None
         rows.append(
             {
                 "product_name": product,

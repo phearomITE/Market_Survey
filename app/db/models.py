@@ -37,7 +37,7 @@ class KoboSubmission(Base):
 
     outlet_name: Mapped[str | None] = mapped_column(String(255))
     outlet_type: Mapped[str | None] = mapped_column(String(80), index=True)
-    summary_report_type: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    summary_report_type: Mapped[str | None] = mapped_column(String(40), index=True)
     is_new_outlet: Mapped[bool | None] = mapped_column(Boolean)
 
     submitter_name: Mapped[str | None] = mapped_column(String(255))
@@ -129,39 +129,3 @@ class SyncLog(Base):
     synced: Mapped[int | None] = mapped_column(Integer)
     skipped: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-
-class SubmissionAlertHistory(Base):
-    """One record per successful automatic submit-count alert."""
-    __tablename__ = "submission_alert_history"
-    __table_args__ = (
-        UniqueConstraint(
-            "alert_date",
-            "threshold",
-            "scheduled_time",
-            "chat_id",
-            name="uq_submission_alert_history",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    alert_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    threshold: Mapped[int] = mapped_column(Integer, nullable=False)
-    scheduled_time: Mapped[str] = mapped_column(String(10), nullable=False)
-    chat_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-
-class SubmissionAlertTarget(Base):
-    """Persist the Telegram General group used for automatic alerts."""
-    __tablename__ = "submission_alert_target"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    chat_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    thread_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        nullable=False,
-    )

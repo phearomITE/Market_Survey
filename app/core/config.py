@@ -24,18 +24,6 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
-    # Dealer submission-count alerts. The dedicated chat ID overrides
-    # TELEGRAM_CHAT_ID. Leave SUBMIT_ALERT_THREAD_ID empty/0 to post in the
-    # Telegram forum General topic.
-    submit_alert_enabled: bool = False
-    submit_alert_chat_id: str = ""
-    submit_alert_thread_id: str = ""
-    submit_alert_first_time: str = "09:30"
-    submit_alert_first_threshold: int = 10
-    submit_alert_second_time: str = "10:30"
-    submit_alert_second_threshold: int = 20
-    submit_alert_grace_minutes: int = 30
-
     template_path: str = "templates/template_by_dealer.xlsx"
     export_dir: str = "exports"
     auto_sync_before_report: bool = False

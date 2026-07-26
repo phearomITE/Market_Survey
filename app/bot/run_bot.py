@@ -9,6 +9,7 @@ from telegram.ext import Application, CommandHandler
 from app.bot.handlers import (
     alert_submit_cmd,
     debug_kobo_cmd,
+    export_cmd,
     help_cmd,
     report_cmd,
     report_multi_cmd,
@@ -61,13 +62,6 @@ async def _auto_sync_loop() -> None:
             print(f"⚠️ Auto sync failed: {exc}")
 
         await asyncio.sleep(interval_seconds)
-
-
-
-
-
-
-
 
 
 
@@ -133,6 +127,7 @@ def main():
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
+    app.add_handler(CommandHandler("export", export_cmd))
 
     print("✅ KB Market Survey Bot running...")
     app.run_polling(close_loop=False)

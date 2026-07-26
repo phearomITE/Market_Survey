@@ -9,12 +9,15 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(
-    settings.db_url,
-    pool_pre_ping=True,
-    pool_recycle=300,
-    connect_args={"connect_timeout": 15},
-)
+_DB_URL = settings.db_url
+_ENGINE_KWARGS = {
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+}
+if not _DB_URL.startswith("sqlite"):
+    _ENGINE_KWARGS["connect_args"] = {"connect_timeout": 15}
+
+engine = create_engine(_DB_URL, **_ENGINE_KWARGS)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

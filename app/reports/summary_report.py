@@ -36,7 +36,6 @@ CB_LITE_ALIASES = {
 CB_LITE_COMPETITORS = [
     "GB SNOW NCP",
     "Hanuman LITE NCP",
-    "Krud LITE NCP",
     "Greet LITE NCP",
 ]
 # The user-approved top KPI block contains exactly these three lead columns.
