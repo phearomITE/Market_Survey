@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import quote
 
-from telegram import Update, InputFile
+from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
@@ -13,7 +14,6 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
-    generate_raw_movement_export,
     parse_multi_report_command_args,
     parse_report_command_args,
 )
@@ -32,15 +32,14 @@ Commands:
 /report_today
 /report_today 2026-06-06
 /summary 2026-07-05
-/raw_movement 2026-07-25
-/raw_movement CHANNEL SPECIALIST 2026-07-25
+/map
+/dashboard
 /help
 
 /report = generate one dealer report and send large PNG file preview first, then Excel only.
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/raw_movement = export raw submitted movement scores and all-product raw averages.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -49,13 +48,62 @@ Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
 """.strip()
 
 
+def _viewer_url(path: str) -> str:
+    base = settings.web_base_url
+    if not base:
+        return ""
+    token = settings.map_viewer_token.strip()
+    return f"{base}{path}?access={quote(token, safe='')}" if token else f"{base}{path}"
+
+
+def _map_keyboard() -> InlineKeyboardMarkup | None:
+    map_url = _viewer_url("/map")
+    dashboard_url = _viewer_url("/dashboard")
+    if not map_url:
+        return None
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🗺 Open Map", web_app=WebAppInfo(url=map_url)),
+            InlineKeyboardButton("📊 Dashboard", web_app=WebAppInfo(url=dashboard_url)),
+        ]
+    ])
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
-    await update.effective_message.reply_text(HELP_TEXT)
+    await update.effective_message.reply_text(HELP_TEXT, reply_markup=_map_keyboard())
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.effective_message.reply_text(HELP_TEXT)
+    await update.effective_message.reply_text(HELP_TEXT, reply_markup=_map_keyboard())
+
+
+async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = _map_keyboard()
+    if keyboard is None:
+        await update.effective_message.reply_text(
+            "⚠️ Set PUBLIC_APP_URL or RAILWAY_PUBLIC_DOMAIN before opening the map."
+        )
+        return
+    await update.effective_message.reply_text(
+        "🗺 Open the live Kobo movement map:",
+        reply_markup=keyboard,
+    )
+
+
+async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = _viewer_url("/dashboard")
+    if not url:
+        await update.effective_message.reply_text(
+            "⚠️ Set PUBLIC_APP_URL or RAILWAY_PUBLIC_DOMAIN before opening the dashboard."
+        )
+        return
+    await update.effective_message.reply_text(
+        "📊 Open the movement dashboard:",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Open Dashboard", web_app=WebAppInfo(url=url))
+        ]]),
+    )
 
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -262,45 +310,3 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
-
-
-
-async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.effective_message.reply_text(
-            "Usage:\n"
-            "/raw_movement 2026-07-25\n"
-            "/raw_movement CHANNEL SPECIALIST 2026-07-25"
-        )
-        return
-
-    parts = [str(value).strip() for value in context.args if str(value).strip()]
-    report_type = "GENERAL"
-    date_text = parts[-1]
-    middle = " ".join(parts[:-1]).strip().upper()
-    if middle in {"CHANNEL", "CHANNEL SPECIALIST", "SPECIALIST", "CS"}:
-        report_type = "CHANNEL_SPECIALIST"
-    elif middle:
-        await update.effective_message.reply_text(
-            "❌ Unknown report type. Use GENERAL (leave blank) or CHANNEL SPECIALIST."
-        )
-        return
-
-    label = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
-    wait = await update.effective_message.reply_text(
-        f"📥 Generating {label} raw movement data for {date_text}..."
-    )
-    try:
-        path, text = await asyncio.to_thread(
-            generate_raw_movement_export,
-            date_text,
-            report_type,
-        )
-        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
-        with path.open("rb") as file_handle:
-            await update.effective_message.reply_document(
-                document=InputFile(file_handle, filename=path.name),
-                caption=f"📥 Raw movement data - {label} ({date_text})",
-            )
-    except Exception as exc:
-        await wait.edit_text(f"❌ Raw movement export failed: {exc}")

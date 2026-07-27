@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>KB Outlet Movement Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/assets/map.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><b>KB</b><span><strong>KB OUTLET MOVEMENT</strong><small>Kobo Survey Intelligence</small></span></div>
+    <nav>
+      <button id="mapTab" class="active">Map</button>
+      <button id="dashboardTab">Dashboard</button>
+      <button id="filterToggle" class="mobile-only">Filters</button>
+      <button id="refresh">↻</button>
+    </nav>
+  </header>
+
+  <main id="mapView">
+    <aside id="filters">
+      <div class="filter-head"><strong>FILTER RESULTS</strong><button id="filterClose">×</button></div>
+      <label>Report Date<input id="reportDate" type="date"></label>
+      <label>Region<select id="region"><option value="">All regions</option></select></label>
+      <label>Dealer<select id="dealer"><option value="">All dealers</option></select></label>
+      <label>Product Category<select id="category"><option value="">All categories</option></select></label>
+      <label>Product<select id="product"><option value="">All products</option></select></label>
+      <label>Movement Rating<select id="movement">
+        <option value="0,10">All scores (0–10)</option>
+        <option value="0,4">Very Low (0–4)</option>
+        <option value="5,8">Medium (5–8)</option>
+        <option value="9,10">Very Strong (9–10)</option>
+      </select></label>
+      <button id="apply" class="primary">Apply Filters</button>
+      <button id="reset">Reset</button>
+    </aside>
+    <section class="map-stage">
+      <div id="map"></div>
+      <div id="mapStats" class="stats"></div>
+      <div class="legend"><strong>MOVEMENT RATING</strong><span><i class="low"></i>0–4 Very Low</span><span><i class="mid"></i>5–8 Medium</span><span><i class="high"></i>9–10 Very Strong</span></div>
+      <div id="message" class="message hidden"></div>
+    </section>
+    <section class="list-panel">
+      <div class="list-head"><strong id="listTitle">OUTLET & PRODUCT LIST</strong><button id="showAll" class="hidden">Show all</button></div>
+      <div class="table-scroll"><table><thead><tr><th>Outlet</th><th>Type</th><th>Phone</th><th>Region</th><th>Dealer</th><th>Product</th><th>Type</th><th>Category</th><th>Stock</th><th>Key Issue</th><th>Movement</th><th>Date</th><th>Navigate</th></tr></thead><tbody id="rows"></tbody></table></div>
+    </section>
+  </main>
+
+  <main id="dashboardView" class="dashboard hidden">
+    <section class="dashboard-hero"><small>LIVE SURVEY OVERVIEW</small><h1>Movement Dashboard</h1><p>Raw product ratings—never averaged.</p></section>
+    <section id="dashCards" class="dash-cards"></section>
+    <section class="dash-grid">
+      <article><h2>Movement Score Distribution</h2><div id="scoreChart" class="bars"></div></article>
+      <article><h2>Own vs Competitor Score 10</h2><div id="winChart" class="win-chart"></div></article>
+      <article><h2>Current Selection</h2><div id="selectionSummary"></div></article>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/assets/map.js"></script>
+</body>
+</html>

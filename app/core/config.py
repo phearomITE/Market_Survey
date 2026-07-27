@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     db_port: int = 5438
     db_name: str = "survey_form_db"
     db_user: str = "postgres"
-    db_password: str = "2005"
+    db_password: str = "change_me"
     database_url: str | None = None
 
     kobo_base_url: str = "https://kf.kobotoolbox.org"
@@ -23,6 +24,9 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    public_app_url: str = ""
+    map_viewer_token: str = ""
+    map_public_view_enabled: bool = True
 
     template_path: str = "templates/template_by_dealer.xlsx"
     export_dir: str = "exports"
@@ -60,5 +64,13 @@ class Settings(BaseSettings):
     def export_path(self) -> Path:
         p = Path(self.export_dir)
         return p if p.is_absolute() else BASE_DIR / p
+
+    @property
+    def web_base_url(self) -> str:
+        explicit = self.public_app_url.strip().rstrip("/")
+        if explicit:
+            return explicit
+        domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().strip("/")
+        return f"https://{domain}" if domain else ""
 
 settings = Settings()

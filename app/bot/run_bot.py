@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import os
+import threading
 from urllib.parse import urlsplit
 
+import uvicorn
 from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
     debug_kobo_cmd,
+    dashboard_cmd,
     help_cmd,
+    map_cmd,
     report_cmd,
     report_multi_cmd,
     report_today_cmd,
-    raw_movement_cmd,
     summary_cmd,
     start,
     status_cmd,
@@ -25,6 +29,21 @@ from app.kobo.sync import sync_kobo
 
 _auto_sync_task: asyncio.Task | None = None
 _last_auto_sync: dict | None = None
+_web_thread: threading.Thread | None = None
+
+
+def _run_web_server() -> None:
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info")
+
+
+def _start_web_server() -> None:
+    global _web_thread
+    if _web_thread and _web_thread.is_alive():
+        return
+    _web_thread = threading.Thread(target=_run_web_server, name="movement-map-web", daemon=True)
+    _web_thread.start()
+    print(f"🌐 Movement map web server starting on PORT={os.getenv('PORT', '8000')}")
 
 
 async def _auto_sync_loop() -> None:
@@ -99,6 +118,7 @@ def main():
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
+    _start_web_server()
 
     app = (
         Application.builder()
@@ -121,8 +141,8 @@ def main():
     app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
-    app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
-    app.add_handler(CommandHandler("movement_raw", raw_movement_cmd))
+    app.add_handler(CommandHandler("map", map_cmd))
+    app.add_handler(CommandHandler("dashboard", dashboard_cmd))
 
     print("✅ KB Market Survey Bot running...")
     app.run_polling(close_loop=False)

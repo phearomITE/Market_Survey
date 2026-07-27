@@ -1,0 +1,63 @@
+KB MARKET SURVEY V75 - MAP + DASHBOARD OVERLAY
+================================================
+
+1. Extract this ZIP over the Railway Git project:
+
+   cd /d/Bot/Market_Survey_Git
+   unzip -o /c/Users/User/Downloads/KB_Market_Survey_V75_MAP_DASHBOARD.zip -d .
+
+2. Add Railway variables:
+
+   PUBLIC_APP_URL=https://YOUR-RAILWAY-PUBLIC-DOMAIN
+   MAP_PUBLIC_VIEW_ENABLED=true
+   MAP_VIEWER_TOKEN=YOUR-LONG-RANDOM-TOKEN
+
+   Railway may supply RAILWAY_PUBLIC_DOMAIN automatically, but setting
+   PUBLIC_APP_URL explicitly is recommended.
+
+3. Validate:
+
+   python -m py_compile \
+     app/core/config.py \
+     app/main.py \
+     app/web/router.py \
+     app/bot/handlers.py \
+     app/bot/run_bot.py \
+     app/services/report_service.py
+
+4. Review and push:
+
+   git status
+
+   git add \
+     app/core/config.py \
+     app/main.py \
+     app/web/__init__.py \
+     app/web/router.py \
+     app/web/map.html \
+     app/web/map.css \
+     app/web/map.js \
+     app/bot/handlers.py \
+     app/bot/run_bot.py \
+     tests/test_v75_map_dashboard.py \
+     V75_MAP_DASHBOARD_DEPLOYMENT.txt
+
+   git commit -m "Add Kobo movement map and dashboard"
+   git push origin main
+
+5. After Railway becomes Active:
+
+   https://YOUR-DOMAIN/map?access=YOUR-LONG-RANDOM-TOKEN
+   https://YOUR-DOMAIN/dashboard?access=YOUR-LONG-RANDOM-TOKEN
+
+6. Telegram:
+
+   /start       -> shows Open Map + Dashboard buttons
+   /map         -> shows map buttons
+   /dashboard   -> shows Dashboard button
+
+Notes:
+- The existing report, raw movement export, V73 summary colors and performance
+  code are not replaced by this overlay.
+- The same Railway service runs the polling bot and the FastAPI website.
+- The map is read-only and reads normalized Kobo PostgreSQL tables.
