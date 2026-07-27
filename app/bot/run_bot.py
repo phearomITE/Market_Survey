@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 from datetime import datetime
 import os
 import threading
@@ -106,6 +107,62 @@ def _safe_database_target() -> str:
         return "configured database"
 
 
+
+
+async def _run_application(app: Application) -> None:
+    """Run Telegram polling inside one active asyncio event loop."""
+    if app.updater is None:
+        raise RuntimeError("Telegram application has no updater")
+
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def request_shutdown() -> None:
+        stop_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, request_shutdown)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    initialized = False
+    polling_started = False
+    application_started = False
+
+    try:
+        await app.initialize()
+        initialized = True
+
+        if app.post_init is not None:
+            await app.post_init(app)
+
+        await app.updater.start_polling()
+        polling_started = True
+
+        await app.start()
+        application_started = True
+
+        print("✅ Telegram polling started")
+        await stop_event.wait()
+
+    finally:
+        if polling_started and app.updater.running:
+            await app.updater.stop()
+
+        if application_started and app.running:
+            await app.stop()
+
+        if app.post_stop is not None:
+            await app.post_stop(app)
+
+        if initialized:
+            await app.shutdown()
+
+        if app.post_shutdown is not None:
+            await app.post_shutdown(app)
+
+
 def main():
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is missing")
@@ -145,8 +202,6 @@ def main():
     app.add_handler(CommandHandler("dashboard", dashboard_cmd))
 
     print("✅ KB Market Survey Bot running...")
-    app.run_polling(close_loop=False)
-
-
+    asyncio.run(_run_application(app))
 if __name__ == "__main__":
     main()
