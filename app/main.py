@@ -1,14 +1,11 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 from app.db.database import init_db
 from app.kobo.sync import sync_kobo
 from app.services.report_service import generate_dealer_report, generate_today_all_dealers
-from app.web.router import router as map_router
+from app.web.router import router as web_router
 
 app = FastAPI(title='KB Market Survey')
-app.include_router(map_router)
-app.mount("/assets", StaticFiles(directory=Path(__file__).resolve().parent / "web"), name="map-assets")
+app.include_router(web_router)
 
 @app.on_event('startup')
 def startup():
@@ -16,12 +13,7 @@ def startup():
 
 @app.get('/')
 def root():
-    return {
-        'status': 'ok',
-        'app': 'KB Market Survey',
-        'map': '/map',
-        'dashboard': '/dashboard',
-    }
+    return {'status': 'ok', 'app': 'KB Market Survey'}
 
 @app.get('/health')
 def health():

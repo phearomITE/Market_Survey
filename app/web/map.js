@@ -1,23 +1,153 @@
-const qs=new URLSearchParams(location.search),access=qs.get("access")||"",state={config:null,data:null,rows:[],focused:null};
-const $=id=>document.getElementById(id),esc=v=>String(v??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const map=L.map("map",{zoomControl:true}).setView([12.56,104.99],7);
-L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Imagery © Esri"}).addTo(map);
-L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Boundaries © Esri"}).addTo(map);
-const markers=L.layerGroup().addTo(map);
-function api(path,params={}){const p=new URLSearchParams({...params,access});return fetch(`${path}?${p}`).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.detail||"Request failed");return j})}
-function options(el,values,all){el.innerHTML=`<option value="">${all}</option>`+values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("")}
-function dealers(){const r=$("region").value;return r?(state.config.regions[r]||[]):[...new Set(Object.values(state.config.regions).flat())].sort()}
-function updateDealers(){options($("dealer"),dealers(),"All dealers")}
-async function init(){try{state.config=await api("/api/map/filters");options($("region"),Object.keys(state.config.regions),"All regions");updateDealers();options($("category"),state.config.categories,"All categories");options($("product"),state.config.products,"All products");await load()}catch(e){showError(e.message)}}
-function params(){const [min,max]=$("movement").value.split(",");return{region:$("region").value,dealer:$("dealer").value,report_date:$("reportDate").value,category:$("category").value,product:$("product").value,movement_min:min,movement_max:max}}
-async function load(){showError("Loading survey movement…");try{state.data=await api("/api/map/data",params());state.rows=state.data.rows;state.focused=null;render();$("message").classList.add("hidden")}catch(e){showError(e.message)}}
-function showError(text){$("message").textContent=text;$("message").classList.remove("hidden")}
-function markerIcon(row){return L.divIcon({className:"",html:`<div style="width:38px;height:38px;display:grid;place-items:center;border:3px solid white;border-radius:50%;color:white;background:${row.movement_color};box-shadow:0 3px 10px #0007;font-weight:800">${row.movement_score}</div>`,iconSize:[38,38],iconAnchor:[19,19]})}
-function render(){markers.clearLayers();const bounds=[];state.rows.forEach((r,i)=>{const angle=(i%12)*Math.PI/6,offset=(i%4)*.00004,lat=r.latitude+Math.sin(angle)*offset,lng=r.longitude+Math.cos(angle)*offset;const m=L.marker([lat,lng],{icon:markerIcon(r)}).addTo(markers);m.bindPopup(`<div class="popup"><h3>${esc(r.outlet_name)}</h3><p>${esc(r.outlet_type)} · ${esc(r.region)} / ${esc(r.dealer)}</p><p><b>${esc(r.product)}</b> (${esc(r.product_source)})</p><p class="rating" style="color:${r.movement_color}">${r.movement_score} / 10</p><p>${esc(r.key_issue)}</p><a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}">Navigate</a></div>`);m.on("click",()=>focus(r.id));bounds.push([lat,lng])});if(bounds.length)map.fitBounds(bounds,{padding:[45,45],maxZoom:15});else map.setView([12.56,104.99],7);renderStats();renderRows(state.rows);renderDashboard()}
-function renderStats(){const s=state.data.summary;$("mapStats").innerHTML=`<div><strong>${s.total_outlets}</strong><small>Outlets</small></div><div><strong>${s.total_ratings}</strong><small>Product ratings</small></div><div><strong>${s.very_strong}</strong><small>Very strong</small></div><div><strong>${s.with_issue}</strong><small>With issue</small></div>`}
-function renderRows(rows){$("listTitle").textContent=`OUTLET & PRODUCT LIST (${rows.length} ratings)`;$("showAll").classList.toggle("hidden",!state.focused);$("rows").innerHTML=rows.map(r=>`<tr data-id="${esc(r.id)}"><td>${esc(r.outlet_name)}</td><td>${esc(r.outlet_type)}</td><td>${esc(r.phone_number)}</td><td>${esc(r.region)}</td><td>${esc(r.dealer)}</td><td>${esc(r.product)}</td><td>${r.product_source==="own"?"Own":"Competitor"}</td><td>${esc(r.category)}</td><td>${esc(r.stock_status)}</td><td>${esc(r.key_issue)}</td><td><span class="score" style="background:${r.movement_color}">${r.movement_score}</span></td><td>${esc(r.report_date)}</td><td><a class="nav-link" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${r.latitude},${r.longitude}">Navigate</a></td></tr>`).join("");document.querySelectorAll("#rows tr").forEach(tr=>tr.onclick=()=>focus(tr.dataset.id))}
-function focus(id){state.focused=id;const row=state.rows.find(r=>r.id===id);if(!row)return;renderRows([row]);map.flyTo([row.latitude,row.longitude],16);document.querySelector(".list-panel").scrollIntoView({behavior:"smooth",block:"start"})}
-function renderDashboard(){const s=state.data.summary,cards=[["Total Outlets",s.total_outlets],["Product Ratings",s.total_ratings],["Own Wins (10)",s.own_wins_10],["Competitor Wins (10)",s.competitor_wins_10],["Very Strong",s.very_strong],["With Key Issue",s.with_issue]];$("dashCards").innerHTML=cards.map(([l,v])=>`<article class="dash-card"><small>${l}</small><strong>${v}</strong></article>`).join("");const max=Math.max(...Object.values(s.by_score),1);$("scoreChart").innerHTML=Object.entries(s.by_score).map(([k,v])=>`<div class="bar"><b>${k}</b><div class="track"><i style="width:${v/max*100}%"></i></div><span>${v}</span></div>`).join("");const winMax=Math.max(s.own_wins_10,s.competitor_wins_10,1);$("winChart").innerHTML=`<div class="win-row"><b>Own products: ${s.own_wins_10}</b><div><i style="width:${s.own_wins_10/winMax*100}%;background:#15803d"></i></div></div><div class="win-row"><b>Competitors: ${s.competitor_wins_10}</b><div><i style="width:${s.competitor_wins_10/winMax*100}%;background:#f59e0b"></i></div></div>`;$("selectionSummary").innerHTML=`<p><b>Date:</b> ${$("reportDate").value||"All dates"}</p><p><b>Region:</b> ${$("region").value||"All regions"}</p><p><b>Dealer:</b> ${$("dealer").value||"All dealers"}</p><p><b>Product:</b> ${$("product").value||"All products"}</p>`}
-function view(name){const dash=name==="dashboard";$("mapView").classList.toggle("hidden",dash);$("dashboardView").classList.toggle("hidden",!dash);$("mapTab").classList.toggle("active",!dash);$("dashboardTab").classList.toggle("active",dash);if(!dash)setTimeout(()=>map.invalidateSize(),50)}
-$("region").onchange=updateDealers;$("apply").onclick=load;$("refresh").onclick=load;$("reset").onclick=()=>{["reportDate","region","dealer","category","product"].forEach(id=>$(id).value="");$("movement").value="0,10";updateDealers();load()};$("showAll").onclick=()=>{state.focused=null;renderRows(state.rows)};$("mapTab").onclick=()=>view("map");$("dashboardTab").onclick=()=>view("dashboard");$("filterToggle").onclick=()=>$("filters").classList.add("open");$("filterClose").onclick=()=>$("filters").classList.remove("open");
-if(location.pathname.includes("dashboard")||qs.get("view")==="dashboard")view("dashboard");init();
+const qs = new URLSearchParams(location.search);
+const access = qs.get("access") || "";
+const state = { data: null, markers: [], selected: null };
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const map = L.map("map", { zoomControl: false }).setView([12.5657, 104.991], 7);
+L.control.zoom({ position: "bottomright" }).addTo(map);
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, attribution: "Imagery © Esri"
+}).addTo(map);
+L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, attribution: "Boundaries © Esri"
+}).addTo(map);
+
+function params() {
+  const p = new URLSearchParams({ access });
+  [["region","region"],["dealer","dealer"],["reportDate","report_date"],["category","category"],["product","product"],["movement","movement"]]
+    .forEach(([id,key]) => { if ($(id).value) p.set(key, $(id).value); });
+  return p;
+}
+
+async function loadData(preserveOptions=false) {
+  $("loading").classList.remove("hidden");
+  try {
+    const response = await fetch(`/api/map/data?${params()}`);
+    if (!response.ok) throw new Error(response.status === 401 ? "Invalid or expired map link." : "Unable to load Kobo movement data.");
+    state.data = await response.json();
+    if (!preserveOptions) populateOptions(state.data.options);
+    renderAll();
+  } catch (error) {
+    $("emptyState").classList.remove("hidden");
+    $("emptyState").innerHTML = `<strong>${esc(error.message)}</strong><span>Check Railway variables and reload.</span>`;
+  } finally {
+    $("loading").classList.add("hidden");
+  }
+}
+
+function fill(id, values, placeholder) {
+  const select = $(id), current = select.value;
+  select.innerHTML = `<option value="">${placeholder}</option>` + values.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  if ([...select.options].some(o => o.value === current)) select.value = current;
+}
+
+function populateOptions(o) {
+  fill("region", o.regions, "All regions");
+  fill("dealer", o.dealers, "All dealers");
+  fill("reportDate", o.dates, "All report dates");
+  fill("category", o.categories, "All categories");
+  fill("product", o.products, "All products");
+  $("dashboardFilters").innerHTML = ["region","dealer","reportDate","category","product","movement"]
+    .map(id => { const clone = $(id).cloneNode(true); clone.id = `dash-${id}`; return clone.outerHTML; }).join("");
+  $("dashboardFilters").querySelectorAll("select").forEach(select => select.addEventListener("change", () => {
+    $(select.id.replace("dash-","")).value = select.value; loadData(true);
+  }));
+}
+
+function renderAll() {
+  renderMarkers(); renderStats(); renderTable(); renderDashboard();
+  $("rowCount").textContent = `(${state.data.rows.length} ratings)`;
+  $("emptyState").classList.toggle("hidden", state.data.rows.length > 0);
+}
+
+function markerIcon(row) {
+  return L.divIcon({
+    className: "", iconSize: [38,38], iconAnchor: [19,19],
+    html: `<div class="score-marker ${row.band}" style="width:38px;height:38px">${row.movement}</div>`
+  });
+}
+
+function renderMarkers() {
+  state.markers.forEach(marker => marker.remove()); state.markers = [];
+  const bounds = [];
+  state.data.rows.forEach(row => {
+    const marker = L.marker([row.latitude,row.longitude], { icon: markerIcon(row), title: `${row.outlet_name} · ${row.product}` })
+      .addTo(map).on("click", () => showDetail(row));
+    state.markers.push(marker); bounds.push([row.latitude,row.longitude]);
+  });
+  if (bounds.length) map.fitBounds(bounds, { padding:[45,45], maxZoom:16 });
+  else map.setView([12.5657,104.991],7);
+}
+
+function renderStats() {
+  const s = state.data.summary;
+  $("stats").innerHTML = [
+    ["⌂",s.outlets,"Outlets"],["●",s.ratings,"Ratings"],["↗",s.very_strong,"Very Strong"],["↘",s.very_low,"Very Low"]
+  ].map(x => `<div class="stat"><b>${x[0]} ${x[1]}</b><span>${x[2]}</span></div>`).join("");
+}
+
+function showDetail(row) {
+  state.selected = row;
+  const destination = `https://www.google.com/maps/dir/?api=1&destination=${row.latitude},${row.longitude}&travelmode=driving`;
+  $("detailCard").innerHTML = `
+    <button class="close-detail" onclick="closeDetail()">×</button>
+    <h2>${esc(row.outlet_name)}</h2><small>${esc(row.outlet_type)}</small>
+    <div class="meta">
+      <span>Phone</span><b>${esc(row.phone||"—")}</b><span>Area</span><b>${esc(row.region)} · ${esc(row.dealer)}</b>
+      <span>Product</span><b>${esc(row.product)}</b><span>Product Type</span><b>${esc(row.product_type)}</b>
+      <span>Category</span><b>${esc(row.category)}</b><span>Stock</span><b>${esc(row.stock_status||"—")}</b>
+    </div>
+    ${row.key_issue ? `<div class="issue"><b>KEY ISSUE</b><p>${esc(row.key_issue)}</p></div>` : ""}
+    <div class="rating"><span>Movement Rating</span><b>${row.movement} / 10</b></div>
+    <div class="meta"><span>Report Date</span><b>${esc(row.report_date||"—")}</b><span>Submitter</span><b>${esc(row.submitter||"—")}</b></div>
+    <div class="actions"><a class="view-list" href="#" onclick="viewInList('${esc(row.id)}');return false">View in List</a><a class="navigate" href="${destination}" target="_blank" rel="noopener">Navigate</a></div>`;
+  $("detailCard").classList.remove("hidden");
+  document.querySelectorAll("tbody tr").forEach(tr => tr.classList.toggle("selected", tr.dataset.id === row.id));
+}
+window.closeDetail = () => $("detailCard").classList.add("hidden");
+window.viewInList = id => {
+  const tr = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+  if (tr) { tr.scrollIntoView({behavior:"smooth",block:"center"}); tr.classList.add("selected"); }
+};
+
+function renderTable() {
+  $("outletRows").innerHTML = state.data.rows.map(row => `<tr data-id="${esc(row.id)}">
+    <td>${esc(row.outlet_name)}</td><td>${esc(row.outlet_type)}</td><td>${esc(row.phone)}</td>
+    <td>${esc(row.region)}</td><td>${esc(row.dealer)}</td><td>${esc(row.product)}</td>
+    <td>${esc(row.product_type)}</td><td>${esc(row.category)}</td><td>${esc(row.stock_status||"—")}</td>
+    <td title="${esc(row.key_issue)}">${esc(row.key_issue||"—")}</td>
+    <td><span class="score-pill ${row.band}">${row.movement}</span></td><td>${esc(row.report_date)}</td>
+  </tr>`).join("");
+  document.querySelectorAll("#outletRows tr").forEach((tr,i) => tr.addEventListener("click", () => showDetail(state.data.rows[i])));
+}
+
+function renderDashboard() {
+  const s = state.data.summary;
+  const cards = [["Outlets",s.outlets],["Product Ratings",s.ratings],["Own Products",s.own_products],["Competitors",s.competitor_products],["Own Wins (10)",s.own_wins],["With Key Issue",s.key_issues]];
+  $("kpiGrid").innerHTML = cards.map(c => `<article class="kpi"><span>${c[0]}</span><b>${c[1]}</b></article>`).join("");
+  renderBars("regionChart",state.data.charts.regions);
+  renderBars("dealerChart",state.data.charts.dealers);
+  renderBars("productChart",state.data.charts.products);
+}
+function renderBars(id, items) {
+  const max = Math.max(1,...items.map(x=>x[1]));
+  $(id).innerHTML = items.length ? items.map(([name,value]) => `<div class="bar-row"><label title="${esc(name)}">${esc(name)}</label><div class="bar"><i style="width:${value/max*100}%"></i></div><b>${value}</b></div>`).join("") : "<p>No matching data</p>";
+}
+
+function setScreen(dashboard) {
+  $("mapScreen").classList.toggle("hidden",dashboard);
+  $("dashboardScreen").classList.toggle("hidden",!dashboard);
+  history.replaceState(null,"",`${dashboard?"/dashboard":"/map"}?access=${encodeURIComponent(access)}`);
+  if (!dashboard) setTimeout(()=>map.invalidateSize(),50);
+}
+$("mapViewBtn").onclick = () => setScreen(false);
+$("dashboardBtn").onclick = () => setScreen(true);
+$("refreshBtn").onclick = () => loadData(true);
+$("applyBtn").onclick = () => { loadData(true); $("filterPanel").classList.remove("open"); };
+$("resetBtn").onclick = () => { ["region","dealer","reportDate","category","product","movement"].forEach(id=>$(id).value=""); loadData(true); };
+$("openFilters").onclick = () => $("filterPanel").classList.add("open");
+$("closeFilters").onclick = () => $("filterPanel").classList.remove("open");
+$("listToggle").onclick = () => $("listPanel").classList.toggle("collapsed");
+setScreen(location.pathname.includes("dashboard"));
+loadData();

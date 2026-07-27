@@ -3,61 +3,93 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>KB Outlet Movement Map</title>
+  <meta name="theme-color" content="#d90429">
+  <title>KB Outlet Movement</title>
+  <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="/assets/map.css">
+  <link rel="stylesheet" href="/web/map.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><b>KB</b><span><strong>KB OUTLET MOVEMENT</strong><small>Kobo Survey Intelligence</small></span></div>
+    <div class="brand">
+      <div class="brand-mark">KB</div>
+      <div><strong>KB OUTLET MOVEMENT</strong><span>Kobo Survey Data</span></div>
+    </div>
     <nav>
-      <button id="mapTab" class="active">Map</button>
-      <button id="dashboardTab">Dashboard</button>
-      <button id="filterToggle" class="mobile-only">Filters</button>
-      <button id="refresh">↻</button>
+      <button id="mapViewBtn" class="nav-btn">🗺 Map</button>
+      <button id="dashboardBtn" class="nav-btn">▦ Dashboard</button>
+      <button id="refreshBtn" class="icon-btn" title="Refresh">↻</button>
     </nav>
   </header>
 
-  <main id="mapView">
-    <aside id="filters">
-      <div class="filter-head"><strong>FILTER RESULTS</strong><button id="filterClose">×</button></div>
-      <label>Report Date<input id="reportDate" type="date"></label>
+  <main id="mapScreen">
+    <aside id="filterPanel" class="filters">
+      <div class="panel-title">
+        <h2>Filters</h2>
+        <button id="closeFilters" class="mobile-only close-btn">×</button>
+      </div>
       <label>Region<select id="region"><option value="">All regions</option></select></label>
       <label>Dealer<select id="dealer"><option value="">All dealers</option></select></label>
+      <label>Report Date<select id="reportDate"><option value="">All report dates</option></select></label>
       <label>Product Category<select id="category"><option value="">All categories</option></select></label>
       <label>Product<select id="product"><option value="">All products</option></select></label>
-      <label>Movement Rating<select id="movement">
-        <option value="0,10">All scores (0–10)</option>
-        <option value="0,4">Very Low (0–4)</option>
-        <option value="5,8">Medium (5–8)</option>
-        <option value="9,10">Very Strong (9–10)</option>
-      </select></label>
-      <button id="apply" class="primary">Apply Filters</button>
-      <button id="reset">Reset</button>
+      <label>Movement Score
+        <select id="movement">
+          <option value="">All scores (0–10)</option>
+          <option value="0-4">0–4 · Very Low</option>
+          <option value="5-8">5–8 · Medium</option>
+          <option value="9-10">9–10 · Very Strong</option>
+        </select>
+      </label>
+      <button id="applyBtn" class="primary">Apply Filters</button>
+      <button id="resetBtn" class="secondary">Reset</button>
     </aside>
-    <section class="map-stage">
+
+    <section class="map-area">
       <div id="map"></div>
-      <div id="mapStats" class="stats"></div>
-      <div class="legend"><strong>MOVEMENT RATING</strong><span><i class="low"></i>0–4 Very Low</span><span><i class="mid"></i>5–8 Medium</span><span><i class="high"></i>9–10 Very Strong</span></div>
-      <div id="message" class="message hidden"></div>
+      <button id="openFilters" class="filter-fab mobile-only">☰ Filters</button>
+      <div id="stats" class="stats"></div>
+      <div class="legend">
+        <strong>MOVEMENT RATING</strong>
+        <span><i class="red"></i>0–4 Very Low</span>
+        <span><i class="yellow"></i>5–8 Medium</span>
+        <span><i class="green"></i>9–10 Very Strong</span>
+      </div>
+      <div id="emptyState" class="empty hidden">
+        <strong>No matching movement ratings</strong>
+        <span>Change filters or synchronize Kobo data.</span>
+      </div>
+      <article id="detailCard" class="detail-card hidden"></article>
     </section>
-    <section class="list-panel">
-      <div class="list-head"><strong id="listTitle">OUTLET & PRODUCT LIST</strong><button id="showAll" class="hidden">Show all</button></div>
-      <div class="table-scroll"><table><thead><tr><th>Outlet</th><th>Type</th><th>Phone</th><th>Region</th><th>Dealer</th><th>Product</th><th>Type</th><th>Category</th><th>Stock</th><th>Key Issue</th><th>Movement</th><th>Date</th><th>Navigate</th></tr></thead><tbody id="rows"></tbody></table></div>
+
+    <section id="listPanel" class="list-panel">
+      <button id="listToggle" class="list-head">OUTLET &amp; PRODUCT LIST <span id="rowCount"></span><b>⌃</b></button>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Outlet</th><th>Type</th><th>Phone</th><th>Region</th><th>Dealer</th>
+            <th>Product</th><th>Product Type</th><th>Category</th><th>Stock</th>
+            <th>Key Issue</th><th>Movement</th><th>Report Date</th>
+          </tr></thead>
+          <tbody id="outletRows"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
-  <main id="dashboardView" class="dashboard hidden">
-    <section class="dashboard-hero"><small>LIVE SURVEY OVERVIEW</small><h1>Movement Dashboard</h1><p>Raw product ratings—never averaged.</p></section>
-    <section id="dashCards" class="dash-cards"></section>
-    <section class="dash-grid">
-      <article><h2>Movement Score Distribution</h2><div id="scoreChart" class="bars"></div></article>
-      <article><h2>Own vs Competitor Score 10</h2><div id="winChart" class="win-chart"></div></article>
-      <article><h2>Current Selection</h2><div id="selectionSummary"></div></article>
-    </section>
-  </main>
+  <section id="dashboardScreen" class="dashboard hidden">
+    <div class="dashboard-title"><div><small>LIVE KOBO OVERVIEW</small><h1>Movement Dashboard</h1></div></div>
+    <div id="dashboardFilters" class="dashboard-filters"></div>
+    <div id="kpiGrid" class="kpi-grid"></div>
+    <div class="charts">
+      <article><h3>Ratings by Region</h3><div id="regionChart"></div></article>
+      <article><h3>Ratings by Dealer</h3><div id="dealerChart"></div></article>
+      <article><h3>Top Products</h3><div id="productChart"></div></article>
+    </div>
+  </section>
 
+  <div id="loading" class="loading hidden"><span></span>Loading Kobo data…</div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="/assets/map.js"></script>
+  <script src="/web/map.js"></script>
 </body>
 </html>

@@ -1,1 +1,1 @@
-"""Responsive read-only movement map and dashboard."""
+"""Responsive Kobo movement map and dashboard."""
