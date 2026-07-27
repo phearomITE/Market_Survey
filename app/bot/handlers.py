@@ -59,7 +59,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def _viewer_url(view: str) -> str:
     if not settings.public_url:
         return ""
-    token = settings.map_viewer_token.strip()
+    token = settings.map_editor_token.strip() or settings.map_viewer_token.strip()
     suffix = f"?access={token}" if token else ""
     return f"{settings.public_url}/{view}{suffix}"
 

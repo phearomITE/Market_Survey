@@ -1,5 +1,4 @@
 from sqlalchemy import create_engine, text
-from threading import Lock
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.core.config import settings
@@ -9,20 +8,13 @@ class Base(DeclarativeBase):
     pass
 
 
-_DB_URL = settings.db_url
-_ENGINE_KWARGS = {
-    "pool_pre_ping": True,
-    "pool_recycle": 300,
-}
-if not _DB_URL.startswith("sqlite"):
-    _ENGINE_KWARGS["connect_args"] = {"connect_timeout": 15}
-
-engine = create_engine(_DB_URL, **_ENGINE_KWARGS)
+engine = create_engine(
+    settings.db_url,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={"connect_timeout": 15},
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
-
-_INIT_LOCK = Lock()
-_DB_INITIALIZED = False
 
 
 def _safe_exec(conn, sql: str) -> None:
@@ -54,7 +46,10 @@ def _ensure_light_migrations() -> None:
             ("gps_longitude", "DOUBLE PRECISION"),
             ("updated_at", "TIMESTAMP"),
             ("source_hash", "VARCHAR(64)"),
-            ("summary_report_type", "VARCHAR(40)"),
+            ("province", "VARCHAR(120)"),
+            ("district", "VARCHAR(120)"),
+            ("commune", "VARCHAR(120)"),
+            ("village", "VARCHAR(160)"),
         ]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_submissions ADD COLUMN IF NOT EXISTS {col} {ddl}")
 
@@ -74,24 +69,6 @@ def _ensure_light_migrations() -> None:
             ALTER TABLE IF EXISTS kobo_submissions
             ALTER COLUMN total_outlet_visit_target TYPE INTEGER
             USING NULLIF(regexp_replace(total_outlet_visit_target::text, '[^0-9-]', '', 'g'), '')::integer
-        """)
-
-        # Repair the historical KDL1 choice-name typo. Old Kobo deployments
-        # exported the choice name "kd1" even though the visible label was KDL1.
-        _safe_exec(conn, """
-            UPDATE kobo_submissions
-            SET dealer = 'KDL1'
-            WHERE UPPER(TRIM(COALESCE(dealer, ''))) = 'KD1'
-        """)
-        _safe_exec(conn, """
-            DO $$
-            BEGIN
-                IF to_regclass('public.kobo_submissions_wide') IS NOT NULL THEN
-                    UPDATE kobo_submissions_wide
-                    SET dealer = 'KDL1'
-                    WHERE UPPER(TRIM(COALESCE(dealer, ''))) = 'KD1';
-                END IF;
-            END $$
         """)
 
         # Remove old raw payload JSONB column per user's production requirement.
@@ -152,32 +129,15 @@ def _ensure_light_migrations() -> None:
             _safe_exec(conn, f"DELETE FROM kobo_competitor_metrics WHERE product_name = '{old_name}'")
 
 
-def init_db(*, force: bool = False) -> None:
-    """Initialize schema once per running container.
-
-    Older versions executed every ALTER/UPDATE migration each time /summary,
-    /export, /start, or the 60-second Kobo sync called init_db(). On Railway,
-    those repeated migration scans could add several minutes to report commands.
-    Startup still performs the complete initialization; later calls return
-    immediately unless force=True is explicitly requested.
-    """
-    global _DB_INITIALIZED
-    if _DB_INITIALIZED and not force:
-        return
-
-    with _INIT_LOCK:
-        if _DB_INITIALIZED and not force:
-            return
-
-        from app.db import models  # noqa: F401
-        Base.metadata.create_all(bind=engine)
-        _ensure_light_migrations()
-        try:
-            from app.db.kobo_wide import ensure_wide_tables
-            ensure_wide_tables()
-        except Exception as exc:
-            print(f"⚠️ Wide table init warning: {exc}")
-        _DB_INITIALIZED = True
+def init_db() -> None:
+    from app.db import models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+    _ensure_light_migrations()
+    try:
+        from app.db.kobo_wide import ensure_wide_tables
+        ensure_wide_tables()
+    except Exception as exc:
+        print(f"⚠️ Wide table init warning: {exc}")
 
 
 if __name__ == "__main__":

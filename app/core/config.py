@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     public_app_url: str = ""
     map_public_view_enabled: bool = True
     map_viewer_token: str = ""
+    map_editor_token: str = ""
+    reverse_geocoding_enabled: bool = True
+    reverse_geocoding_url: str = "https://nominatim.openstreetmap.org/reverse"
+    reverse_geocoding_user_agent: str = "KBMarketSurvey/1.0"
+    reverse_geocoding_batch_size: int = 50
 
     template_path: str = "templates/template_by_dealer.xlsx"
     export_dir: str = "exports"

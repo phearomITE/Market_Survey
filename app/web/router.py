@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import KoboSubmission
+from app.db.models import KoboCompetitorMetric, KoboProductMetric
 from app.reports.aggregator import OWN_PRODUCTS
 
 
@@ -55,9 +57,16 @@ def _db():
 def _authorize(access: str = Query(default="")) -> str:
     if not settings.map_public_view_enabled:
         raise HTTPException(status_code=404, detail="Map viewer is disabled")
-    configured = settings.map_viewer_token.strip()
-    if configured and access != configured:
+    valid_tokens = {token for token in (settings.map_viewer_token.strip(), settings.map_editor_token.strip()) if token}
+    if valid_tokens and access not in valid_tokens:
         raise HTTPException(status_code=401, detail="Invalid map access token")
+    return access
+
+
+def _authorize_edit(access: str = Query(default="")) -> str:
+    editor = settings.map_editor_token.strip()
+    if not editor or access != editor:
+        raise HTTPException(status_code=403, detail="Editor access required")
     return access
 
 
@@ -90,7 +99,7 @@ def _score_band(score: int) -> str:
 
 
 def _metric_row(submission: KoboSubmission, metric: Any, product_type: str) -> dict[str, Any] | None:
-    if metric.movement_score is None:
+    if metric.movement_score is None or int(metric.movement_score) <= 0:
         return None
     score = max(0, min(10, int(metric.movement_score)))
     product = metric.product_name
@@ -109,6 +118,10 @@ def _metric_row(submission: KoboSubmission, metric: Any, product_type: str) -> d
         "latitude": submission.gps_latitude,
         "longitude": submission.gps_longitude,
         "location": submission.location_text or "",
+        "province": submission.province or "",
+        "district": submission.district or "",
+        "commune": submission.commune or "",
+        "village": submission.village or "",
         "product": product,
         "product_type": product_type,
         "category": PRODUCT_CATEGORIES.get(product, "Competitor" if product_type == "Competitor" else "Other"),
@@ -129,6 +142,9 @@ def map_data(
     category: str = "",
     product: str = "",
     movement: str = "",
+    province: str = "",
+    district: str = "",
+    commune: str = "",
     db: Session = Depends(_db),
 ):
     stmt = (
@@ -152,6 +168,12 @@ def map_data(
             stmt = stmt.where(KoboSubmission.report_date == date.fromisoformat(report_date))
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid report date")
+    if province:
+        stmt = stmt.where(KoboSubmission.province == province)
+    if district:
+        stmt = stmt.where(KoboSubmission.district == district)
+    if commune:
+        stmt = stmt.where(KoboSubmission.commune == commune)
 
     submissions = db.execute(stmt).scalars().unique().all()
     all_rows: list[dict[str, Any]] = []
@@ -171,8 +193,10 @@ def map_data(
         "dates": sorted({row["report_date"] for row in all_rows if row["report_date"]}, reverse=True),
         "categories": sorted({row["category"] for row in all_rows if row["category"]}),
         "products": sorted({row["product"] for row in all_rows if row["product"]}),
+        "provinces": sorted({row["province"] for row in all_rows if row["province"]}),
+        "districts": sorted({row["district"] for row in all_rows if row["district"]}),
+        "communes": sorted({row["commune"] for row in all_rows if row["commune"]}),
     }
-
     rows = all_rows
     if category:
         rows = [row for row in rows if row["category"] == category]
@@ -199,12 +223,27 @@ def map_data(
     # marker per outlet. The marker uses the lowest score at that outlet so
     # operational problems remain visible without calculating an average.
     marker_by_submission: dict[int, dict[str, Any]] = {}
+    products_by_submission: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
+        products_by_submission.setdefault(row["submission_id"], []).append({
+            "id": row["id"],
+            "product": row["product"],
+            "product_type": row["product_type"],
+            "movement": row["movement"],
+            "band": row["band"],
+            "stock_status": row["stock_status"],
+        })
         current = marker_by_submission.get(row["submission_id"])
         if current is None or row["movement"] < current["movement"]:
             marker_by_submission[row["submission_id"]] = row
 
-    markers = list(marker_by_submission.values())[:2000]
+    markers = []
+    for submission_id, representative in marker_by_submission.items():
+        marker = dict(representative)
+        marker["product_ratings"] = products_by_submission[submission_id]
+        markers.append(marker)
+        if len(markers) >= 2000:
+            break
     visible_rows = rows[:750]
 
     return {
@@ -213,6 +252,7 @@ def map_data(
         "total_ratings": len(rows),
         "rows_truncated": len(rows) > len(visible_rows),
         "markers_truncated": outlet_count > len(markers),
+        "can_edit": bool(settings.map_editor_token.strip() and access == settings.map_editor_token.strip()),
         "options": options,
         "summary": {
             "outlets": outlet_count,
@@ -220,6 +260,7 @@ def map_data(
             "own_products": len(own_scores),
             "competitor_products": len(competitor_scores),
             "own_wins": sum(1 for row in own_scores if row["movement"] == 10),
+            "competitor_wins": sum(1 for row in competitor_scores if row["movement"] == 10),
             "very_low": sum(1 for row in rows if row["movement"] <= 4),
             "medium": sum(1 for row in rows if 5 <= row["movement"] <= 8),
             "very_strong": sum(1 for row in rows if row["movement"] >= 9),
@@ -231,3 +272,28 @@ def map_data(
             "products": by_product.most_common(10),
         },
     }
+
+
+class RatingEdit(BaseModel):
+    movement: int = Field(ge=0, le=10)
+    stock_status: str = Field(default="", max_length=80)
+    key_issue: str = Field(default="", max_length=5000)
+
+
+@router.put("/api/map/ratings/{row_id}")
+def edit_rating(row_id: str, payload: RatingEdit, access: str = Depends(_authorize_edit), db: Session = Depends(_db)):
+    try:
+        submission_id, product_type, metric_id = row_id.rsplit("-", 2)
+        submission_pk, metric_pk = int(submission_id), int(metric_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid rating identifier")
+    model = KoboProductMetric if product_type == "Own" else KoboCompetitorMetric
+    metric = db.get(model, metric_pk)
+    submission = db.get(KoboSubmission, submission_pk)
+    if not metric or not submission or metric.submission_id != submission.id:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    metric.movement_score = payload.movement
+    metric.stock_status = payload.stock_status.strip() or None
+    submission.key_issue_text = payload.key_issue.strip() or None
+    db.commit()
+    return {"status": "updated"}

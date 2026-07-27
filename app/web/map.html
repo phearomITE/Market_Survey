@@ -31,6 +31,9 @@
       <label>Region<select id="region"><option value="">All regions</option></select></label>
       <label>Dealer<select id="dealer"><option value="">All dealers</option></select></label>
       <label>Report Date<select id="reportDate"><option value="">All report dates</option></select></label>
+      <label>Province / Capital<select id="province"><option value="">All provinces</option></select></label>
+      <label>District / Khan<select id="district"><option value="">All districts</option></select></label>
+      <label>Commune / Sangkat<select id="commune"><option value="">All communes</option></select></label>
       <label>Product Category<select id="category"><option value="">All categories</option></select></label>
       <label>Product<select id="product"><option value="">All products</option></select></label>
       <label>Movement Score
@@ -89,6 +92,13 @@
   </section>
 
   <div id="loading" class="loading hidden"><span></span>Loading Kobo data…</div>
+  <dialog id="editDialog"><form id="editForm">
+    <div class="dialog-head"><div><small>UPDATE PRODUCT RATING</small><h2 id="editTitle">Edit rating</h2></div><button type="button" id="closeEdit">×</button></div>
+    <label>Movement score (0–10)<input id="editMovement" type="number" min="0" max="10" required></label>
+    <label>Stock status<input id="editStock" maxlength="80"></label>
+    <label>Key issue<textarea id="editIssue" rows="5" maxlength="5000"></textarea></label>
+    <div class="dialog-actions"><button type="button" class="secondary" id="cancelEdit">Cancel</button><button class="primary">Save Changes</button></div>
+  </form></dialog>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/web/map.js"></script>
 </body>

@@ -59,6 +59,11 @@ async def _auto_sync_loop() -> None:
         try:
             started = datetime.now()
             result = await asyncio.to_thread(sync_kobo)
+            if getattr(settings, "reverse_geocoding_enabled", False):
+                from app.web.geocode import enrich_missing_administrative_locations
+                enriched = await asyncio.to_thread(enrich_missing_administrative_locations)
+                if enriched:
+                    print(f"📍 GPS administration enriched: {enriched} outlets")
 
             _last_auto_sync = {
                 "time": started,
