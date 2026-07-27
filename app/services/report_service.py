@@ -28,6 +28,7 @@ from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_detail_rows, build_summary_rows, create_summary_report
 from app.reports.data_export import create_data_export
+from app.reports.raw_movement_export import create_raw_movement_export
 
 ReportType = Literal["GENERAL", "CHANNEL_SPECIALIST"]
 
@@ -614,3 +615,28 @@ def generate_data_export(report_date_str: str | None = None):
     _store_bulk_file("export", signature, path, message)
     return path, message
 
+
+def generate_raw_movement_export(
+    report_date_str: str | None = None,
+    report_type: ReportType = "GENERAL",
+):
+    """Export raw submitted movement rates for one date.
+
+    The default GENERAL export uses the same outlet-type scope as the General
+    final report. Channel Specialist can be requested explicitly. Existing DB
+    rows are used immediately; Kobo is synchronized only when the date is empty.
+    """
+    d = parse_report_date(report_date_str)
+    submissions = get_submissions(None, d, report_type=report_type)
+    if not submissions:
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=report_type)
+    if not submissions:
+        label = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
+        raise ValueError(f"No {label} submissions found for {d}.")
+
+    path = create_raw_movement_export(submissions, d, report_type=report_type)
+    label = "Channel Specialist" if report_type == "CHANNEL_SPECIALIST" else "General"
+    return path, (
+        f"Generated {label} raw movement export for {d}: "
+        f"{len(submissions)} submission rows"
+    )
