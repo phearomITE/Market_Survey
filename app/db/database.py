@@ -50,6 +50,7 @@ def _ensure_light_migrations() -> None:
             ("district", "VARCHAR(120)"),
             ("commune", "VARCHAR(120)"),
             ("village", "VARCHAR(160)"),
+            ("summary_report_type", "VARCHAR(80)"),
         ]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_submissions ADD COLUMN IF NOT EXISTS {col} {ddl}")
 

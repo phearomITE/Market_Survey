@@ -25,12 +25,14 @@ def enrich_missing_administrative_locations() -> int:
             ).limit(max(1, min(settings.reverse_geocoding_batch_size, 100)))
         ).scalars().all()
         done = 0
+        app_url = settings.public_url or "https://marketsurvey-production.up.railway.app"
+        user_agent = f"KBMarketSurvey/1.0 (+{app_url})"
         for row in rows:
             try:
                 response = requests.get(
                     settings.reverse_geocoding_url,
                     params={"lat": row.gps_latitude, "lon": row.gps_longitude, "format": "jsonv2", "addressdetails": 1, "accept-language": "en"},
-                    headers={"User-Agent": settings.reverse_geocoding_user_agent},
+                    headers={"User-Agent": user_agent},
                     timeout=12,
                 )
                 response.raise_for_status()

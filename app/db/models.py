@@ -28,6 +28,11 @@ class KoboSubmission(Base):
     submission_id: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     submission_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True, index=True)
     report_date: Mapped[date | None] = mapped_column(Date, index=True)
+    # Optional discriminator used by newer Kobo/report imports. Keeping this
+    # nullable preserves compatibility with older submissions.
+    summary_report_type: Mapped[str | None] = mapped_column(
+        String(80), nullable=True, index=True
+    )
 
     region: Mapped[str | None] = mapped_column(String(30), index=True)
     dealer: Mapped[str | None] = mapped_column(String(30), index=True)

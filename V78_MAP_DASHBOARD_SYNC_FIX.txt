@@ -1,0 +1,75 @@
+V78 MAP, DASHBOARD, AND KOBO SYNC FIX
+======================================
+
+This overlay is for the current Market_Survey Git project.
+
+Included behavior
+-----------------
+- Fixes Kobo auto-sync crash caused by a missing KoboSubmission.summary_report_type field.
+- Automatically adds the nullable summary_report_type column to an existing database.
+- Shows raw non-zero product movement ratings; it does not calculate an average.
+- One outlet submission with 10 rated products produces 10 product rows/ratings.
+- Adds Region, Dealer, Report Date, Province, District, Commune, Category,
+  Product, Product Type, Stock, and Movement filters.
+- Uses GPS reverse geocoding for Province, District, Commune, and Village.
+- Includes Default/Satellite basemap selection and place/boundary labels.
+- "View in List" isolates and scrolls to the selected product.
+- Editor links can change Stock, Movement (0-10), and Key Issue.
+- Dashboard uses filterable product/outlet KPIs and own-product versus
+  competitor comparisons.
+- Responsive desktop, tablet, Telegram WebView, and phone layout.
+
+Railway variables
+-----------------
+PUBLIC_APP_URL=https://marketsurvey-production.up.railway.app
+MAP_PUBLIC_VIEW_ENABLED=true
+MAP_VIEWER_TOKEN=<viewer token>
+MAP_EDITOR_TOKEN=<different editor token>
+REVERSE_GEOCODING_ENABLED=true
+REVERSE_GEOCODING_BATCH_SIZE=50
+
+Do not add REVERSE_GEOCODING_USER_AGENT. The application builds its service
+identity automatically from PUBLIC_APP_URL.
+
+Deploy
+------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V78_MAP_DASHBOARD_SYNC_FIX.zip \
+  -d .
+
+python -m py_compile \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/main.py \
+  app/web/geocode.py \
+  app/web/router.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git status
+
+git add \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/main.py \
+  app/web \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_v76_map_dashboard_admin.py \
+  tests/test_v77_human_map_admin_edit.py \
+  tests/test_v78_summary_report_type_schema.py \
+  V78_MAP_DASHBOARD_SYNC_FIX.txt
+
+git commit -m "Fix Kobo sync and improve movement map dashboard"
+git push origin main
+
+Polling conflict
+----------------
+The Telegram Conflict error means another process is polling the same bot token.
+Only one polling instance can run. Stop the local bot, old Railway service, or
+other server that uses the same TELEGRAM_BOT_TOKEN. If its location is unknown,
+rotate the token in BotFather and update Railway.
