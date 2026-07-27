@@ -257,6 +257,9 @@ def map_data(
         "summary": {
             "outlets": outlet_count,
             "ratings": len(rows),
+            "regions": len({row["region"] for row in rows if row["region"]}),
+            "dealers": len({row["dealer"] for row in rows if row["dealer"]}),
+            "provinces": len({row["province"] for row in rows if row["province"]}),
             "own_products": len(own_scores),
             "competitor_products": len(competitor_scores),
             "own_wins": sum(1 for row in own_scores if row["movement"] == 10),

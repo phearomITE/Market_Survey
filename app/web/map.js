@@ -73,12 +73,16 @@ function renderAll() {
 function renderMarkers() {
   state.markers.forEach(marker => marker.remove()); state.markers = [];
   const bounds = [];
-  const colors = {"very-low":"#e5232e","medium":"#f5b400","very-strong":"#118a45"};
   state.data.markers.forEach(row => {
-    const marker = L.circleMarker([row.latitude,row.longitude], {
-      radius: 9, color: "#fff", weight: 3,
-      fillColor: colors[row.band], fillOpacity: .96
-    }).bindTooltip(`${esc(row.outlet_name)} · Lowest score ${row.movement}`, {direction:"top"})
+    const marker = L.marker([row.latitude,row.longitude], {
+      icon: L.divIcon({
+        className: "movement-marker-wrap",
+        html: `<span class="score-marker ${row.band}">${row.movement}</span>`,
+        iconSize: [32,32],
+        iconAnchor: [16,16],
+      }),
+      riseOnHover: true,
+    }).bindTooltip(`${esc(row.outlet_name)} · Movement ${row.movement}`, {direction:"top"})
       .addTo(map).on("click", () => showDetail(row));
     state.markers.push(marker); bounds.push([row.latitude,row.longitude]);
   });
@@ -89,7 +93,12 @@ function renderMarkers() {
 function renderStats() {
   const s = state.data.summary;
   $("stats").innerHTML = [
-    ["⌂",s.outlets,"Outlets"],["●",s.ratings,"Ratings"],["↗",s.very_strong,"Very Strong"],["↘",s.very_low,"Very Low"]
+    ["⌂",s.outlets,"Outlets"],
+    ["R",s.regions,"Region"],
+    ["D",s.dealers,"Dealer"],
+    ["P",s.provinces,"Province"],
+    ["↗",s.very_strong,"Very Strong"],
+    ["↘",s.very_low,"Very Low"]
   ].map(x => `<div class="stat"><b>${x[0]} ${x[1]}</b><span>${x[2]}</span></div>`).join("");
 }
 
@@ -125,6 +134,12 @@ window.openEdit = () => {
   $("editMovement").value=row.movement;$("editStock").value=row.stock_status||"";$("editIssue").value=row.key_issue||"";
   $("editDialog").showModal();
 };
+window.openEditFor = id => {
+  const row=state.data.rows.find(item=>item.id===id);
+  if(!row)return;
+  state.selected=row;
+  openEdit();
+};
 window.selectProductRating=id=>{
   const row=(state.selected?.product_ratings||[]).find(item=>item.id===id);
   if(!row)return;
@@ -136,12 +151,18 @@ function renderTable() {
   const tableRows=selectedOnly&&state.selected?[state.selected]:state.data.rows;
   $("outletRows").innerHTML = tableRows.map(row => `<tr data-id="${esc(row.id)}">
     <td>${esc(row.outlet_name)}</td><td>${esc(row.outlet_type)}</td><td>${esc(row.phone)}</td>
-    <td>${esc(row.region)}</td><td>${esc(row.dealer)}</td><td>${esc(row.product)}</td>
+    <td>${esc(row.region)}</td><td>${esc(row.dealer)}</td>
+    <td>${esc(row.province||"Pending conversion")}</td><td>${esc(row.district||"Pending conversion")}</td>
+    <td>${esc(row.product)}</td>
     <td>${esc(row.product_type)}</td><td>${esc(row.category)}</td><td>${esc(row.stock_status||"—")}</td>
     <td title="${esc(row.key_issue)}">${esc(row.key_issue||"—")}</td>
     <td><span class="score-pill ${row.band}">${row.movement}</span></td><td>${esc(row.report_date)}</td>
+    <td>${state.data.can_edit?`<button class="table-edit" type="button" data-edit-id="${esc(row.id)}">Edit</button>`:"—"}</td>
   </tr>`).join("");
   document.querySelectorAll("#outletRows tr").forEach((tr,i) => tr.addEventListener("click", () => showDetail(tableRows[i])));
+  document.querySelectorAll("[data-edit-id]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation(); openEditFor(button.dataset.editId);
+  }));
 }
 
 function renderDashboard() {

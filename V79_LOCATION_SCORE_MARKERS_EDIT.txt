@@ -1,0 +1,64 @@
+V79 LOCATION, SCORE MARKERS, AND PRODUCT EDIT
+================================================
+
+Changes
+-------
+- Adds Province and District columns to Outlet & Product List.
+- Province, District, Commune, and Village are cached from GPS Location.
+- Replaces the Ratings summary card with unique Region, Dealer, and Province totals.
+- Summary cards: Outlets, Region, Dealer, Province, Very Strong, Very Low.
+- Displays movement numbers directly inside map markers (for example 2, 6, 7, 8).
+- Adds an Edit action to every product row for editor-token users.
+- Edit supports Stock, Movement 0-10, and Key Issue.
+- Viewer-token links remain read-only.
+
+Railway variables
+-----------------
+MAP_PUBLIC_VIEW_ENABLED=true
+MAP_VIEWER_TOKEN=<read-only token>
+MAP_EDITOR_TOKEN=<different editor token>
+REVERSE_GEOCODING_ENABLED=true
+REVERSE_GEOCODING_BATCH_SIZE=50
+PUBLIC_APP_URL=https://marketsurvey-production.up.railway.app
+
+Open
+----
+Read only:
+https://marketsurvey-production.up.railway.app/map?access=<MAP_VIEWER_TOKEN>
+
+Editor:
+https://marketsurvey-production.up.railway.app/map?access=<MAP_EDITOR_TOKEN>
+
+Deploy
+------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V79_LOCATION_SCORE_MARKERS_EDIT.zip \
+  -d .
+
+python -m py_compile \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/main.py \
+  app/web/geocode.py \
+  app/web/router.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git add \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/main.py \
+  app/web \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_v77_human_map_admin_edit.py \
+  tests/test_v78_summary_report_type_schema.py \
+  tests/test_v79_map_location_scores_edit.py \
+  V79_LOCATION_SCORE_MARKERS_EDIT.txt
+
+git commit -m "Show map score markers and location details"
+git push origin main
