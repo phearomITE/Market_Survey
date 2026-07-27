@@ -32,3 +32,10 @@ def test_map_uses_raw_product_ratings():
     assert '"movement": score' in router
     assert '"product_type": product_type' in router
     assert '"own_wins"' in router
+
+
+def test_large_map_payload_is_bounded():
+    router = (ROOT / "app/web/router.py").read_text(encoding="utf-8")
+    assert "visible_rows = rows[:750]" in router
+    assert "markers = list(marker_by_submission.values())[:2000]" in router
+    assert '"total_ratings": len(rows)' in router

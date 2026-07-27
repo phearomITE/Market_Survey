@@ -4,7 +4,7 @@ const state = { data: null, markers: [], selected: null };
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-const map = L.map("map", { zoomControl: false }).setView([12.5657, 104.991], 7);
+const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView([12.5657, 104.991], 7);
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
   maxZoom: 19, attribution: "Imagery © Esri"
@@ -57,22 +57,22 @@ function populateOptions(o) {
 
 function renderAll() {
   renderMarkers(); renderStats(); renderTable(); renderDashboard();
-  $("rowCount").textContent = `(${state.data.rows.length} ratings)`;
-  $("emptyState").classList.toggle("hidden", state.data.rows.length > 0);
-}
-
-function markerIcon(row) {
-  return L.divIcon({
-    className: "", iconSize: [38,38], iconAnchor: [19,19],
-    html: `<div class="score-marker ${row.band}" style="width:38px;height:38px">${row.movement}</div>`
-  });
+  const visible = state.data.rows.length, total = state.data.total_ratings;
+  $("rowCount").textContent = state.data.rows_truncated
+    ? `(showing ${visible.toLocaleString()} of ${total.toLocaleString()} ratings)`
+    : `(${total.toLocaleString()} ratings)`;
+  $("emptyState").classList.toggle("hidden", total > 0);
 }
 
 function renderMarkers() {
   state.markers.forEach(marker => marker.remove()); state.markers = [];
   const bounds = [];
-  state.data.rows.forEach(row => {
-    const marker = L.marker([row.latitude,row.longitude], { icon: markerIcon(row), title: `${row.outlet_name} · ${row.product}` })
+  const colors = {"very-low":"#e5232e","medium":"#f5b400","very-strong":"#118a45"};
+  state.data.markers.forEach(row => {
+    const marker = L.circleMarker([row.latitude,row.longitude], {
+      radius: 9, color: "#fff", weight: 3,
+      fillColor: colors[row.band], fillOpacity: .96
+    }).bindTooltip(`${esc(row.outlet_name)} · Lowest score ${row.movement}`, {direction:"top"})
       .addTo(map).on("click", () => showDetail(row));
     state.markers.push(marker); bounds.push([row.latitude,row.longitude]);
   });

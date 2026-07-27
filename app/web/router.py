@@ -192,8 +192,27 @@ def map_data(
     by_dealer = Counter(row["dealer"] or "Unknown" for row in rows)
     by_product = Counter(row["product"] for row in rows)
 
+    # Never send every product row and a marker for every product to the
+    # browser. A large Kobo dataset can contain hundreds of thousands of
+    # ratings and will freeze Chrome/Telegram WebView. Keep all calculations
+    # above exact, but return a bounded table page and one representative
+    # marker per outlet. The marker uses the lowest score at that outlet so
+    # operational problems remain visible without calculating an average.
+    marker_by_submission: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        current = marker_by_submission.get(row["submission_id"])
+        if current is None or row["movement"] < current["movement"]:
+            marker_by_submission[row["submission_id"]] = row
+
+    markers = list(marker_by_submission.values())[:2000]
+    visible_rows = rows[:750]
+
     return {
-        "rows": rows,
+        "rows": visible_rows,
+        "markers": markers,
+        "total_ratings": len(rows),
+        "rows_truncated": len(rows) > len(visible_rows),
+        "markers_truncated": outlet_count > len(markers),
         "options": options,
         "summary": {
             "outlets": outlet_count,
