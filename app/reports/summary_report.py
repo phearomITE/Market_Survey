@@ -10,6 +10,7 @@ from typing import Iterable, Any
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
@@ -22,8 +23,8 @@ ZERO_FILL = "FCE4D6"
 PARTIAL_FILL = "FFF2CC"
 OK_FILL = "E2F0D9"
 BORDER_COLOR = "D9E2F3"
-RED_FILL = "D00000"
-YELLOW_FILL = "FFC000"
+PURPLE_FILL = "60497A"
+MID_FILL = "963634"
 GREEN_FILL = "00B050"
 
 CB_LITE_PRODUCT = "CB LITE NCP"
@@ -246,11 +247,11 @@ def build_detail_rows(
     general_submissions: Iterable,
     dealer_aggregates: dict[str, dict],
 ) -> list[dict]:
-    """Build outlet detail for explicit CB LITE NCP movement scores below 5.
+    """Build outlet detail for explicit CB LITE NCP movement scores 0 to 8.
 
-    Blank/no-sale movement fields are not listed. A row is included only when
-    the outlet has a real numeric score from 0 to 4 and the dealer's final
-    normalized CB LITE NCP movement is also below 5.
+    Blank movement fields are not listed. A row is included only when the
+    outlet has a numeric CB LITE NCP score from 0 through 8 and the dealer's
+    final normalized CB LITE NCP movement is also from 0 through 8.
     """
     rows: list[dict] = []
     for submission in general_submissions:
@@ -261,12 +262,12 @@ def build_detail_rows(
         aggregate = dealer_aggregates.get(dealer) or {}
         movement_info = movement_summary_from_aggregate(aggregate)
         dealer_movement = movement_info.get("cb_lite_movement")
-        if dealer_movement is None or dealer_movement >= 5:
+        if dealer_movement is None or not 0 <= dealer_movement <= 8:
             continue
 
         metric = _cb_lite_metric(submission)
         outlet_movement = _safe_int(getattr(metric, "movement_score", None))
-        if outlet_movement is None or outlet_movement >= 5:
+        if outlet_movement is None or not 0 <= outlet_movement <= 8:
             continue
 
         rows.append(
@@ -279,7 +280,7 @@ def build_detail_rows(
                 "outlet_type": _clean(getattr(submission, "outlet_type", "")),
                 "stock_status": _clean(getattr(metric, "stock_status", "")),
                 "freshness_date": _clean(getattr(metric, "bbe_date", "")),
-                "movement_lt5": outlet_movement,
+                "movement_0_8": outlet_movement,
                 "product_competitor": movement_info.get("product_competitor", ""),
                 "movement_lead": movement_info.get("movement_lead"),
                 "link_map": _map_url(submission),
@@ -354,7 +355,7 @@ def _fallback_workbook() -> Workbook:
             "Outlet Type",
             "Stock Status",
             "Freshness Date",
-            "<5",
+            "0 to 8",
             "Product Competitor",
             "Movement Lead",
             "Link Map",
@@ -410,12 +411,41 @@ def _apply_summary_styles(ws) -> None:
         cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
         cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
 
-    for row in (4, 8):
-        ws.cell(row, 6).fill = PatternFill("solid", fgColor=RED_FILL)
-        ws.cell(row, 7).fill = PatternFill("solid", fgColor=YELLOW_FILL)
-        ws.cell(row, 8).fill = PatternFill("solid", fgColor=GREEN_FILL)
-        for col in (6, 7, 8):
-            ws.cell(row, col).font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    # KPI movement headers: F=<5, G=5 to 8, H=9 to 10.
+    for col, fill_color in (
+        (6, PURPLE_FILL),
+        (7, MID_FILL),
+        (8, GREEN_FILL),
+    ):
+        ws.cell(4, col).fill = PatternFill("solid", fgColor=fill_color)
+        ws.cell(4, col).font = Font(
+            name="Calibri", size=11, bold=True, color="FFFFFF"
+        )
+
+    # Dealer table movement headers: G=<5, H=5 to 8, I=9 to 10.
+    # Status in F remains the normal blue header.
+    for col, fill_color in (
+        (7, PURPLE_FILL),
+        (8, MID_FILL),
+        (9, GREEN_FILL),
+    ):
+        ws.cell(8, col).fill = PatternFill("solid", fgColor=fill_color)
+        ws.cell(8, col).font = Font(
+            name="Calibri", size=11, bold=True, color="FFFFFF"
+        )
+
+    # KPI values use the same colors as their headers. Competitor totals are red.
+    for col, font_color in (
+        (6, PURPLE_FILL),
+        (7, MID_FILL),
+        (8, GREEN_FILL),
+        (9, "FF0000"),
+        (10, "FF0000"),
+        (11, "FF0000"),
+    ):
+        ws.cell(5, col).font = Font(
+            name="Calibri", size=11, bold=True, color=font_color
+        )
 
     for row in range(9, ws.max_row + 1):
         status = _clean(ws.cell(row, 6).value)
@@ -432,9 +462,9 @@ def _apply_summary_styles(ws) -> None:
         ws.cell(row, 1).font = Font(bold=True)
         ws.cell(row, 2).font = Font(bold=True)
         if ws.cell(row, 7).value not in (None, ""):
-            ws.cell(row, 7).font = Font(bold=True, color="D00000")
+            ws.cell(row, 7).font = Font(bold=True, color=PURPLE_FILL)
         if ws.cell(row, 8).value not in (None, ""):
-            ws.cell(row, 8).font = Font(bold=True, color="C69200")
+            ws.cell(row, 8).font = Font(bold=True, color=MID_FILL)
         if ws.cell(row, 9).value not in (None, ""):
             ws.cell(row, 9).font = Font(bold=True, color="00A651")
         if ws.cell(row, 11).value not in (None, ""):
@@ -467,6 +497,7 @@ def _apply_detail_styles(ws, max_row: int) -> None:
         cell.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = border
+    ws.cell(1, 9).fill = PatternFill("solid", fgColor=PURPLE_FILL)
 
     for row in range(2, max_row + 1):
         if row > 2:
@@ -475,7 +506,7 @@ def _apply_detail_styles(ws, max_row: int) -> None:
             cell = ws.cell(row, col)
             cell.border = border
             cell.alignment = Alignment(vertical="center", wrap_text=True)
-        ws.cell(row, 9).font = Font(bold=True, color="D00000")
+        ws.cell(row, 9).font = Font(bold=True, color=PURPLE_FILL)
         ws.cell(row, 11).font = Font(bold=True, color="00A651")
 
     widths = {
@@ -495,7 +526,28 @@ def _apply_detail_styles(ws, max_row: int) -> None:
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:L{max(2, max_row)}"
+
+
+def _remove_all_tables(ws) -> None:
+    """Remove stale or malformed table definitions from a template sheet."""
+    for table_name in list(ws.tables.keys()):
+        del ws.tables[table_name]
+    ws.auto_filter.ref = None
+
+
+def _rebuild_detail_table(ws, max_row: int) -> None:
+    """Create one valid Excel table with sequential internal column IDs."""
+    _remove_all_tables(ws)
+    last_row = max(2, max_row)
+    table = Table(displayName="DetailMovementTable", ref=f"A1:L{last_row}")
+    table.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium4",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+    ws.add_table(table)
 
 
 def create_summary_report(
@@ -511,6 +563,7 @@ def create_summary_report(
     wb = load_workbook(SUMMARY_TEMPLATE) if SUMMARY_TEMPLATE.exists() else _fallback_workbook()
     ws = wb["Summary"]
     detail_ws = wb["Detail"] if "Detail" in wb.sheetnames else wb.create_sheet("Detail")
+    _remove_all_tables(detail_ws)
 
     # Clear all old values while preserving the approved workbook formatting.
     for row in ws.iter_rows(min_row=2, max_row=max(ws.max_row, 81), min_col=1, max_col=11):
@@ -567,7 +620,7 @@ def create_summary_report(
                 row["total_submissions"],
                 row["total_outlets"],
                 row["status"],
-                row.get("movement_lt5"),
+                row.get("movement_0_8"),
                 row.get("movement_5_8"),
                 row.get("movement_9_10"),
                 row.get("product_competitor", ""),
@@ -605,7 +658,7 @@ def create_summary_report(
         "Outlet Type",
         "Stock Status",
         "Freshness Date",
-        "<5",
+        "0 to 8",
         "Product Competitor",
         "Movement Lead",
         "Link Map",
@@ -623,7 +676,7 @@ def create_summary_report(
             row.get("outlet_type"),
             row.get("stock_status"),
             row.get("freshness_date"),
-            row.get("movement_lt5"),
+            row.get("movement_0_8"),
             row.get("product_competitor"),
             row.get("movement_lead"),
             "Open Map" if row.get("link_map") else "",
@@ -637,6 +690,8 @@ def create_summary_report(
             detail_ws.cell(row_index, 12).hyperlink = link
             detail_ws.cell(row_index, 12).style = "Hyperlink"
 
-    _apply_detail_styles(detail_ws, max(2, len(detail_rows) + 1))
+    detail_last_row = max(2, len(detail_rows) + 1)
+    _apply_detail_styles(detail_ws, detail_last_row)
+    _rebuild_detail_table(detail_ws, detail_last_row)
     wb.save(output_path)
     return output_path
