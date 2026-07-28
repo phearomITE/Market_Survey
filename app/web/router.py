@@ -145,6 +145,7 @@ def map_data(
     province: str = "",
     district: str = "",
     commune: str = "",
+    mobile: bool = False,
     db: Session = Depends(_db),
 ):
     stmt = (
@@ -223,28 +224,20 @@ def map_data(
     # marker per outlet. The marker uses the lowest score at that outlet so
     # operational problems remain visible without calculating an average.
     marker_by_submission: dict[int, dict[str, Any]] = {}
-    products_by_submission: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
-        products_by_submission.setdefault(row["submission_id"], []).append({
-            "id": row["id"],
-            "product": row["product"],
-            "product_type": row["product_type"],
-            "movement": row["movement"],
-            "band": row["band"],
-            "stock_status": row["stock_status"],
-        })
         current = marker_by_submission.get(row["submission_id"])
         if current is None or row["movement"] < current["movement"]:
             marker_by_submission[row["submission_id"]] = row
 
     markers = []
+    marker_limit = 500 if mobile else 1200
     for submission_id, representative in marker_by_submission.items():
         marker = dict(representative)
-        marker["product_ratings"] = products_by_submission[submission_id]
         markers.append(marker)
-        if len(markers) >= 2000:
+        if len(markers) >= marker_limit:
             break
-    visible_rows = rows[:750]
+    row_limit = 100 if mobile else 300
+    visible_rows = rows[:row_limit]
 
     return {
         "rows": visible_rows,
@@ -275,6 +268,34 @@ def map_data(
             "products": by_product.most_common(10),
         },
     }
+
+
+@router.get("/api/map/outlets/{submission_id}/ratings")
+def outlet_product_ratings(
+    submission_id: int,
+    access: str = Depends(_authorize),
+    db: Session = Depends(_db),
+):
+    submission = db.execute(
+        select(KoboSubmission)
+        .options(
+            selectinload(KoboSubmission.product_metrics),
+            selectinload(KoboSubmission.competitor_metrics),
+        )
+        .where(KoboSubmission.id == submission_id)
+    ).scalar_one_or_none()
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Outlet submission not found")
+    rows: list[dict[str, Any]] = []
+    for metric in submission.product_metrics:
+        row = _metric_row(submission, metric, "Own")
+        if row:
+            rows.append(row)
+    for metric in submission.competitor_metrics:
+        row = _metric_row(submission, metric, "Competitor")
+        if row:
+            rows.append(row)
+    return {"rows": rows}
 
 
 class RatingEdit(BaseModel):

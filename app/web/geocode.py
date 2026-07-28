@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 import requests
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import KoboSubmission
@@ -21,7 +21,12 @@ def enrich_missing_administrative_locations() -> int:
             select(KoboSubmission).where(
                 KoboSubmission.gps_latitude.is_not(None),
                 KoboSubmission.gps_longitude.is_not(None),
-                KoboSubmission.province.is_(None),
+                or_(
+                    KoboSubmission.province.is_(None),
+                    KoboSubmission.province == "",
+                    KoboSubmission.district.is_(None),
+                    KoboSubmission.district == "",
+                ),
             ).limit(max(1, min(settings.reverse_geocoding_batch_size, 100)))
         ).scalars().all()
         done = 0

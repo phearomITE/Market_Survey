@@ -18,6 +18,7 @@ L.control.layers({"Satellite":satellite,"Street":streets},{"Administrative & pla
 
 function params() {
   const p = new URLSearchParams({ access });
+  if (matchMedia("(max-width: 900px)").matches) p.set("mobile", "true");
   [["region","region"],["dealer","dealer"],["reportDate","report_date"],["province","province"],["district","district"],["commune","commune"],["category","category"],["product","product"],["movement","movement"]]
     .forEach(([id,key]) => { if ($(id).value) p.set(key, $(id).value); });
   return p;
@@ -73,21 +74,28 @@ function renderAll() {
 function renderMarkers() {
   state.markers.forEach(marker => marker.remove()); state.markers = [];
   const bounds = [];
-  state.data.markers.forEach(row => {
-    const marker = L.marker([row.latitude,row.longitude], {
-      icon: L.divIcon({
-        className: "movement-marker-wrap",
-        html: `<span class="score-marker ${row.band}">${row.movement}</span>`,
-        iconSize: [32,32],
-        iconAnchor: [16,16],
-      }),
-      riseOnHover: true,
-    }).bindTooltip(`${esc(row.outlet_name)} · Movement ${row.movement}`, {direction:"top"})
-      .addTo(map).on("click", () => showDetail(row));
-    state.markers.push(marker); bounds.push([row.latitude,row.longitude]);
-  });
-  if (bounds.length) map.fitBounds(bounds, { padding:[45,45], maxZoom:16 });
-  else map.setView([12.5657,104.991],7);
+  const rows = state.data.markers;
+  let index = 0;
+  const renderBatch = () => {
+    const end = Math.min(index + 80, rows.length);
+    for (; index < end; index += 1) {
+      const row = rows[index];
+      const marker = L.marker([row.latitude,row.longitude], {
+        icon: L.divIcon({
+          className: "movement-marker-wrap",
+          html: `<span class="score-marker ${row.band}">${row.movement}</span>`,
+          iconSize: [32,32], iconAnchor: [16,16],
+        }),
+        riseOnHover: true,
+      }).bindTooltip(`${esc(row.outlet_name)} · Movement ${row.movement}`, {direction:"top"})
+        .addTo(map).on("click", () => showDetail(row));
+      state.markers.push(marker); bounds.push([row.latitude,row.longitude]);
+    }
+    if (index < rows.length) requestAnimationFrame(renderBatch);
+    else if (bounds.length) map.fitBounds(bounds, { padding:[45,45], maxZoom:16 });
+    else map.setView([12.5657,104.991],7);
+  };
+  requestAnimationFrame(renderBatch);
 }
 
 function renderStats() {
@@ -121,6 +129,17 @@ function showDetail(row) {
     <div class="actions"><a class="view-list" href="#" onclick="viewInList('${esc(row.id)}');return false">View Only in List</a><a class="navigate" href="${destination}" target="_blank" rel="noopener">Navigate</a>${state.data.can_edit?'<button class="edit-rating" onclick="openEdit();return false">✎ Edit Stock, Movement & Key Issue</button>':''}</div>`;
   $("detailCard").classList.remove("hidden");
   document.querySelectorAll("tbody tr").forEach(tr => tr.classList.toggle("selected", tr.dataset.id === row.id));
+  if (!row.product_ratings) loadOutletRatings(row);
+}
+async function loadOutletRatings(row) {
+  try {
+    const response=await fetch(`/api/map/outlets/${encodeURIComponent(row.submission_id)}/ratings?access=${encodeURIComponent(access)}`);
+    if(!response.ok)return;
+    const payload=await response.json();
+    if(state.selected?.submission_id!==row.submission_id)return;
+    row.product_ratings=payload.rows;
+    showDetail(row);
+  } catch (_) {}
 }
 window.closeDetail = () => $("detailCard").classList.add("hidden");
 window.viewInList = id => {

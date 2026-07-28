@@ -1,0 +1,58 @@
+V80 MOBILE MAP PERFORMANCE
+==========================
+
+Improvements
+------------
+- Compresses API JSON responses with GZip.
+- Mobile initially receives at most 500 outlet markers and 100 product rows.
+- Desktop initially receives at most 1,200 outlet markers and 300 product rows.
+- Removes all-product arrays from the initial marker payload.
+- Loads one outlet's product ratings only when its marker is selected.
+- Renders markers in small animation-frame batches to keep the UI responsive.
+- Makes the phone filter drawer independently touch-scrollable.
+- Reverse-geocodes records whose Province or District is NULL or blank.
+- Keeps Province and District columns in Outlet & Product List.
+- Keeps editor-only updates for Stock, Movement 0-10, and Key Issue.
+
+Important
+---------
+The KPI totals remain calculated from all matching non-zero ratings. Only the
+initial browser payload and rendered rows/markers are limited for performance.
+
+The Edit button is visible only with MAP_EDITOR_TOKEN:
+https://marketsurvey-production.up.railway.app/map?access=<MAP_EDITOR_TOKEN>
+
+Deploy
+------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V80_MOBILE_MAP_PERFORMANCE.zip \
+  -d .
+
+python -m py_compile \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/main.py \
+  app/web/geocode.py \
+  app/web/router.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git add \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/main.py \
+  app/web \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_v77_human_map_admin_edit.py \
+  tests/test_v78_summary_report_type_schema.py \
+  tests/test_v79_map_location_scores_edit.py \
+  tests/test_v80_mobile_map_performance.py \
+  V80_MOBILE_MAP_PERFORMANCE.txt
+
+git commit -m "Improve mobile movement map performance"
+git push origin main
