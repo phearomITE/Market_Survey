@@ -3,16 +3,29 @@ const access = qs.get("access") || "";
 const state = { data: null, markers: [], areas: [], selected: null, multi: {} };
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const isPhone = matchMedia("(max-width: 900px)").matches;
 
-const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView([12.5657, 104.991], 7);
+const map = L.map("map", {
+  zoomControl: false,
+  preferCanvas: true,
+  zoomAnimation: !isPhone,
+  fadeAnimation: !isPhone,
+  markerZoomAnimation: !isPhone,
+  inertia: !isPhone,
+}).setView([12.5657, 104.991], 7);
 L.control.zoom({ position: "bottomright" }).addTo(map);
 const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-  maxZoom: 19, attribution: "Imagery © Esri"
+  maxZoom: 19, attribution: "Imagery © Esri", updateWhenIdle: true,
+  updateWhenZooming: false, keepBuffer: isPhone ? 1 : 2,
 }).addTo(map);
 const labels = L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
-  maxZoom: 19, attribution: "Boundaries © Esri"
+  maxZoom: 19, attribution: "Boundaries © Esri", updateWhenIdle: true,
+  updateWhenZooming: false, keepBuffer: isPhone ? 1 : 2,
 }).addTo(map);
-const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"});
+const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  maxZoom:19,attribution:"© OpenStreetMap",updateWhenIdle:true,
+  updateWhenZooming:false,keepBuffer:isPhone?1:2,
+});
 L.control.layers({"Satellite":satellite,"Street":streets},{"Administrative & place labels":labels},{position:"bottomright"}).addTo(map);
 
 function params() {
@@ -163,8 +176,9 @@ function renderMarkers() {
       const row = rows[index];
       const areaColor = row.band === "very-low" ? "#e5232e" : row.band === "medium" ? "#f5b400" : "#118a45";
       const area = L.circle([row.latitude,row.longitude], {
-        radius: matchMedia("(max-width: 900px)").matches ? 2200 : 1500,
-        stroke: false, fillColor: areaColor, fillOpacity: 0.14,
+        radius: isPhone ? 18000 : 8000,
+        stroke: true, color: areaColor, weight: 1,
+        fillColor: areaColor, fillOpacity: isPhone ? 0.22 : 0.18,
         interactive: false,
       }).addTo(map);
       const marker = L.marker([row.latitude,row.longitude], {
@@ -221,7 +235,7 @@ function showDetail(row) {
 }
 async function loadOutletRatings(row) {
   try {
-    const response=await fetch(`/api/map/outlets/${encodeURIComponent(row.submission_id)}/ratings?access=${encodeURIComponent(access)}`);
+    const response=await fetch(`/api/map/outlets/${encodeURIComponent(row.submission_id)}/ratings?${params()}`);
     if(!response.ok)return;
     const payload=await response.json();
     if(state.selected?.submission_id!==row.submission_id)return;

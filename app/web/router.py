@@ -21,6 +21,11 @@ from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, OWN_PRODUCTS
 router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent
 OWN_PRODUCT_SET = set(OWN_PRODUCTS)
+APPROVED_REPORT_DATES = (
+    date(2026, 7, 4),
+    date(2026, 7, 18),
+    date(2026, 7, 25),
+)
 
 
 PRODUCT_CATEGORIES = {
@@ -166,6 +171,7 @@ def map_data(
         .where(
             KoboSubmission.gps_latitude.is_not(None),
             KoboSubmission.gps_longitude.is_not(None),
+            KoboSubmission.report_date.in_(APPROVED_REPORT_DATES),
         )
         .order_by(KoboSubmission.report_date.desc(), KoboSubmission.id.desc())
     )
@@ -253,7 +259,7 @@ def map_data(
             marker_by_submission[row["submission_id"]] = row
 
     markers = []
-    marker_limit = 180 if mobile else 900
+    marker_limit = 60 if mobile else 700
     for submission_id, representative in marker_by_submission.items():
         marker = dict(representative)
         markers.append(marker)
@@ -296,6 +302,9 @@ def map_data(
 def outlet_product_ratings(
     submission_id: int,
     access: str = Depends(_authorize),
+    category: list[str] = Query(default=[]),
+    product: list[str] = Query(default=[]),
+    movement: list[str] = Query(default=[]),
     db: Session = Depends(_db),
 ):
     submission = db.execute(
@@ -317,6 +326,22 @@ def outlet_product_ratings(
         row = _metric_row(submission, metric, "Competitor")
         if row:
             rows.append(row)
+    if category:
+        rows = [row for row in rows if row["category"] in category]
+    if product:
+        rows = [row for row in rows if row["product"] in product]
+    if movement:
+        try:
+            ranges = [
+                tuple(int(value) for value in selected_range.split("-", 1))
+                for selected_range in movement
+            ]
+            rows = [
+                row for row in rows
+                if any(low <= row["movement"] <= high for low, high in ranges)
+            ]
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="Invalid movement range")
     return {"rows": rows}
 
 

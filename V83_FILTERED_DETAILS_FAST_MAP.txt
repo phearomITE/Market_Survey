@@ -1,0 +1,28 @@
+KB Market Survey V83 - Filtered Details and Faster Phone Map
+
+Changes
+-------
+- ALL PRODUCT RATINGS now follows the current Category, Product and Movement
+  filters. Beer displays only Beer products.
+- Production Report Date options/data are restricted to:
+  2026-07-04, 2026-07-18 and 2026-07-25.
+- Other development/testing dates do not enter the map query.
+- Phone marker limit reduced from 180 to 60.
+- Phone zoom, fade, marker-zoom and inertia animations disabled.
+- Tile layers update after zoom/pan stops and retain a smaller phone buffer.
+- Movement color coverage increased to 18 km on phone and 8 km on desktop.
+
+Apply
+-----
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V83_FILTERED_DETAILS_FAST_MAP.zip -d .
+
+python -m py_compile app/web/router.py app/main.py
+
+git add app/web/router.py app/web/map.js \
+  tests/test_v83_filtered_details_fast_map.py \
+  V83_FILTERED_DETAILS_FAST_MAP.txt
+
+git commit -m "Filter product details and speed up phone map"
+git push origin main
+
+After Railway is Active, fully close and reopen the Telegram Mini App once.
