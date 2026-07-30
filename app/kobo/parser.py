@@ -88,12 +88,12 @@ ALIASES = {
         "5. Key Issues and Initiative Idea / Suggestion / Initiative Idea / Suggestion",
         "5. Key Issues and Initiative Idea / Suggestion/Initiative Idea / Suggestion",
     ],
-    "summary_report_type": [
-        "final_summary_report_type", "summary_report_type", "summary_template_type",
-        "Summary Template", "Summary Template / ប្រភេទរបាយការណ៍",
-        "key_issues_suggestion_group/final_summary_report_type",
-        "4. FINAL KEY ISSUES & INITIATIVE IDEA / SUGGESTION / Summary Template",
-        "4. FINAL KEY ISSUES & INITIATIVE IDEA / SUGGESTION/Summary Template",
+    "report_type": [
+        "final_summary_report_type", "report_type", "summary_report_type",
+        "outlet_info/final_summary_report_type",
+        "1. OUTLET INFORMATION / Report Type",
+        "1. OUTLET INFORMATION/Report Type",
+        "ប្រភេទរបាយការណ៍ / Report Type",
     ],
     "report_date": [
         "report_date", "survey_date", "date", "today", "report_info/report_date", "outlet_info/report_date",
@@ -126,6 +126,8 @@ OUTLET_TYPE_LABELS = {
     "sport club": "Sport Club",
     "motor_shop": "Motor Shop",
     "motor shop": "Motor Shop",
+    "local_drink": "Local Drink",
+    "local drink": "Local Drink",
 }
 
 
@@ -203,37 +205,10 @@ def normalize_region(value: Any) -> str | None:
     return REGION_LABELS.get(s.lower(), s.upper() if s.lower().startswith("r") else s)
 
 
-DEALER_ALIASES = {
-    # The historical Kobo choice name was accidentally saved as "kd1" while
-    # its visible label was KDL1. Kobo exports the choice name, so normalize
-    # both old and corrected submissions to the official dealer code.
-    "KD1": "KDL1",
-}
-
-
 def normalize_dealer(value: Any) -> str:
     if not value:
         return ""
-    dealer = str(value).strip().upper()
-    return DEALER_ALIASES.get(dealer, dealer)
-
-
-def normalize_summary_report_type(value: Any) -> str | None:
-    """Normalize the optional final-summary template selector.
-
-    Blank means GENERAL for backward compatibility. Normal outlet rows also
-    remain blank because the selector is shown only for summary-marker rows.
-    """
-    if value in (None, ""):
-        return None
-    raw = str(value).strip()
-    normalized = raw.lower().replace("_", " ").replace("-", " ")
-    normalized = " ".join(normalized.split())
-    if normalized in {"channel specialist", "specialist", "cs"}:
-        return "CHANNEL_SPECIALIST"
-    if normalized in {"general", "general trade", "gt"}:
-        return "GENERAL"
-    return raw.upper().replace(" ", "_")
+    return str(value).strip().upper()
 
 
 def normalize_outlet_type(value: Any) -> str | None:
@@ -254,6 +229,8 @@ def normalize_outlet_type(value: Any) -> str | None:
         return "Sport Club"
     if "motor" in s and "shop" in s:
         return "Motor Shop"
+    if "local" in s and "drink" in s:
+        return "Local Drink"
 
     if "wholesale" in s or "ដុំ" in s:
         return "Wholesale"
@@ -264,6 +241,24 @@ def normalize_outlet_type(value: Any) -> str | None:
     if "trolley" in s or "រទេះ" in s:
         return "Trolley"
     return raw
+
+
+def normalize_report_type(value: Any, outlet_type: str | None = None) -> str:
+    """Normalize the one-link Kobo selector to GT or HORECA.
+
+    Legacy rows are supported: CHANNEL SPECIALIST maps to HORECA, while a
+    blank historical selector falls back to the normalized outlet type and
+    otherwise defaults to GT.
+    """
+    raw = str(value or "").strip().upper().replace("-", "_")
+    if raw in {"HORECA", "CHANNEL_SPECIALIST", "CHANNEL SPECIALIST", "CHANNEL", "SPECIALIST", "CS"}:
+        return "HORECA"
+    if raw in {"GT", "GENERAL", "GENERAL_TRADE", "GENERAL TRADE"}:
+        return "GT"
+
+    if outlet_type in {"Local Eat", "Coffee,Bakery", "Canteen", "Sport Club", "Motor Shop", "Local Drink"}:
+        return "HORECA"
+    return "GT"
 
 
 def to_int(value: Any) -> int | None:
@@ -303,6 +298,8 @@ def normalize_submission(row: dict) -> dict:
     )
     submitted_at = parse_datetime(row.get("_submission_time") or row.get("submission_time") or row.get("end"))
     rdate = parse_date(get_any(row, ALIASES["report_date"])) or (submitted_at.date() if submitted_at else None)
+    outlet_type = normalize_outlet_type(get_any(row, ALIASES["outlet_type"]))
+    report_type = normalize_report_type(get_any(row, ALIASES["report_type"]), outlet_type)
 
     return {
         "submission_id": sub_id,
@@ -314,7 +311,8 @@ def normalize_submission(row: dict) -> dict:
         "member_no": to_int(get_any(row, ALIASES["member_no"])),
         "total_outlet_visit_target": to_int(get_any(row, ALIASES["total_outlet_visit_target"])),
         "outlet_name": get_any(row, ALIASES["outlet_name"]),
-        "outlet_type": normalize_outlet_type(get_any(row, ALIASES["outlet_type"])),
+        "outlet_type": outlet_type,
+        "report_type": report_type,
         "is_new_outlet": yes_value(get_any(row, ALIASES["is_new_outlet"])),
         "submitter_name": get_any(row, ALIASES["submitter_name"]),
         "phone_number": str(get_any(row, ALIASES["phone_number"], "") or "") or None,
@@ -324,8 +322,5 @@ def normalize_submission(row: dict) -> dict:
         "gps_longitude": to_float(get_any(row, ALIASES["gps_longitude"])),
         "key_issue_text": get_any(row, ALIASES["key_issue_text"]),
         "suggestion_text": get_any(row, ALIASES["suggestion_text"]),
-        "summary_report_type": normalize_summary_report_type(
-            get_any(row, ALIASES["summary_report_type"])
-        ),
         "_flat": flat,  # transient only; sync.py converts it to SQL metric rows, not DB JSON.
     }

@@ -28,11 +28,6 @@ class KoboSubmission(Base):
     submission_id: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     submission_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True, index=True)
     report_date: Mapped[date | None] = mapped_column(Date, index=True)
-    # Optional discriminator used by newer Kobo/report imports. Keeping this
-    # nullable preserves compatibility with older submissions.
-    summary_report_type: Mapped[str | None] = mapped_column(
-        String(80), nullable=True, index=True
-    )
 
     region: Mapped[str | None] = mapped_column(String(30), index=True)
     dealer: Mapped[str | None] = mapped_column(String(30), index=True)
@@ -42,6 +37,7 @@ class KoboSubmission(Base):
 
     outlet_name: Mapped[str | None] = mapped_column(String(255))
     outlet_type: Mapped[str | None] = mapped_column(String(80), index=True)
+    report_type: Mapped[str | None] = mapped_column(String(20), index=True)
     is_new_outlet: Mapped[bool | None] = mapped_column(Boolean)
 
     submitter_name: Mapped[str | None] = mapped_column(String(255))
@@ -51,10 +47,6 @@ class KoboSubmission(Base):
     gps_text: Mapped[str | None] = mapped_column(Text)
     gps_latitude: Mapped[float | None] = mapped_column(Float)
     gps_longitude: Mapped[float | None] = mapped_column(Float)
-    province: Mapped[str | None] = mapped_column(String(120), index=True)
-    district: Mapped[str | None] = mapped_column(String(120), index=True)
-    commune: Mapped[str | None] = mapped_column(String(120), index=True)
-    village: Mapped[str | None] = mapped_column(String(160), index=True)
 
     key_issue_text: Mapped[str | None] = mapped_column(Text)
     suggestion_text: Mapped[str | None] = mapped_column(Text)

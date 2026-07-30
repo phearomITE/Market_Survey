@@ -1,0 +1,30 @@
+KB Market Survey V84 — GT + HORECA Reports
+==========================================
+
+Main changes
+------------
+1. One Kobo form supports GT and HORECA through final_summary_report_type.
+2. PostgreSQL stores report_type and all new HORECA product metrics.
+3. HORECA report uses templates/template_horeca.xlsx.
+4. GT template and existing GT product lists remain unchanged.
+5. New commands:
+   /report CA3 GT 2026-07-18
+   /report CA3 HORECA 2026-07-18
+   /summary GT 2026-07-25
+   /summary HORECA 2026-07-25
+6. Old /report DEALER DATE and /summary DATE commands default to GT.
+7. Sync schema version forces one safe metric rebuild after deployment.
+
+Required deployment action
+--------------------------
+Upload/deploy the supplied Kobo XLSForm. If Kobo creates a new asset, update
+KOBO_ASSET_UID in Railway. After Railway is Active, run /sync_kobo once.
+
+Expected HORECA report file
+---------------------------
+Market_Improvement_CA3_HORECA_2026-07-18.xlsx
+
+Expected summary files
+----------------------
+Market_Survey_Summary_GT_2026-07-25.xlsx
+Market_Survey_Summary_HORECA_2026-07-25.xlsx

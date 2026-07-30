@@ -23,14 +23,17 @@ _SYNC_LOCK = Lock()
 _SYNC_FINISHED = Event()
 _SYNC_FINISHED.set()
 
+# Bump this when normalized metric fields change. It forces one safe rebuild
+# of stored metric rows without deleting Kobo submissions.
+SYNC_SCHEMA_VERSION = "v84_gt_horeca_reports_1"
+
 from app.reports.aggregator import (
-    COMPETITOR_PRODUCTS,
-    OWN_PRODUCTS,
+    ALL_COMPETITOR_PRODUCTS,
+    ALL_OWN_PRODUCTS,
     RING_PRODUCTS,
     STATUS_AVAILABLE,
     competitor_field,
     first_value,
-    own_product_field_allowed,
     product_field,
 )
 
@@ -52,19 +55,19 @@ def _status_to_mov(value) -> int | None:
 
 def _has_any_product_detail(flat: dict, product: str) -> bool:
     for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume", "new_purchase"):
-        if own_product_field_allowed(product, field) and first_value(flat, product_field(product, field)) not in (None, ""):
+        if first_value(flat, product_field(product, field)) not in (None, ""):
             return True
     return False
 
 
 def _product_metrics_from_flat(flat: dict) -> list[dict]:
     rows: list[dict] = []
-    for product in OWN_PRODUCTS:
+    for product in ALL_OWN_PRODUCTS:
         status = first_value(flat, product_field(product, "status"))
         score = first_value(flat, product_field(product, "mov"))
         movement = to_int(score)
-        if movement is None or not 1 <= movement <= 10:
-            movement = None
+        if movement is None:
+            movement = _status_to_mov(status)
         available = False
         if status not in (None, ""):
             available = str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
@@ -76,34 +79,13 @@ def _product_metrics_from_flat(flat: dict) -> list[dict]:
             "status": str(status).strip() if status not in (None, "") else None,
             "available": bool(available),
             "movement_score": movement,
-            "stock_status": (
-                first_value(flat, product_field(product, "stock"))
-                if own_product_field_allowed(product, "stock") else None
-            ),
-            "bbe_date": (
-                first_value(flat, product_field(product, "bbe"))
-                if own_product_field_allowed(product, "bbe") else None
-            ),
-            "buy_in_price": (
-                to_float(first_value(flat, product_field(product, "buy_in")))
-                if own_product_field_allowed(product, "buy_in") else None
-            ),
-            "sell_out_price": (
-                to_float(first_value(flat, product_field(product, "sell_out")))
-                if own_product_field_allowed(product, "sell_out") else None
-            ),
-            "ring_pull_value": (
-                to_float(first_value(flat, product_field(product, "ring_pull")))
-                if own_product_field_allowed(product, "ring_pull") else None
-            ),
-            "new_outlet_purchase": (
-                yes_value(first_value(flat, product_field(product, "new_purchase")))
-                if own_product_field_allowed(product, "new_purchase") else False
-            ),
-            "volume_ctn": (
-                to_float(first_value(flat, product_field(product, "volume")))
-                if own_product_field_allowed(product, "volume") else None
-            ),
+            "stock_status": first_value(flat, product_field(product, "stock")),
+            "bbe_date": first_value(flat, product_field(product, "bbe")),
+            "buy_in_price": to_float(first_value(flat, product_field(product, "buy_in"))),
+            "sell_out_price": to_float(first_value(flat, product_field(product, "sell_out"))),
+            "ring_pull_value": to_float(first_value(flat, product_field(product, "ring_pull"))),
+            "new_outlet_purchase": yes_value(first_value(flat, product_field(product, "new_purchase"))),
+            "volume_ctn": to_float(first_value(flat, product_field(product, "volume"))),
         }
 
         # Store every product row so reporting has fixed rows, even if blank.
@@ -113,21 +95,20 @@ def _product_metrics_from_flat(flat: dict) -> list[dict]:
 
 def _competitor_metrics_from_flat(flat: dict) -> list[dict]:
     rows: list[dict] = []
-    for product in COMPETITOR_PRODUCTS:
+    for product in ALL_COMPETITOR_PRODUCTS:
         status = first_value(flat, competitor_field(product, "status"))
         score = first_value(flat, competitor_field(product, "mov"))
         movement = to_int(score)
-        if movement is None or not 1 <= movement <= 10:
-            movement = None
+        if movement is None:
+            movement = _status_to_mov(status)
         rows.append(
             {
                 "product_name": product,
                 "status": str(status).strip() if status not in (None, "") else None,
                 "movement_score": movement,
-                # V46 competitor form fields are Sale Status + Movement only.
-                "stock_status": None,
-                "buy_in_price": None,
-                "sell_out_price": None,
+                "stock_status": first_value(flat, competitor_field(product, "stock")),
+                "buy_in_price": to_float(first_value(flat, competitor_field(product, "buy_in"))),
+                "sell_out_price": to_float(first_value(flat, competitor_field(product, "sell_out"))),
             }
         )
     return rows
@@ -222,37 +203,14 @@ def _replace_metric_rows(db, submission_db_id: int, flat: dict) -> None:
 
 
 def _source_hash(raw: dict) -> str:
-    payload = json.dumps(raw, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    payload = json.dumps(
+        {"schema": SYNC_SCHEMA_VERSION, "raw": raw},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _core_value(value):
-    if value in (None, ""):
-        return None
-    if isinstance(value, str):
-        return " ".join(value.strip().split()) or None
-    return value
-
-
-def _core_record_matches(existing: dict, normalized: dict) -> bool:
-    """Check fields that must be repaired even when the raw Kobo hash is unchanged.
-
-    This protects against parser fixes such as historical KD1 -> KDL1. The raw
-    Kobo submission did not change, but the normalized database value must.
-    """
-    fields = (
-        "dealer",
-        "report_date",
-        "region",
-        "outlet_name",
-        "group_no",
-        "member_no",
-        "summary_report_type",
-    )
-    return all(
-        _core_value(existing.get(field)) == _core_value(normalized.get(field))
-        for field in fields
-    )
 
 
 def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = None) -> dict:
@@ -266,34 +224,18 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     synced = 0
     unchanged = 0
     hash_backfilled = 0
-    repaired = 0
     skipped = 0
     matched = 0
     skipped_reasons: list[str] = []
 
     with SessionLocal() as db:
-        existing_records = {
-            row.submission_id: {
-                "source_hash": row.source_hash,
-                "dealer": row.dealer,
-                "report_date": row.report_date,
-                "region": row.region,
-                "outlet_name": row.outlet_name,
-                "group_no": row.group_no,
-                "member_no": row.member_no,
-                "summary_report_type": row.summary_report_type,
-            }
-            for row in db.execute(
+        existing_states = {
+            submission_id: {"source_hash": source_hash, "report_type": report_type}
+            for submission_id, source_hash, report_type in db.execute(
                 select(
                     KoboSubmission.submission_id,
                     KoboSubmission.source_hash,
-                    KoboSubmission.dealer,
-                    KoboSubmission.report_date,
-                    KoboSubmission.region,
-                    KoboSubmission.outlet_name,
-                    KoboSubmission.group_no,
-                    KoboSubmission.member_no,
-                    KoboSubmission.summary_report_type,
+                    KoboSubmission.report_type,
                 )
             ).all()
         }
@@ -317,29 +259,30 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
 
             source_hash = _source_hash(raw)
             data["source_hash"] = source_hash
-            existing = existing_records.get(data["submission_id"])
-            existing_hash = existing.get("source_hash") if existing else None
-            core_matches = bool(existing and _core_record_matches(existing, data))
+            existing_state = existing_states.get(data["submission_id"]) or {}
+            existing_hash = existing_state.get("source_hash")
+            existing_report_type = existing_state.get("report_type")
+            needs_gt_horeca_refresh = existing_report_type not in {"GT", "HORECA"}
 
-            if existing and existing_hash == source_hash and core_matches:
+            if existing_hash == source_hash and not needs_gt_horeca_refresh:
                 unchanged += 1
                 continue
 
-            # Safe first-run optimization: only backfill the hash when all core
-            # normalized values already match. If a parser fix changes Dealer,
-            # Date, Member or Summary Template, fully re-upsert the row.
-            if existing and existing_hash in (None, "") and core_matches:
+            # Keep the fast hash-only backfill for rows that already have the new
+            # GT/HORECA field. Rows missing report_type must run through the full
+            # upsert once so both routing and the new HORECA metrics are created.
+            if data["submission_id"] in existing_states and existing_hash in (None, "") and not needs_gt_horeca_refresh:
                 db.execute(
                     update(KoboSubmission)
                     .where(KoboSubmission.submission_id == data["submission_id"])
                     .values(source_hash=source_hash)
                 )
-                existing["source_hash"] = source_hash
+                existing_states[data["submission_id"]] = {
+                    "source_hash": source_hash,
+                    "report_type": existing_report_type,
+                }
                 hash_backfilled += 1
                 continue
-
-            if existing and not core_matches:
-                repaired += 1
 
             upsert_wide_submission(flat, data)
             stmt = insert(KoboSubmission).values(**data).on_conflict_do_update(
@@ -356,21 +299,15 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 continue
 
             _replace_metric_rows(db, sub.id, flat)
-            existing_records[data["submission_id"]] = {
+            existing_states[data["submission_id"]] = {
                 "source_hash": source_hash,
-                "dealer": data.get("dealer"),
-                "report_date": data.get("report_date"),
-                "region": data.get("region"),
-                "outlet_name": data.get("outlet_name"),
-                "group_no": data.get("group_no"),
-                "member_no": data.get("member_no"),
-                "summary_report_type": data.get("summary_report_type"),
+                "report_type": data.get("report_type"),
             }
             synced += 1
 
         message = (
             f"fetched {len(rows)}, matched {matched}, synced {synced}, "
-            f"hash_backfilled {hash_backfilled}, repaired {repaired}, unchanged {unchanged}, skipped {skipped}"
+            f"hash_backfilled {hash_backfilled}, unchanged {unchanged}, skipped {skipped}"
         )
         if skipped_reasons:
             message += " | " + " || ".join(skipped_reasons[:5])
@@ -379,12 +316,12 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
 
     print(
         f"✅ Kobo sync: fetched={len(rows)} matched={matched} synced={synced} "
-        f"hash_backfilled={hash_backfilled} repaired={repaired} unchanged={unchanged} skipped={skipped}"
+        f"hash_backfilled={hash_backfilled} unchanged={unchanged} skipped={skipped}"
     )
     return {
         "fetched": len(rows), "matched": matched, "synced": synced,
-        "hash_backfilled": hash_backfilled, "repaired": repaired,
-        "unchanged": unchanged, "skipped": skipped, "skipped_reasons": skipped_reasons,
+        "hash_backfilled": hash_backfilled, "unchanged": unchanged,
+        "skipped": skipped, "skipped_reasons": skipped_reasons,
     }
 
 

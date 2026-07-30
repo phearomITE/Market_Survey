@@ -1,0 +1,83 @@
+KB Market Survey V84 — Apply GT + HORECA Update
+================================================
+
+This is a safe changed-files update. It does not replace app/bot/run_bot.py,
+app/core/config.py or the current Railway map/asyncio startup code.
+
+1. Open Git Bash and enter the real Git repository
+--------------------------------------------------
+cd /d/Bot/Market_Survey_Git
+
+2. Extract the update into the repository root
+----------------------------------------------
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V84_GT_HORECA_REPORTS.zip \
+  -d .
+
+3. Validate Python syntax
+-------------------------
+python -m py_compile \
+  app/bot/handlers.py \
+  app/db/database.py \
+  app/db/models.py \
+  app/kobo/parser.py \
+  app/kobo/sync.py \
+  app/reports/aggregator.py \
+  app/reports/excel_report.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/web/router.py
+
+4. Run tests with normal Python, when available
+-----------------------------------------------
+py -3.12 -m pytest -q
+
+Expected:
+24 passed
+
+5. Review and push
+------------------
+git status
+git diff --stat
+
+git add \
+  app/bot/handlers.py \
+  app/db/database.py \
+  app/db/models.py \
+  app/kobo/parser.py \
+  app/kobo/sync.py \
+  app/reports/aggregator.py \
+  app/reports/excel_report.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/web/router.py \
+  templates/KB_Market_Improvement_XLSForm.xlsx \
+  templates/template_horeca.xlsx \
+  tests/conftest.py \
+  tests/test_v84_gt_horeca_reports.py \
+  README.md \
+  .env.example \
+  V84_GT_HORECA_REPORTS.txt \
+  V84_REDEPLOY_STEPS.txt
+
+git commit -m "Add GT and HORECA report routing"
+git push origin main
+
+6. Kobo and Railway
+-------------------
+- Deploy templates/KB_Market_Improvement_XLSForm.xlsx in KoboToolbox.
+- If Kobo creates a new asset, update KOBO_ASSET_UID in Railway Variables.
+- Wait until Railway deployment is Active.
+- Run /sync_kobo once. The first V84 sync rebuilds metric rows and can take
+  longer than normal. Do not restart Railway while this first sync is running.
+
+7. Test the requested commands
+------------------------------
+/summary GT 2026-07-25
+/summary HORECA 2026-07-25
+/report CA3 HORECA 2026-07-18
+
+Backward compatible:
+/report CA3 2026-07-18
+/summary 2026-07-25
+Both default to GT.

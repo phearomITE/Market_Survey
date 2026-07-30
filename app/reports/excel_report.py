@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 from copy import copy
-import unicodedata
 
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
@@ -14,48 +13,30 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.core.config import settings
 from app.data.dealers import ALL_DEALERS
-from app.reports.aggregator import OWN_PRODUCTS, COMPETITOR_PRODUCTS, RING_PRODUCTS
-
-
-def _contains_khmer(value: object) -> bool:
-    return isinstance(value, str) and any("\u1780" <= ch <= "\u17ff" for ch in value)
-
-
-def _prepare_khmer_cells_for_libreoffice(workbook) -> None:
-    """Normalize Khmer strings and assign a Khmer-capable font before export.
-
-    Microsoft Excel can display Khmer correctly even when the XLSX cell keeps a
-    Latin font. LibreOffice on Linux may then choose a bad complex-script
-    fallback and detach combining marks in the PDF/PNG. Applying Noto Sans
-    Khmer only to cells that contain Khmer preserves the English template style
-    while making words such as ``គ្រប់`` render correctly.
-    """
-    for worksheet in workbook.worksheets:
-        for row in worksheet.iter_rows():
-            for cell in row:
-                value = cell.value
-                if not _contains_khmer(value):
-                    continue
-                normalized = unicodedata.normalize("NFC", value).replace("\u200b", "")
-                if normalized != value:
-                    cell.value = normalized
-                font = copy(cell.font)
-                font.name = "Noto Sans Khmer"
-                cell.font = font
-
+from app.reports.aggregator import (
+    OWN_PRODUCTS,
+    COMPETITOR_PRODUCTS,
+    HORECA_OWN_PRODUCTS,
+    HORECA_COMPETITOR_PRODUCTS,
+    RING_PRODUCTS,
+)
 
 # Exact cell layout from template_by_dealer.xlsx.
 # General Trade report uses 4 outlet-type columns.
 GENERAL_OUTLET_COLS = {"Wholesale": 8, "Drink Shop": 12, "Wet Market": 16, "Trolley": 20}
-# Channel Specialist report uses 5 outlet-type columns.
-CHANNEL_SPECIALIST_OUTLET_COLS = {
+# HORECA report uses the six outlet-type columns from template_horeca.xlsx.
+HORECA_OUTLET_COLS = {
     "Local Eat": 8,
     "Coffee,Bakery": 12,
     "Canteen": 16,
     "Sport Club": 20,
     "Motor Shop": 23,
+    "Local Drink": 26,
 }
-CHANNEL_SPECIALIST_TYPES = set(CHANNEL_SPECIALIST_OUTLET_COLS)
+HORECA_TYPES = set(HORECA_OUTLET_COLS)
+# Backward-compatible aliases for older helper names.
+CHANNEL_SPECIALIST_OUTLET_COLS = HORECA_OUTLET_COLS
+CHANNEL_SPECIALIST_TYPES = HORECA_TYPES
 OUTLET_COLS = GENERAL_OUTLET_COLS
 FRESHNESS_START_ROW = 7
 FRESHNESS_END_ROW = 24
@@ -65,6 +46,12 @@ MOVEMENT_END_ROW = 42
 RING_PULL_START_ROW = 45
 ISSUE_START_ROW = 45
 SUGGESTION_START_ROW = 45
+# Locked HORECA template has 15 movement rows and starts the shared
+# Ring Pull/Key Issues area one row earlier than the GT template.
+HORECA_MOVEMENT_END_ROW = 41
+HORECA_RING_PULL_START_ROW = 44
+HORECA_ISSUE_START_ROW = 44
+HORECA_SUGGESTION_START_ROW = 44
 
 # Report logo rendering. Increase these values if the logo still appears small in the PNG preview.
 REPORT_LOGO_WIDTH_PX = 110
@@ -107,8 +94,6 @@ PRODUCT_NAME_MAP = {
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
     "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
-    "EXPREZ Can 330ml": "EXPREZ Can 330ml",
-    "EXPREZ Can 330mL": "EXPREZ Can 330ml",
     "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 300mL": "CAMBODIA Sport 300mL",
@@ -281,12 +266,7 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
     """
     canonical = _product_key(template_name)
     competitors = agg.get("competitors") or {}
-    products = agg.get("products") or {}
-
-    # Comparison columns may contain cross-over own products. V46 adds
-    # EXPREZ Can 330ml to that group, so search both result buckets.
-    buckets = [competitors, products]
-    if not competitors and not products:
+    if not competitors:
         return None
 
     target = _norm_lookup_key(canonical)
@@ -320,30 +300,27 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
 
     candidates: list[dict] = []
 
-    # 1) Direct alias matches across competitor and cross-over own products.
-    for bucket in buckets:
-        for key in candidate_names:
-            val = bucket.get(key)
-            if isinstance(val, dict):
-                candidates.append(val)
+    # 1) Direct alias matches.
+    for key in candidate_names:
+        val = competitors.get(key)
+        if isinstance(val, dict):
+            candidates.append(val)
 
     # 2) Normalized full-name matches.
-    for bucket in buckets:
-        for key, val in bucket.items():
-            if not isinstance(val, dict):
-                continue
-            if _norm_lookup_key(key) == target:
-                candidates.append(val)
+    for key, val in competitors.items():
+        if not isinstance(val, dict):
+            continue
+        if _norm_lookup_key(key) == target:
+            candidates.append(val)
 
     # 3) Fuzzy contains match for renamed/legacy GB Original keys.
     if target in {"gboriginal", "gboriginalncp"}:
-        for bucket in buckets:
-            for key, val in bucket.items():
-                if not isinstance(val, dict):
-                    continue
-                nk = _norm_lookup_key(key)
-                if "gb" in nk and "original" in nk:
-                    candidates.append(val)
+        for key, val in competitors.items():
+            if not isinstance(val, dict):
+                continue
+            nk = _norm_lookup_key(key)
+            if "gb" in nk and "original" in nk:
+                candidates.append(val)
 
     if not candidates:
         return None
@@ -390,7 +367,7 @@ def _force_rewrite_competitor_blocks(ws: Worksheet, agg: dict) -> None:
     such as GB Original = 2. The final pass scans the product-name cells and
     rewrites the metric cells from the aggregated result dictionary.
     """
-    for row in range(MOVEMENT_START_ROW, MOVEMENT_END_ROW + 1):
+    for row in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
         for product_col in [8, 13, 18, 23]:
             product_label = ws.cell(row, product_col).value
             if not product_label:
@@ -419,7 +396,7 @@ def _force_specific_competitor_value(ws: Worksheet, agg: dict, product_name: str
         return
 
     target = _norm_lookup_key(product_name)
-    for row in range(MOVEMENT_START_ROW, MOVEMENT_END_ROW + 1):
+    for row in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
         for col in range(1, 28):
             label = ws.cell(row, col).value
             if _norm_lookup_key(label) == target:
@@ -449,30 +426,51 @@ def _blank_if_none(value):
     return "" if value is None else value
 
 def _is_channel_specialist_report(agg: dict) -> bool:
-    """Detect Channel Specialist report by outlet-type data or explicit channel field.
-
-    This keeps one template but changes the top outlet-type headers dynamically.
-    """
-    channel = str(agg.get("channel") or agg.get("channel_type") or "").strip().lower()
-    if "channel" in channel or "specialist" in channel:
+    """Backward-compatible HORECA detector used by report layout helpers."""
+    report_type = str(agg.get("report_type") or agg.get("channel") or "").strip().upper()
+    if report_type in {"HORECA", "CHANNEL_SPECIALIST", "CHANNEL SPECIALIST", "CS"}:
         return True
     outlet_types = agg.get("outlet_types") or {}
-    return any(k in CHANNEL_SPECIALIST_TYPES for k in outlet_types.keys())
+    return any(k in HORECA_TYPES for k in outlet_types.keys())
+
+
+def _is_horeca_report(agg: dict) -> bool:
+    return _is_channel_specialist_report(agg)
+
+
+def _movement_end_row_for_report(agg: dict) -> int:
+    return HORECA_MOVEMENT_END_ROW if _is_horeca_report(agg) else MOVEMENT_END_ROW
+
+
+def _ring_pull_start_row_for_report(agg: dict) -> int:
+    return HORECA_RING_PULL_START_ROW if _is_horeca_report(agg) else RING_PULL_START_ROW
+
+
+def _issue_start_row_for_report(agg: dict) -> int:
+    return HORECA_ISSUE_START_ROW if _is_horeca_report(agg) else ISSUE_START_ROW
+
+
+def _suggestion_start_row_for_report(agg: dict) -> int:
+    return HORECA_SUGGESTION_START_ROW if _is_horeca_report(agg) else SUGGESTION_START_ROW
+
+
+def _print_end_row_for_report(agg: dict) -> int:
+    return 47 if _is_horeca_report(agg) else 48
 
 
 def _outlet_cols_for_report(agg: dict) -> dict[str, int]:
-    return CHANNEL_SPECIALIST_OUTLET_COLS if _is_channel_specialist_report(agg) else GENERAL_OUTLET_COLS
+    return HORECA_OUTLET_COLS if _is_horeca_report(agg) else GENERAL_OUTLET_COLS
 
 
-def _new_purchase_col_for_report(agg: dict) -> int:
-    # General: W. Channel Specialist: Z because W is used by Motor Shop.
-    return 26 if _is_channel_specialist_report(agg) else 23
+def _new_purchase_col_for_report(agg: dict) -> int | None:
+    # The locked HORECA template uses Z for Local Drink and has no separate
+    # New Outlet Purchase output column. GT keeps W.
+    return None if _is_horeca_report(agg) else 23
 
 
 def _volume_col_for_report(agg: dict) -> int:
-    # General: Z. Channel Specialist: AA.
-    return 27 if _is_channel_specialist_report(agg) else 26
-
+    # GT uses Z. HORECA uses AA because Z is Local Drink.
+    return 27 if _is_horeca_report(agg) else 26
 
 
 
@@ -500,35 +498,18 @@ def _unmerge_if_exists(ws: Worksheet, range_text: str) -> None:
 
 
 def _prepare_channel_specialist_layout(ws: Worksheet, agg: dict) -> None:
-    """Prepare Section 1 columns for Channel Specialist.
+    """Keep the uploaded HORECA template layout intact.
 
-    General template:
-      H:K Wholesale | L:O Drink Shop | P:S Wet Market | T:V Trolley
-      W:Y New Outlet Purchase | Z:AA Volume
-
-    Channel Specialist template:
-      H:K Local Eat | L:O Coffee,Bakery | P:S Canteen | T:V Sport Club
-      W:Y Motor Shop | Z New Outlet Purchase | AA Volume
-
-    The critical fix is to split Z:AA and copy formatting/borders to AA so
-    "Volume" stays inside the table instead of appearing outside the border.
+    The template already has separate Local Drink (Z) and Volume (AA) cells,
+    so report generation only enforces alignment and never changes merge ranges,
+    widths, row heights, borders or overall size.
     """
-    if not _is_channel_specialist_report(agg):
+    if not _is_horeca_report(agg):
         return
-
     for r in range(6, FRESHNESS_END_ROW + 1):
-        # Keep W:Y merged for Motor Shop, but split Z:AA for New Outlet + Volume.
-        _unmerge_if_exists(ws, f"Z{r}:AA{r}")
-
-        # After unmerge, AA may be a plain cell with no borders/style. Copy from Z.
-        _copy_cell_style(ws.cell(r, 26), ws.cell(r, 27))
-
-        # Make sure both cells have centered text and visible borders.
         ws.cell(r, 26).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.cell(r, 27).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    ws.column_dimensions["Z"].width = max(ws.column_dimensions["Z"].width or 10, 20)
-    ws.column_dimensions["AA"].width = max(ws.column_dimensions["AA"].width or 10, 14)
 
 def _set_outlet_type_headers(ws: Worksheet, agg: dict) -> None:
     """Write the correct header row for General Trade or Channel Specialist.
@@ -545,9 +526,10 @@ def _set_outlet_type_headers(ws: Worksheet, agg: dict) -> None:
 
     new_col = _new_purchase_col_for_report(agg)
     vol_col = _volume_col_for_report(agg)
-    ws.cell(6, new_col).value = "New Outlet Purchase"
+    if new_col is not None:
+        ws.cell(6, new_col).value = "New Outlet Purchase"
+        ws.cell(6, new_col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.cell(6, vol_col).value = "Volume"
-    ws.cell(6, new_col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.cell(6, vol_col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
@@ -775,11 +757,13 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws["A1"] = ""
     ws["B1"] = ""
     report_date_time = f"{rdate_txt} {datetime.now().strftime('%H:%M:%S')}"
-    if _is_channel_specialist_report(agg):
-        ws["A3"] = f"Dealer : {dealer}    CHANNEL SPECIALIST                         Report Date: {report_date_time}"
+    if _is_horeca_report(agg):
+        ws["A3"] = f"Dealer : {dealer}    HORECA                         Report Date: {report_date_time}"
     else:
         ws["A3"] = f"Dealer : {dealer}                              Report Date: {report_date_time}"
-    ws["A3"].font = ws["A3"].font.copy(bold=True)
+    title_font = copy(ws["A3"].font)
+    title_font.bold = True
+    ws["A3"].font = title_font
     ws["A4"] = f"Group : {agg.get('group_no') or 2}"
     member_no = agg.get("member_no") or (max(1, min(10, total // 3 or 1)) if total else 0)
     ws["C4"] = f"Member : {member_no}"
@@ -810,7 +794,8 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
         for label, col in outlet_cols.items():
             ws.cell(row, col).value = int(counts.get(label, 0) or 0)
 
-        ws.cell(row, new_purchase_col).value = int(pdata.get("new_purchase", 0) or 0)
+        if new_purchase_col is not None:
+            ws.cell(row, new_purchase_col).value = int(pdata.get("new_purchase", 0) or 0)
         vol = pdata.get("volume")
         ws.cell(row, volume_col).value = "" if vol in (None, 0, 0.0) else _excel_number(vol)
 
@@ -818,7 +803,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     # Always restore the header row first. Product data starts on row 26.
     _set_movement_headers(ws)
 
-    for row in range(MOVEMENT_START_ROW, MOVEMENT_END_ROW + 1):
+    for row in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
         # Own products: Product, Mov, Stock, Buy In, Sell Out, Ring Pull = B:G
         own_name = _product_key(ws.cell(row, 2).value)
         own = (agg.get("products") or {}).get(own_name, {})
@@ -853,14 +838,14 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     gb_metrics = _lookup_competitor_metrics(agg, "GB Original NCP")
     if gb_metrics:
         gb_mov = _final_movement_from_metrics(gb_metrics)
-        for rr in range(MOVEMENT_START_ROW, MOVEMENT_END_ROW + 1):
+        for rr in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
             for cc in [8, 13, 18, 23]:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
                     print("✅ FORCE WRITE GB Original to Excel:", gb_mov, "cell", ws.cell(rr, cc + 1).coordinate)
 
     # Section 4: Ring Pull fixed products.
-    for i, product in enumerate(RING_PRODUCTS, start=RING_PULL_START_ROW):
+    for i, product in enumerate(RING_PRODUCTS, start=_ring_pull_start_row_for_report(agg)):
         rp = (agg.get("ring_pull") or {}).get(product, {})
         ws.cell(i, 2).value = product
         ws.cell(i, 4).value = int(rp.get("total_outlets", 0) or 0)
@@ -875,9 +860,10 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
         suggestions.append("")
 
     for i in range(4):
-        row = ISSUE_START_ROW + i
+        row = _issue_start_row_for_report(agg) + i
+        suggestion_row = _suggestion_start_row_for_report(agg) + i
         issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
-        suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
+        suggestion_lines = _set_row_text(ws, suggestion_row, 19, i + 1, suggestions[i])
         _fit_summary_row_height(ws, row, issue_lines, suggestion_lines)
 
     # Page setup helps LibreOffice render a single clean preview image/PDF.
@@ -886,7 +872,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.print_area = "A1:AA48"
+    ws.print_area = f"A1:AA{_print_end_row_for_report(agg)}"
 
 
 
@@ -898,8 +884,8 @@ def _template_for_aggs(aggs: list[dict]) -> Path:
     """
     base = settings.template_file
     template_dir = base.parent
-    if aggs and all(_is_channel_specialist_report(agg) for agg in aggs):
-        candidate = template_dir / "template_channel_specialist.xlsx"
+    if aggs and all(_is_horeca_report(agg) for agg in aggs):
+        candidate = template_dir / "template_horeca.xlsx"
         if candidate.exists():
             return candidate
 
@@ -916,7 +902,6 @@ def create_report_workbook(aggs: list[dict], output_path: Path) -> Path:
 
     if not aggs:
         template.title = "No Data"
-        _prepare_khmer_cells_for_libreoffice(wb)
         wb.save(output_path)
         return output_path
 
@@ -938,25 +923,33 @@ def create_report_workbook(aggs: list[dict], output_path: Path) -> Path:
             wb.remove(ws)
 
     wb.active = 0
-    _prepare_khmer_cells_for_libreoffice(wb)
     wb.save(output_path)
     return output_path
 
 
 def create_single_report(agg: dict) -> Path:
-    name = f"Market_Improvement_{agg['dealer']}_{agg.get('report_date')}.xlsx".replace(":", "-")
+    report_type = "HORECA" if _is_horeca_report(agg) else "GT"
+    name = (
+        f"Market_Improvement_{agg['dealer']}_{report_type}_{agg.get('report_date')}.xlsx"
+    ).replace(":", "-")
     return create_report_workbook([agg], settings.export_path / name)
 
 
-def _blank_agg(dealer: str, report_date) -> dict:
+def _blank_agg(dealer: str, report_date, report_type: str = "GT") -> dict:
+    is_horeca = str(report_type or "GT").strip().upper() == "HORECA"
+    own_products = HORECA_OWN_PRODUCTS if is_horeca else OWN_PRODUCTS
+    competitor_products = HORECA_COMPETITOR_PRODUCTS if is_horeca else COMPETITOR_PRODUCTS
+    normalized_type = "HORECA" if is_horeca else "GT"
     return {
         "dealer": dealer,
         "report_date": report_date,
+        "report_type": normalized_type,
+        "channel": normalized_type,
         "total_outlets": 0,
         "outlet_types": {},
         "location_text": "",
-        "products": {p: {"availability": {}} for p in OWN_PRODUCTS},
-        "competitors": {p: {} for p in COMPETITOR_PRODUCTS},
+        "products": {p: {"availability": {}} for p in own_products},
+        "competitors": {p: {} for p in competitor_products},
         "ring_pull": {p: {"total_outlets": 0, "qty": 0} for p in RING_PRODUCTS},
         "key_issues": ["", "", "", ""],
         "suggestions": ["", "", "", ""],

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update, WebAppInfo
+from telegram import Update, InputFile
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
@@ -13,9 +13,9 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
-    generate_movement_multi_export,
     parse_multi_report_command_args,
     parse_report_command_args,
+    parse_summary_command_args,
 )
 from app.services.render_service import excel_to_png, excel_to_pdf
 
@@ -27,22 +27,19 @@ Commands:
 /sync_kobo
 /debug_kobo
 /status
-/report KRG7 2026-06-06
+/report KRG7 GT 2026-06-06
+/report CA3 HORECA 2026-07-18
 /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today
 /report_today 2026-06-06
-/summary 2026-07-05
-/map
-/dashboard
-/export movement_multi 2026-07-04 2026-07-18 2026-07-25
+/summary GT 2026-07-25
+/summary HORECA 2026-07-25
 /help
 
-/report = generate one dealer report and send large PNG file preview first, then Excel only.
+/report = generate one GT or HORECA dealer report using its matching template.
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
-/summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/map and /dashboard = open the secure live Kobo viewer.
-/export movement_multi = export beer outlet movement for one or more report dates.
+/summary = generate a separate GT or HORECA Region/Dealer submission summary.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -53,70 +50,7 @@ Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
-    keyboard = _viewer_keyboard(update)
-    await update.effective_message.reply_text(
-        HELP_TEXT,
-        reply_markup=keyboard,
-    )
-
-
-def _viewer_url(view: str) -> str:
-    if not settings.public_url:
-        return ""
-    token = settings.map_editor_token.strip() or settings.map_viewer_token.strip()
-    suffix = f"?access={token}" if token else ""
-    return f"{settings.public_url}/{view}{suffix}"
-
-
-def _viewer_button(label: str, url: str, update: Update) -> InlineKeyboardButton:
-    # Telegram Web App buttons are supported in private bot chats. In groups,
-    # fall back to a normal HTTPS button so /map and /dashboard still work.
-    if update.effective_chat and update.effective_chat.type == "private":
-        return InlineKeyboardButton(label, web_app=WebAppInfo(url=url))
-    return InlineKeyboardButton(label, url=url)
-
-
-def _viewer_keyboard(update: Update) -> InlineKeyboardMarkup | None:
-    map_url = _viewer_url("map")
-    dashboard_url = _viewer_url("dashboard")
-    if not map_url or not dashboard_url:
-        return None
-    return InlineKeyboardMarkup(
-        [[
-            _viewer_button("🗺 Open Map", map_url, update),
-            _viewer_button("📊 Dashboard", dashboard_url, update),
-        ]]
-    )
-
-
-async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = _viewer_url("map")
-    if not url:
-        await update.effective_message.reply_text(
-            "❌ PUBLIC_APP_URL is not configured."
-        )
-        return
-    await update.effective_message.reply_text(
-        "🗺 Open the Kobo movement map:",
-        reply_markup=InlineKeyboardMarkup(
-            [[_viewer_button("Open Map", url, update)]]
-        ),
-    )
-
-
-async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = _viewer_url("dashboard")
-    if not url:
-        await update.effective_message.reply_text(
-            "❌ PUBLIC_APP_URL is not configured."
-        )
-        return
-    await update.effective_message.reply_text(
-        "📊 Open the Kobo movement dashboard:",
-        reply_markup=InlineKeyboardMarkup(
-            [[_viewer_button("Open Dashboard", url, update)]]
-        ),
-    )
+    await update.effective_message.reply_text(HELP_TEXT)
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -166,8 +100,8 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.effective_message.reply_text(
             "Usage:\n"
-            "/report PVH3 2026-07-07\n"
-            "/report PVH3 CHANNEL SPECIALIST 2026-07-07"
+            "/report CA3 GT 2026-07-18\n"
+            "/report CA3 HORECA 2026-07-18"
         )
         return
 
@@ -177,7 +111,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text(f"❌ {exc}")
         return
 
-    report_label = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
+    report_label = report_type
     wait = await update.effective_message.reply_text(
         f"📊 Generating {report_label} template preview for {dealer} {rdate}..."
     )
@@ -228,7 +162,7 @@ async def report_multi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             generate_multi_dealer_reports,
             dealers,
             rdate,
-            "GENERAL",
+            "GT",
         )
 
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
@@ -313,47 +247,28 @@ async def debug_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Debug Kobo failed: {e}")
 
 async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.effective_message.reply_text("Usage: /summary 2026-07-05")
+    try:
+        report_type, rdate = parse_summary_command_args(context.args)
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ {exc}")
         return
 
-    rdate = context.args[0].strip()
-    wait = await update.effective_message.reply_text(f"📊 Generating Region/Dealer summary for {rdate}...")
+    wait = await update.effective_message.reply_text(
+        f"📊 Generating {report_type} Region/Dealer summary for {rdate}..."
+    )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, text = await asyncio.to_thread(generate_region_dealer_summary, rdate)
-        await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
+        path, text = await asyncio.to_thread(
+            generate_region_dealer_summary,
+            rdate,
+            report_type,
+        )
+        await wait.edit_text(f"✅ {text}\n📎 Uploading {report_type} summary Excel...")
         with path.open("rb") as f:
-            await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
+            await update.effective_message.reply_document(
+                document=InputFile(f, filename=path.name),
+                caption=f"📊 {report_type} summary - {rdate}",
+            )
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
 
-
-async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = [str(value).strip() for value in context.args if str(value).strip()]
-    if not args or args[0].casefold() != "movement_multi":
-        await update.effective_message.reply_text(
-            "Usage:\n"
-            "/export movement_multi 2026-07-04 2026-07-18 2026-07-25"
-        )
-        return
-
-    date_values = args[1:]
-    wait = await update.effective_message.reply_text(
-        "📊 Generating multi-date beer movement export..."
-    )
-    try:
-        path, text = await asyncio.to_thread(
-            generate_movement_multi_export,
-            date_values,
-        )
-        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
-        with path.open("rb") as file_handle:
-            await update.effective_message.reply_document(
-                document=InputFile(file_handle, filename=path.name),
-                caption="📊 Beer movement detail — " + ", ".join(date_values),
-            )
-    except ValueError as exc:
-        await wait.edit_text(f"❌ {exc}")
-    except Exception as exc:
-        await wait.edit_text(f"❌ Movement export failed: {exc}")

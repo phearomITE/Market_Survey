@@ -15,21 +15,27 @@ from app.reports.excel_report import create_single_report, create_all_dealer_rep
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
-from app.reports.movement_multi_export import (
-    build_movement_rows,
-    create_movement_multi_workbook,
-    parse_movement_multi_dates,
-)
 
-ReportType = Literal["GENERAL", "CHANNEL_SPECIALIST"]
+ReportType = Literal["GT", "HORECA"]
 
-CHANNEL_SPECIALIST_OUTLET_TYPES = {
+GT_OUTLET_TYPES = {"Wholesale", "Drink Shop", "Wet Market", "Trolley"}
+HORECA_OUTLET_TYPES = {
     "Local Eat",
     "Coffee,Bakery",
     "Canteen",
     "Sport Club",
     "Motor Shop",
+    "Local Drink",
 }
+
+
+def normalize_report_type(value: str | None, *, default: ReportType = "GT") -> ReportType:
+    raw = str(value or "").strip().upper().replace("-", "_")
+    if raw in {"HORECA", "CHANNEL_SPECIALIST", "CHANNEL SPECIALIST", "CHANNEL", "SPECIALIST", "CS"}:
+        return "HORECA"
+    if raw in {"GT", "GENERAL", "GENERAL_TRADE", "GENERAL TRADE", ""}:
+        return default
+    raise ValueError("Unknown report type. Use GT or HORECA.")
 
 
 def parse_report_date(value: str | None) -> date:
@@ -39,50 +45,65 @@ def parse_report_date(value: str | None) -> date:
 
 
 def parse_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[str, str, ReportType]:
-    """Parse /report command arguments.
+    """Parse one-dealer report commands.
 
     Supported:
-      /report PVH3 2026-07-07
-      /report PVH3 CHANNEL SPECIALIST 2026-07-07
+      /report CA3 2026-07-18
+      /report CA3 GT 2026-07-18
+      /report CA3 HORECA 2026-07-18
 
-    The date is always the last token. This prevents trying to parse
-    'CHANNEL' as a YYYY-MM-DD date.
+    The date is always the last token. A command without an explicit report
+    type remains backward compatible and defaults to GT.
     """
     parts = [str(x).strip() for x in args if str(x).strip()]
     if len(parts) < 2:
-        raise ValueError("Usage: /report PVH3 2026-07-07 or /report PVH3 CHANNEL SPECIALIST 2026-07-07")
+        raise ValueError(
+            "Usage: /report CA3 GT 2026-07-18 or "
+            "/report CA3 HORECA 2026-07-18"
+        )
 
     dealer = parts[0].upper()
     date_str = parts[-1]
-
-    # Validate date early so the user gets a clean message.
     parse_report_date(date_str)
 
-    middle = " ".join(parts[1:-1]).strip().upper()
-    if not middle:
-        report_type: ReportType = "GENERAL"
-    elif middle in {"CHANNEL", "CHANNEL SPECIALIST", "SPECIALIST", "CS"}:
-        report_type = "CHANNEL_SPECIALIST"
-    else:
-        raise ValueError(
-            "Unknown report type. Use /report PVH3 2026-07-07 or "
-            "/report PVH3 CHANNEL SPECIALIST 2026-07-07"
-        )
-
+    middle = " ".join(parts[1:-1]).strip()
+    report_type = normalize_report_type(middle, default="GT")
     return dealer, date_str, report_type
 
 
+def parse_summary_command_args(args: list[str] | tuple[str, ...]) -> tuple[ReportType, str]:
+    """Parse GT/HORECA summary commands.
+
+    Supported:
+      /summary 2026-07-25              (defaults to GT)
+      /summary GT 2026-07-25
+      /summary HORECA 2026-07-25
+    """
+    parts = [str(x).strip() for x in args if str(x).strip()]
+    if not parts:
+        raise ValueError(
+            "Usage: /summary GT 2026-07-25 or /summary HORECA 2026-07-25"
+        )
+    if len(parts) == 1:
+        date_str = parts[0]
+        report_type: ReportType = "GT"
+    elif len(parts) == 2:
+        report_type = normalize_report_type(parts[0])
+        date_str = parts[1]
+    else:
+        raise ValueError(
+            "Usage: /summary GT 2026-07-25 or /summary HORECA 2026-07-25"
+        )
+    parse_report_date(date_str)
+    return report_type, date_str
+
 
 def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[list[str], str]:
-    """Parse a selected-dealer report command.
+    """Parse a selected-dealer GT report command.
 
     Supported examples:
       /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
       /report_multi CPH2,CA2,KDL1,CA1,CA7 2026-07-14
-
-    The last token must be the report date. Dealer codes may be separated by
-    spaces and/or commas. Duplicate dealer codes are removed while preserving
-    the requested order.
     """
     parts = [str(x).strip() for x in args if str(x).strip()]
     if len(parts) < 2:
@@ -119,15 +140,23 @@ def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[
     return dealers, date_str
 
 
-def _is_channel_specialist_submission(s: KoboSubmission) -> bool:
-    return (s.outlet_type or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
+def _submission_report_type(submission: KoboSubmission) -> ReportType:
+    explicit = str(getattr(submission, "report_type", None) or "").strip()
+    if explicit:
+        try:
+            return normalize_report_type(explicit)
+        except ValueError:
+            pass
+    outlet_type = str(getattr(submission, "outlet_type", None) or "").strip()
+    return "HORECA" if outlet_type in HORECA_OUTLET_TYPES else "GT"
 
 
-def _filter_by_report_type(submissions: list[KoboSubmission], report_type: ReportType) -> list[KoboSubmission]:
-    if report_type == "CHANNEL_SPECIALIST":
-        return [s for s in submissions if _is_channel_specialist_submission(s)]
-    # General report excludes Channel Specialist outlet types.
-    return [s for s in submissions if not _is_channel_specialist_submission(s)]
+def _filter_by_report_type(
+    submissions: list[KoboSubmission],
+    report_type: ReportType,
+) -> list[KoboSubmission]:
+    selected = normalize_report_type(report_type)
+    return [row for row in submissions if _submission_report_type(row) == selected]
 
 
 def get_submissions(dealer: str | None, report_date: date, report_type: ReportType | None = None):
@@ -187,14 +216,14 @@ def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, rep
     return get_submissions(dealer, d, report_type=report_type)
 
 
-def generate_dealer_report(dealer: str, report_date_str: str, report_type: ReportType = "GENERAL"):
+def generate_dealer_report(dealer: str, report_date_str: str, report_type: ReportType = "GT"):
     d = parse_report_date(report_date_str)
     dealer = dealer.upper().strip()
     submissions = get_submissions(dealer, d, report_type=report_type)
     if settings.auto_sync_before_report or not submissions:
         submissions = _sync_and_retry_if_empty(dealer, d, submissions, report_type=report_type)
     if not submissions:
-        label = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
+        label = report_type
         all_rows = get_submissions(dealer, d, report_type=None)
         outlet_types = sorted({(row.outlet_type or "blank") for row in all_rows})
         detail = f" DB rows for dealer/date: {len(all_rows)}; outlet types: {', '.join(outlet_types) or 'none'}."
@@ -203,27 +232,27 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
             " Run /sync_kobo once and retry."
         )
 
-    agg = aggregate_submissions(submissions)
+    agg = aggregate_submissions(submissions, report_type=report_type)
     agg["report_type"] = report_type
-    agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
+    agg["channel"] = report_type
 
     path = create_single_report(agg)
-    label = "Channel Specialist" if report_type == "CHANNEL_SPECIALIST" else "General"
+    label = report_type
     return path, f"Generated {label} {dealer} report for {d}: {len(submissions)} outlet submissions"
 
 
 def generate_today_all_dealers(report_date_str: str | None = None):
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type="GENERAL")
+    submissions = get_submissions(None, d, report_type="GT")
     if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type="GENERAL")
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type="GT")
     grouped = {}
     for s in submissions:
         grouped.setdefault(s.dealer, []).append(s)
-    aggs = {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items() if dealer}
+    aggs = {dealer: aggregate_submissions(rows, report_type="GT") for dealer, rows in grouped.items() if dealer}
     for agg in aggs.values():
-        agg["report_type"] = "GENERAL"
-        agg["channel"] = "GENERAL"
+        agg["report_type"] = "GT"
+        agg["channel"] = "GT"
     path = create_all_dealer_report(aggs, d)
     return path, f"Generated all dealer report for {d}: {len(submissions)} outlet submissions, {len(aggs)} dealers with data"
 
@@ -249,7 +278,7 @@ def generate_today_all_dealers_with_pngs(report_date_str: str | None = None):
 def generate_multi_dealer_reports(
     dealers: list[str] | tuple[str, ...],
     report_date_str: str,
-    report_type: ReportType = "GENERAL",
+    report_type: ReportType = "GT",
 ):
     """Generate one workbook and one PNG ZIP for selected dealers.
 
@@ -307,9 +336,9 @@ def generate_multi_dealer_reports(
         rows = grouped[dealer]
         if not rows:
             continue
-        agg = aggregate_submissions(rows)
+        agg = aggregate_submissions(rows, report_type=report_type)
         agg["report_type"] = report_type
-        agg["channel"] = "CHANNEL SPECIALIST" if report_type == "CHANNEL_SPECIALIST" else "GENERAL"
+        agg["channel"] = report_type
         aggs[dealer] = agg
 
     path = create_selected_dealer_report(aggs, normalized, d)
@@ -335,44 +364,29 @@ def generate_multi_dealer_reports(
     return path, png_zip, status
 
 
-def generate_region_dealer_summary(report_date_str: str | None = None):
+def generate_region_dealer_summary(
+    report_date_str: str | None = None,
+    report_type: ReportType = "GT",
+):
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d)
+    report_type = normalize_report_type(report_type)
+    submissions = get_submissions(None, d, report_type=report_type)
     if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions)
+        submissions = _sync_and_retry_if_empty(
+            None,
+            d,
+            submissions,
+            report_type=report_type,
+        )
     rows = build_summary_rows(submissions)
-    path = create_summary_report(rows, d)
+    path = create_summary_report(rows, d, report_type=report_type)
     submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
     total_submissions = sum(r.get("total_submissions", 0) for r in rows)
     total_outlets = sum(r.get("total_outlets", 0) for r in rows)
     return (
         path,
-        f"Generated summary for {d}: {submitted_dealers}/65 dealers submitted, "
-        f"{total_submissions} submissions, {total_outlets} outlets"
+        f"Generated {report_type} summary for {d}: "
+        f"{submitted_dealers}/65 dealers submitted, "
+        f"{total_submissions} submissions, {total_outlets} outlets",
     )
 
-
-def generate_movement_multi_export(date_values: list[str] | tuple[str, ...]):
-    """Export beer movement detail for multiple report dates into one workbook."""
-    report_dates = parse_movement_multi_dates(date_values)
-    submissions: list[KoboSubmission] = []
-    counts: dict[date, int] = {}
-
-    for report_date in report_dates:
-        rows = get_submissions(None, report_date, report_type=None)
-        if settings.auto_sync_before_report and not rows:
-            rows = _sync_and_retry_if_empty(None, report_date, rows, report_type=None)
-        counts[report_date] = len(rows)
-        submissions.extend(rows)
-
-    path = create_movement_multi_workbook(submissions, report_dates)
-    movement_rows = len(build_movement_rows(submissions))
-    date_summary = ", ".join(
-        f"{report_date.isoformat()}: {counts[report_date]} submissions"
-        for report_date in report_dates
-    )
-    return (
-        path,
-        f"Generated movement_multi export with {movement_rows} movement outlet rows. "
-        f"{date_summary}",
-    )
