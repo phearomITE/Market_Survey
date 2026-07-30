@@ -97,7 +97,31 @@ async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
-    await update.effective_message.reply_text(HELP_TEXT)
+    reply_markup = None
+    try:
+        reply_markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🗺 Open Movement Map",
+                        url=_viewer_url("map"),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "📊 Open Movement Dashboard",
+                        url=_viewer_url("dashboard"),
+                    )
+                ],
+            ]
+        )
+    except ValueError:
+        # Keep /start available even before Railway map variables are configured.
+        pass
+    await update.effective_message.reply_text(
+        HELP_TEXT,
+        reply_markup=reply_markup,
+    )
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
