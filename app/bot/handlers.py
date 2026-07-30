@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from telegram import Update, InputFile
+from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
@@ -272,3 +272,107 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
 
+
+
+# ---------------------------------------------------------------------------
+# V84A compatibility: public Movement Map and Dashboard Telegram commands.
+# ---------------------------------------------------------------------------
+
+def _public_web_page_url(path: str) -> str | None:
+    """Build a Railway public URL using the configured access token."""
+    base_url = str(
+        getattr(settings, "public_app_url", "") or ""
+    ).strip().rstrip("/")
+
+    if not base_url:
+        return None
+
+    normalized_path = "/" + str(path or "").strip().lstrip("/")
+    url = f"{base_url}{normalized_path}"
+
+    token = str(
+        getattr(settings, "map_viewer_token", "") or ""
+    ).strip()
+
+    if token:
+        url = f"{url}?access={token}"
+
+    return url
+
+
+async def map_cmd(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """Send buttons for the public movement map and dashboard."""
+    map_url = _public_web_page_url("/map")
+    dashboard_url = _public_web_page_url("/dashboard")
+
+    if not map_url:
+        await update.effective_message.reply_text(
+            "❌ PUBLIC_APP_URL is missing in Railway Variables."
+        )
+        return
+
+    rows = [
+        [InlineKeyboardButton("🗺 Open Map", url=map_url)],
+    ]
+
+    if dashboard_url:
+        rows.append(
+            [InlineKeyboardButton("📊 Open Dashboard", url=dashboard_url)]
+        )
+
+    await update.effective_message.reply_text(
+        "🗺 KB Market Survey Movement Map",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def dashboard_cmd(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    """Send a button for the public dashboard."""
+    dashboard_url = _public_web_page_url("/dashboard")
+    map_url = _public_web_page_url("/map")
+
+    if not dashboard_url:
+        await update.effective_message.reply_text(
+            "❌ PUBLIC_APP_URL is missing in Railway Variables."
+        )
+        return
+
+    rows = [
+        [InlineKeyboardButton("📊 Open Dashboard", url=dashboard_url)],
+    ]
+
+    if map_url:
+        rows.append(
+            [InlineKeyboardButton("🗺 Open Map", url=map_url)]
+        )
+
+    await update.effective_message.reply_text(
+        "📊 KB Market Survey Dashboard",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+
+# V84A startup compatibility for additional handlers removed by V84.
+async def _v84_removed_command_fallback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    message = update.effective_message
+    command_text = str(getattr(message, "text", "") or "").split()
+    command_name = command_text[0] if command_text else "This command"
+    await message.reply_text(
+        f"⚠️ {command_name} was removed during the V84 handlers update. "
+        "The bot is online, but this older command still needs its service "
+        "logic merged back into V84."
+    )
+
+
+for _v84_missing_handler_name in ('export_cmd',):
+    globals()[_v84_missing_handler_name] = _v84_removed_command_fallback
