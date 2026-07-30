@@ -55,8 +55,18 @@ function populateOptions(o) {
   fill("commune", o.communes, "All communes");
   fill("category", o.categories, "All categories");
   fill("product", o.products, "All products");
+  const filterLabels = {
+    region:"Region", dealer:"Dealer", reportDate:"Report Date",
+    province:"Province / Capital", district:"District / Khan",
+    commune:"Commune / Sangkat", category:"Product Category",
+    product:"Product", movement:"Movement Score"
+  };
   $("dashboardFilters").innerHTML = ["region","dealer","reportDate","province","district","commune","category","product","movement"]
-    .map(id => { const clone = $(id).cloneNode(true); clone.id = `dash-${id}`; return clone.outerHTML; }).join("");
+    .map(id => {
+      const clone = $(id).cloneNode(true);
+      clone.id = `dash-${id}`;
+      return `<label><span>${filterLabels[id]}</span>${clone.outerHTML}</label>`;
+    }).join("");
   $("dashboardFilters").querySelectorAll("select").forEach(select => select.addEventListener("change", () => {
     $(select.id.replace("dash-","")).value = select.value; loadData(true);
   }));
@@ -200,6 +210,8 @@ function renderBars(id, items) {
 function setScreen(dashboard) {
   $("mapScreen").classList.toggle("hidden",dashboard);
   $("dashboardScreen").classList.toggle("hidden",!dashboard);
+  $("mapViewBtn").classList.toggle("active",!dashboard);
+  $("dashboardBtn").classList.toggle("active",dashboard);
   history.replaceState(null,"",`${dashboard?"/dashboard":"/map"}?access=${encodeURIComponent(access)}`);
   if (!dashboard) setTimeout(()=>map.invalidateSize(),50);
 }

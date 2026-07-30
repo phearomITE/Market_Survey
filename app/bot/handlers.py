@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from telegram import Update, InputFile
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update, WebAppInfo
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
@@ -32,6 +32,8 @@ Commands:
 /report_today
 /report_today 2026-06-06
 /summary 2026-07-05
+/map
+/dashboard
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /help
 
@@ -39,6 +41,7 @@ Commands:
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
+/map and /dashboard = open the secure live Kobo viewer.
 /export movement_multi = export beer outlet movement for one or more report dates.
 
 Logic:
@@ -50,7 +53,70 @@ Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
-    await update.effective_message.reply_text(HELP_TEXT)
+    keyboard = _viewer_keyboard(update)
+    await update.effective_message.reply_text(
+        HELP_TEXT,
+        reply_markup=keyboard,
+    )
+
+
+def _viewer_url(view: str) -> str:
+    if not settings.public_url:
+        return ""
+    token = settings.map_editor_token.strip() or settings.map_viewer_token.strip()
+    suffix = f"?access={token}" if token else ""
+    return f"{settings.public_url}/{view}{suffix}"
+
+
+def _viewer_button(label: str, url: str, update: Update) -> InlineKeyboardButton:
+    # Telegram Web App buttons are supported in private bot chats. In groups,
+    # fall back to a normal HTTPS button so /map and /dashboard still work.
+    if update.effective_chat and update.effective_chat.type == "private":
+        return InlineKeyboardButton(label, web_app=WebAppInfo(url=url))
+    return InlineKeyboardButton(label, url=url)
+
+
+def _viewer_keyboard(update: Update) -> InlineKeyboardMarkup | None:
+    map_url = _viewer_url("map")
+    dashboard_url = _viewer_url("dashboard")
+    if not map_url or not dashboard_url:
+        return None
+    return InlineKeyboardMarkup(
+        [[
+            _viewer_button("🗺 Open Map", map_url, update),
+            _viewer_button("📊 Dashboard", dashboard_url, update),
+        ]]
+    )
+
+
+async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = _viewer_url("map")
+    if not url:
+        await update.effective_message.reply_text(
+            "❌ PUBLIC_APP_URL is not configured."
+        )
+        return
+    await update.effective_message.reply_text(
+        "🗺 Open the Kobo movement map:",
+        reply_markup=InlineKeyboardMarkup(
+            [[_viewer_button("Open Map", url, update)]]
+        ),
+    )
+
+
+async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = _viewer_url("dashboard")
+    if not url:
+        await update.effective_message.reply_text(
+            "❌ PUBLIC_APP_URL is not configured."
+        )
+        return
+    await update.effective_message.reply_text(
+        "📊 Open the Kobo movement dashboard:",
+        reply_markup=InlineKeyboardMarkup(
+            [[_viewer_button("Open Dashboard", url, update)]]
+        ),
+    )
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

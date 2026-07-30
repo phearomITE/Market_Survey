@@ -1,0 +1,46 @@
+KB Market Survey V81 - Map and Dashboard Restore
+
+What this patch restores
+------------------------
+- /map and /dashboard Telegram commands.
+- Open Map and Dashboard buttons in /start.
+- Secure viewer/editor token support.
+- Responsive map and dashboard routes served by the existing Railway service.
+- Numbered product movement markers and product-level outlet rows.
+- Region, dealer, date, province, district, commune, category, product and score filters.
+- Authorized editing of stock, movement score and key issue.
+- Mobile payload limits, batched marker rendering and GZip responses.
+- Existing /export movement_multi behavior and V80 Excel repair.
+
+Railway variables
+-----------------
+PUBLIC_APP_URL=https://marketsurvey-production.up.railway.app
+MAP_PUBLIC_VIEW_ENABLED=true
+MAP_VIEWER_TOKEN=YOUR_VIEWER_TOKEN
+MAP_EDITOR_TOKEN=YOUR_DIFFERENT_EDITOR_TOKEN
+
+Important: the PUBLIC_APP_URL value must contain only the HTTPS URL. Do not
+paste "PUBLIC_APP_URL=" inside its value.
+
+Apply
+-----
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V81_MAP_DASHBOARD_RESTORE.zip -d .
+
+python -m py_compile \
+  app/core/config.py app/db/models.py app/db/database.py app/main.py \
+  app/web/geocode.py app/web/router.py app/bot/handlers.py app/bot/run_bot.py \
+  app/reports/movement_multi_export.py app/services/report_service.py
+
+git add app tests/test_v81_map_dashboard_restore.py V81_MAP_DASHBOARD_RESTORE.txt
+git commit -m "Restore responsive movement map and dashboard"
+git push origin main
+
+After Railway is Active
+-----------------------
+- Send /start to the bot and tap Open Map or Dashboard.
+- Or send /map and /dashboard.
+- Viewer link:
+  https://marketsurvey-production.up.railway.app/map?access=YOUR_VIEWER_TOKEN
+- Dashboard link:
+  https://marketsurvey-production.up.railway.app/dashboard?access=YOUR_VIEWER_TOKEN
+- Editor link uses MAP_EDITOR_TOKEN instead.

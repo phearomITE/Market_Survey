@@ -23,6 +23,13 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    public_app_url: str = ""
+    map_public_view_enabled: bool = True
+    map_viewer_token: str = ""
+    map_editor_token: str = ""
+    reverse_geocoding_enabled: bool = True
+    reverse_geocoding_url: str = "https://nominatim.openstreetmap.org/reverse"
+    reverse_geocoding_batch_size: int = 50
 
     template_path: str = "templates/template_by_dealer.xlsx"
     movement_multi_template_path: str = "templates/detail_movement_beer.xlsx"
@@ -33,6 +40,13 @@ class Settings(BaseSettings):
     auto_sync_interval_seconds: int = 60
     report_sync_wait_seconds: int = 180
     libreoffice_path: str = ""
+
+    @property
+    def public_url(self) -> str:
+        value = self.public_app_url.strip()
+        if value.upper().startswith("PUBLIC_APP_URL="):
+            value = value.split("=", 1)[1].strip()
+        return value.rstrip("/")
 
     @property
     def db_url(self) -> str:
