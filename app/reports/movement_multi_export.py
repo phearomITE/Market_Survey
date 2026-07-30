@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 SHEET_NAME = "Detail_Movement"
 OUTPUT_COLUMNS = (
@@ -85,7 +85,13 @@ def parse_movement_multi_dates(values: list[str] | tuple[str, ...]) -> list[date
 
 def _score_map(submission) -> dict[str, int | float]:
     scores: dict[str, int | float] = {}
-    for metric in getattr(submission, "product_metrics", ()) or ():
+    # CB LITE NCP is an own product, while GB SNOW, Hanuman, Krud and Greet
+    # are competitor products in the normalized database. Read both tables.
+    metrics = [
+        *(getattr(submission, "product_metrics", ()) or ()),
+        *(getattr(submission, "competitor_metrics", ()) or ()),
+    ]
+    for metric in metrics:
         score = getattr(metric, "movement_score", None)
         if score is None:
             continue
@@ -205,11 +211,29 @@ def create_movement_multi_workbook(
         worksheet.cell(row_index, 8).alignment = copy(worksheet.cell(row_index, 6).alignment)
 
     final_row = max(1, len(rows) + 1)
-    for table in worksheet.tables.values():
-        table.ref = f"A1:{get_column_letter(len(OUTPUT_COLUMNS))}{final_row}"
+
+    # Rebuild the table instead of only changing ``table.ref``. The supplied
+    # template has an AutoFilter range embedded inside the table. Updating only
+    # the outer range leaves that inner range stale, causing desktop Excel to
+    # report unreadable content and remove the table during recovery.
+    for table_name in list(worksheet.tables):
+        del worksheet.tables[table_name]
+    if rows:
+        table_ref = f"A1:M{final_row}"
+        table = Table(displayName="MovementDetailTable", ref=table_ref)
+        table.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium7",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        worksheet.add_table(table)
 
     worksheet.freeze_panes = "A2"
-    worksheet.auto_filter.ref = f"A1:M{final_row}"
+    # Filtering is owned by the Excel table. A second worksheet AutoFilter is
+    # unnecessary and can conflict with the table filter in some Excel builds.
+    worksheet.auto_filter.ref = None
     worksheet.column_dimensions["H"].width = max(
         worksheet.column_dimensions["H"].width or 0,
         21,

@@ -28,6 +28,7 @@ def _submission(report_date, outlet, metrics):
         outlet_type="Drink Shop",
         phone_number="012345678",
         product_metrics=metrics,
+        competitor_metrics=[],
     )
 
 
@@ -60,6 +61,22 @@ def test_build_rows_preserves_real_zero_and_leaves_blank_unanswered():
     assert rows[0][8:] == [0, 8, None, None, None]
 
 
+def test_build_rows_reads_own_and_competitor_metric_tables():
+    submission = _submission(
+        date(2026, 7, 25),
+        "Outlet All Beer",
+        [_metric("CB LITE NCP", 6)],
+    )
+    submission.competitor_metrics = [
+        _metric("GB SNOW NCP", 7),
+        _metric("Hanuman Lite", 8),
+        _metric("Krud Lite", 9),
+        _metric("Great Lite", 10),
+    ]
+    rows = build_movement_rows([submission])
+    assert rows[0][8:] == [6, 7, 8, 9, 10]
+
+
 def test_create_workbook_uses_supplied_template(tmp_path):
     template = (
         __import__("pathlib").Path(__file__).resolve().parents[1]
@@ -87,4 +104,8 @@ def test_create_workbook_uses_supplied_template(tmp_path):
     assert worksheet["A2"].value.date() == date(2026, 7, 4)
     assert worksheet["I2"].value == 6
     assert worksheet["M3"].value == 9
-    assert next(iter(worksheet.tables.values())).ref == "A1:M3"
+    table = next(iter(worksheet.tables.values()))
+    assert table.ref == "A1:M3"
+    assert table.autoFilter.ref == "A1:M3"
+    assert worksheet.auto_filter.ref is None
+    assert [column.id for column in table.tableColumns] == list(range(1, 14))
