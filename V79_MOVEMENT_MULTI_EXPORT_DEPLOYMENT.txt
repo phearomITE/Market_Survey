@@ -1,0 +1,68 @@
+KB Market Survey V79 - movement_multi export
+================================================
+
+New Telegram command
+--------------------
+/export movement_multi 2026-07-04 2026-07-18 2026-07-25
+
+The command accepts 1 to 10 distinct report dates in YYYY-MM-DD format.
+It creates one Detail_Movement Excel workbook using the supplied beer template.
+
+Output behavior
+---------------
+- One row per Kobo outlet submission that has at least one of the five beer
+  movement scores.
+- Includes Date, Region, Dealer, GPS, outlet details and phone number.
+- Includes CB LITE NCP, GB SNOW NCP, Hanuman LITE NCP, Krud LITE NCP and
+  Greet LITE NCP.
+- Genuine user-selected zeroes are exported as 0.
+- Blank/unanswered movement values remain blank.
+- Product aliases such as CBC LITE, Hanuman Lite and Great Lite are supported.
+- Workbook rows are sorted by date, region, dealer, outlet and submission time.
+
+Apply in Git Bash
+-----------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V79_MOVEMENT_MULTI_EXPORT.zip \
+  -d .
+
+Validate
+--------
+python -m py_compile \
+  app/core/config.py \
+  app/reports/movement_multi_export.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_movement_multi_export.py
+
+If pytest is installed:
+
+python -m pytest -q tests/test_movement_multi_export.py
+
+Commit and deploy
+-----------------
+git add \
+  app/core/config.py \
+  app/reports/movement_multi_export.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  templates/detail_movement_beer.xlsx \
+  tests/test_movement_multi_export.py \
+  V79_MOVEMENT_MULTI_EXPORT_DEPLOYMENT.txt
+
+git commit -m "Add multi-date movement export"
+git push origin main
+
+Railway redeploys from main automatically.
+
+Optional Railway variable
+-------------------------
+No new variable is required because the template is included at:
+templates/detail_movement_beer.xlsx
+
+Only set this if you want a different path:
+MOVEMENT_MULTI_TEMPLATE_PATH=templates/detail_movement_beer.xlsx

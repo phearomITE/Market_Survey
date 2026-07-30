@@ -23,15 +23,9 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
-    public_app_url: str = ""
-    map_public_view_enabled: bool = True
-    map_viewer_token: str = ""
-    map_editor_token: str = ""
-    reverse_geocoding_enabled: bool = True
-    reverse_geocoding_url: str = "https://nominatim.openstreetmap.org/reverse"
-    reverse_geocoding_batch_size: int = 50
 
     template_path: str = "templates/template_by_dealer.xlsx"
+    movement_multi_template_path: str = "templates/detail_movement_beer.xlsx"
     export_dir: str = "exports"
     auto_sync_before_report: bool = False
     auto_sync_enabled: bool = True
@@ -39,10 +33,6 @@ class Settings(BaseSettings):
     auto_sync_interval_seconds: int = 60
     report_sync_wait_seconds: int = 180
     libreoffice_path: str = ""
-
-    @property
-    def public_url(self) -> str:
-        return self.public_app_url.strip().rstrip("/")
 
     @property
     def db_url(self) -> str:
@@ -65,6 +55,11 @@ class Settings(BaseSettings):
     @property
     def template_file(self) -> Path:
         p = Path(self.template_path)
+        return p if p.is_absolute() else BASE_DIR / p
+
+    @property
+    def movement_multi_template_file(self) -> Path:
+        p = Path(self.movement_multi_template_path)
         return p if p.is_absolute() else BASE_DIR / p
 
     @property

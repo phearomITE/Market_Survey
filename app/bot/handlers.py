@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update, WebAppInfo
+from telegram import Update, InputFile
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
@@ -13,6 +13,7 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
+    generate_movement_multi_export,
     parse_multi_report_command_args,
     parse_report_command_args,
 )
@@ -31,14 +32,14 @@ Commands:
 /report_today
 /report_today 2026-06-06
 /summary 2026-07-05
-/map
-/dashboard
+/export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /help
 
 /report = generate one dealer report and send large PNG file preview first, then Excel only.
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
+/export movement_multi = export beer outlet movement for one or more report dates.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -49,70 +50,7 @@ Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
-    keyboard = _viewer_keyboard(update)
-    await update.effective_message.reply_text(
-        HELP_TEXT,
-        reply_markup=keyboard,
-    )
-
-
-def _viewer_url(view: str) -> str:
-    if not settings.public_url:
-        return ""
-    token = settings.map_editor_token.strip() or settings.map_viewer_token.strip()
-    suffix = f"?access={token}" if token else ""
-    return f"{settings.public_url}/{view}{suffix}"
-
-
-def _viewer_button(label: str, url: str, update: Update) -> InlineKeyboardButton:
-    # Telegram Web App buttons are supported in private bot chats. In groups,
-    # fall back to a normal HTTPS button so /map and /dashboard still work.
-    if update.effective_chat and update.effective_chat.type == "private":
-        return InlineKeyboardButton(label, web_app=WebAppInfo(url=url))
-    return InlineKeyboardButton(label, url=url)
-
-
-def _viewer_keyboard(update: Update) -> InlineKeyboardMarkup | None:
-    map_url = _viewer_url("map")
-    dashboard_url = _viewer_url("dashboard")
-    if not map_url or not dashboard_url:
-        return None
-    return InlineKeyboardMarkup(
-        [[
-            _viewer_button("🗺 Open Map", map_url, update),
-            _viewer_button("📊 Dashboard", dashboard_url, update),
-        ]]
-    )
-
-
-async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = _viewer_url("map")
-    if not url:
-        await update.effective_message.reply_text(
-            "❌ PUBLIC_APP_URL is not configured."
-        )
-        return
-    await update.effective_message.reply_text(
-        "🗺 Open the Kobo movement map:",
-        reply_markup=InlineKeyboardMarkup(
-            [[_viewer_button("Open Map", url, update)]]
-        ),
-    )
-
-
-async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = _viewer_url("dashboard")
-    if not url:
-        await update.effective_message.reply_text(
-            "❌ PUBLIC_APP_URL is not configured."
-        )
-        return
-    await update.effective_message.reply_text(
-        "📊 Open the Kobo movement dashboard:",
-        reply_markup=InlineKeyboardMarkup(
-            [[_viewer_button("Open Dashboard", url, update)]]
-        ),
-    )
+    await update.effective_message.reply_text(HELP_TEXT)
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -323,3 +261,33 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
+
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = [str(value).strip() for value in context.args if str(value).strip()]
+    if not args or args[0].casefold() != "movement_multi":
+        await update.effective_message.reply_text(
+            "Usage:\n"
+            "/export movement_multi 2026-07-04 2026-07-18 2026-07-25"
+        )
+        return
+
+    date_values = args[1:]
+    wait = await update.effective_message.reply_text(
+        "📊 Generating multi-date beer movement export..."
+    )
+    try:
+        path, text = await asyncio.to_thread(
+            generate_movement_multi_export,
+            date_values,
+        )
+        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
+        with path.open("rb") as file_handle:
+            await update.effective_message.reply_document(
+                document=InputFile(file_handle, filename=path.name),
+                caption="📊 Beer movement detail — " + ", ".join(date_values),
+            )
+    except ValueError as exc:
+        await wait.edit_text(f"❌ {exc}")
+    except Exception as exc:
+        await wait.edit_text(f"❌ Movement export failed: {exc}")
