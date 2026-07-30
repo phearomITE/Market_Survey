@@ -1,0 +1,76 @@
+KB Market Survey V88 — Stable Map and Final Movement
+=====================================================
+
+Included fixes
+--------------
+1. Restores /map and /dashboard in the Railway bot service.
+2. Restores Map and Dashboard buttons in /start.
+3. Restores automatic Province/District/Commune/Village database columns.
+4. Adds a Telegram error handler that detects duplicate getUpdates polling and
+   stops the duplicate cleanly instead of printing unlimited tracebacks.
+5. Removes the visible "CHANNEL SPECIALIST" text from HORECA reports.
+6. Replaces forced-to-10 comparison scores with the approved absolute rule.
+
+Final movement calculation
+--------------------------
+1. Group by report date + region + dealer + product.
+2. For each outlet/product/day, keep the latest valid submission.
+3. Blank movement is excluded. A genuine submitted 0 remains valid.
+4. Mean = sum(valid scores) / valid outlet count.
+5. Median = middle valid score.
+6. Adjusted score = (mean * 0.70) + (median * 0.30).
+7. Keep one decimal for analysis and tie-breaking.
+8. Display score uses normal half-up rounding.
+9. Never raise the winning product to 10.
+10. Fewer than 5 valid outlets is provisional.
+11. Coverage = valid outlet count / eligible outlet count * 100.
+
+Example
+-------
+Scores: 6, 7, 9, 7, 7, 8, 10, 8
+Mean: 7.75
+Median: 7.50
+Adjusted: (7.75 * 0.70) + (7.50 * 0.30) = 7.675
+Analysis: 7.7
+Displayed final movement: 8
+
+Deploy
+------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V88_STABLE_MAP_FINAL_MOVEMENT.zip \
+  -d .
+
+python -m py_compile \
+  app/bot/run_bot.py \
+  app/bot/handlers.py \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/main.py \
+  app/web/router.py \
+  app/reports/aggregator.py \
+  app/reports/excel_report.py
+
+git add app tests V88_STABLE_MAP_FINAL_MOVEMENT.txt
+git commit -m "Stabilize map and final movement calculation"
+git push origin main
+
+Important Telegram requirement
+------------------------------
+Only one process may use getUpdates for one bot token.
+
+Before testing production:
+- Railway service replica count must be 1.
+- Stop every local PowerShell/Git Bash/Docker bot using the same token.
+- Stop any old Railway service using the same token.
+- If the old process cannot be found, rotate the bot token with BotFather and
+  update TELEGRAM_BOT_TOKEN in Railway.
+
+Required Railway variables
+--------------------------
+PUBLIC_APP_URL=https://YOUR-SERVICE.up.railway.app
+MAP_PUBLIC_VIEW_ENABLED=true
+MAP_VIEWER_TOKEN=YOUR_VIEWER_TOKEN
+MAP_EDITOR_TOKEN=YOUR_DIFFERENT_EDITOR_TOKEN

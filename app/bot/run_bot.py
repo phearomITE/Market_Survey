@@ -6,6 +6,7 @@ import threading
 from datetime import datetime
 from urllib.parse import urlsplit
 
+from telegram.error import Conflict
 from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
@@ -138,6 +139,18 @@ async def _post_shutdown(app: Application) -> None:
         _auto_sync_task = None
 
 
+async def _telegram_error_handler(update: object, context) -> None:
+    """Stop cleanly when another process is polling the same Telegram bot."""
+    if isinstance(context.error, Conflict):
+        print(
+            "❌ TELEGRAM POLLING CONFLICT: this bot token is already running "
+            "in another process. Stopping this duplicate instance cleanly."
+        )
+        context.application.stop_running()
+        return
+    print(f"⚠️ Telegram handler error: {context.error!r}")
+
+
 def _safe_database_target() -> str:
     """Return a safe database target without exposing credentials."""
     try:
@@ -171,6 +184,7 @@ def _build_application() -> Application:
 
     # Let handlers read the latest Kobo synchronization status.
     app.bot_data["get_last_auto_sync"] = lambda: _last_auto_sync
+    app.add_error_handler(_telegram_error_handler)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))

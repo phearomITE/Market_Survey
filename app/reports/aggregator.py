@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime
 import difflib
 import re
+from statistics import median
 from typing import Any
 
 from sqlalchemy import text
@@ -359,30 +360,60 @@ def movement_average(values: list[Any]) -> float | None:
     return sum(nums) / len(nums)
 
 
-def final_offtake_movement(values: list[Any]) -> int | None:
-    """Base movement from average, before compare-group promotion.
+def movement_statistics(
+    values: list[Any],
+    total_outlets: int | None = None,
+) -> dict[str, Any]:
+    """Calculate the approved absolute movement rating.
 
-    Rule:
-    1) Average valid submitted movement values.
-    2) Round using KB business rounding: .0-.4 down, .5-.9 up.
-    3) Keep that rounded score here.
+    Blanks are excluded, but a real submitted zero remains valid.  The
+    analytical score stays on the original 0–10 scale:
 
-    The comparison-row goal rule is applied later by
-    _apply_offtake_comparison_goal(): the product with the largest raw
-    average becomes 10, the same increase is applied to its comparison
-    products, and duplicate positive ratings are removed by average rank.
+        adjusted = 70% mean + 30% median
 
-    Examples before comparison promotion:
-      7.75 -> 8
-      8.20 -> 8
-      8.90 -> 9
+    The one-decimal score is retained for analysis and tie-breaking.  Only the
+    displayed score is rounded with normal half-up business rounding.
     """
-    avg = movement_average(values)
-    if avg is None:
-        return None
+    nums = [to_float(value) for value in values]
+    nums = [max(0.0, min(10.0, value)) for value in nums if value is not None]
+    valid_count = len(nums)
+    denominator = max(0, int(total_outlets or 0))
 
-    rounded_score = round_half_up(avg)
-    return max(0, min(10, rounded_score))
+    if not nums:
+        return {
+            "mean": None,
+            "median": None,
+            "adjusted": None,
+            "analysis": None,
+            "display": None,
+            "valid_count": 0,
+            "coverage": 0.0 if denominator else None,
+            "provisional": True,
+        }
+
+    mean_value = sum(nums) / valid_count
+    median_value = float(median(nums))
+    adjusted = (0.70 * mean_value) + (0.30 * median_value)
+    coverage = (
+        round((valid_count / denominator) * 100.0, 1)
+        if denominator
+        else None
+    )
+    return {
+        "mean": mean_value,
+        "median": median_value,
+        "adjusted": adjusted,
+        "analysis": round(adjusted, 1),
+        "display": max(0, min(10, round_half_up(adjusted))),
+        "valid_count": valid_count,
+        "coverage": coverage,
+        "provisional": valid_count < 5,
+    }
+
+
+def final_offtake_movement(values: list[Any]) -> int | None:
+    """Return the displayed absolute score; never force a winner to 10."""
+    return movement_statistics(values)["display"]
 
 def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any]] | None:
     """Return (bucket_name, product_data) for own or competitor product."""
@@ -390,8 +421,8 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     competitors = result.get("competitors") or {}
 
     # These two are own-product freshness rows but appear in competitor
-    # columns in the movement table, so comparison promotion must update the
-    # competitor bucket that Excel actually reads.
+    # columns in the movement table, so use the competitor bucket that Excel
+    # actually reads.
     if product in {"CB Original NCP", "CAMBODIA Sport 300ml"} and product in competitors:
         return "competitors", competitors[product]
     if product in products:
@@ -414,97 +445,6 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
         return "competitors", competitors[alias]
     return None
 
-
-def _apply_offtake_comparison_goal(result: dict) -> None:
-    """Normalize movement scores inside every comparison row.
-
-    Business rule:
-    1) Calculate each product's raw average and KB rounded movement first.
-    2) Find the product with the largest raw average in the comparison row.
-    3) Raise that winner to 10.
-    4) Add the same increase amount to every other product with real movement.
-    5) Remove duplicate visible ratings by ranking products by raw average.
-       The row therefore contains only one movement 10 and no duplicate
-       positive movement scores.
-
-    Examples:
-      Rounded 7, 5, 4, 3, 2 -> increase 3 -> final 10, 8, 7, 6, 5.
-
-      Average 7.75, 8.20, 8.90
-      Rounded 8, 8, 9 -> increase 1 -> preliminary 9, 9, 10.
-      Raw-average ranking removes the duplicate -> final 8, 9, 10.
-
-    Missing values stay blank. A real zero stays zero and is not promoted,
-    because zero means no movement rather than a scored competing product.
-    """
-    for group in OFFTAKE_COMPARE_GROUPS:
-        items: list[dict[str, Any]] = []
-        seen_ids: set[int] = set()
-
-        for order, product in enumerate(group):
-            found = _get_movement_bucket(result, product)
-            if not found:
-                continue
-
-            _, pdata = found
-            if id(pdata) in seen_ids:
-                continue
-            seen_ids.add(id(pdata))
-
-            rounded = to_int(pdata.get("mov"))
-            avg = to_float(pdata.get("_mov_avg"))
-
-            if rounded is None:
-                pdata["mov"] = None
-                continue
-
-            rounded = max(0, min(10, rounded))
-            pdata["mov"] = rounded
-
-            # Do not invent movement for products submitted as zero/no sale.
-            if rounded <= 0:
-                continue
-
-            # Current aggregation always stores _mov_avg. The fallback keeps
-            # legacy rows usable if only their rounded movement is available.
-            if avg is None:
-                avg = float(rounded)
-
-            items.append({
-                "data": pdata,
-                "product": product,
-                "rounded": rounded,
-                "avg": avg,
-                "order": order,
-            })
-
-        if not items:
-            continue
-
-        # Winner is selected by raw average, not only by rounded movement.
-        winner = max(
-            items,
-            key=lambda item: (item["avg"], item["rounded"], -item["order"]),
-        )
-        increase = max(0, 10 - winner["rounded"])
-
-        for item in items:
-            item["shifted"] = min(10, item["rounded"] + increase)
-
-        # Highest raw average receives the highest final movement. When two
-        # preliminary values duplicate, lower-ranked products step down by one
-        # until every positive score in the row is unique.
-        ranked = sorted(
-            items,
-            key=lambda item: (-item["avg"], -item["rounded"], item["order"]),
-        )
-
-        previous_score = 11
-        for item in ranked:
-            final_score = min(item["shifted"], previous_score - 1)
-            final_score = max(1, min(10, final_score))
-            item["data"]["mov"] = final_score
-            previous_score = final_score
 
 def _clean_location_piece(text: Any) -> str:
     """Clean one user-entered location phrase without destroying meaning."""
@@ -1092,29 +1032,80 @@ def _metric_or_payload_movement(submission: Any, metric: Any, product: str, is_c
 
 
 def _include_movement_value(value: Any, is_competitor: bool) -> bool:
-    """Decide whether a movement value should be included in averaging.
-
-    Important for competitor products:
-    In the KoBo wide export, blank competitor fields can appear as 0. Those 0s
-    mean "not answered / not selected", not a real movement score. If we include
-    those zeros, GB Original values like [7, 2, 10, 10, 10, 10] become polluted
-    as [10, 0, 10, 0, ...] and the final movement incorrectly becomes 2.
-
-    Rule:
-    - Own products: keep 0 because own-product no-sale/0 can be meaningful.
-    - Competitors: ignore 0 and blanks; count only filled competitor ratings 1-10.
-    """
+    """Exclude blanks and keep every genuine submitted score, including zero."""
     if value in (None, "", "nan"):
         return False
 
     mov = to_int(value)
-    if mov is None:
-        return False
+    return mov is not None and 0 <= mov <= 10
 
-    if is_competitor and mov == 0:
-        return False
 
-    return True
+def _outlet_identity(submission: Any) -> str:
+    """Stable outlet key used to remove repeat submissions for one day."""
+    phone = re.sub(r"\D+", "", str(getattr(submission, "phone_number", "") or ""))
+    if phone:
+        return f"phone:{phone}"
+
+    name = _product_lookup_key(getattr(submission, "outlet_name", ""))
+    latitude = to_float(getattr(submission, "gps_latitude", None))
+    longitude = to_float(getattr(submission, "gps_longitude", None))
+    gps = (
+        f"{latitude:.5f},{longitude:.5f}"
+        if latitude is not None and longitude is not None
+        else ""
+    )
+    if name or gps:
+        return f"name-gps:{name}:{gps}"
+    return f"submission:{getattr(submission, 'submission_id', None) or getattr(submission, 'id', id(submission))}"
+
+
+def _submission_recency(submission: Any) -> tuple[datetime, int]:
+    return (
+        getattr(submission, "submission_time", None)
+        or getattr(submission, "updated_at", None)
+        or getattr(submission, "created_at", None)
+        or datetime.min,
+        int(getattr(submission, "id", 0) or 0),
+    )
+
+
+def _latest_product_movement_values(
+    submissions: list[Any],
+    metrics: list[Any],
+    product: str,
+    *,
+    is_competitor: bool,
+    wide_map: dict[str, dict[str, Any]],
+) -> tuple[list[int], int]:
+    """Use only the latest valid outlet/product/day answer.
+
+    A later blank does not erase an earlier valid answer because blanks are not
+    ratings. A later real zero does replace an earlier score.
+    """
+    latest: dict[tuple[Any, str], tuple[tuple[datetime, int], int]] = {}
+    outlet_days: set[tuple[Any, str]] = set()
+
+    for submission, metric in zip(submissions, metrics):
+        day = getattr(submission, "report_date", None)
+        key = (day, _outlet_identity(submission))
+        outlet_days.add(key)
+        value = _movement_from_wide_or_metric(
+            submission,
+            metric,
+            product,
+            is_competitor=is_competitor,
+            wide_map=wide_map,
+        )
+        if not _include_movement_value(value, is_competitor=is_competitor):
+            continue
+
+        score = max(0, min(10, int(to_int(value))))
+        recency = _submission_recency(submission)
+        current = latest.get(key)
+        if current is None or recency > current[0]:
+            latest[key] = (recency, score)
+
+    return [item[1] for item in latest.values()], len(outlet_days)
 
 
 
@@ -1309,10 +1300,14 @@ def aggregate_submissions(submissions: list) -> dict:
     for product in ALL_OWN_PRODUCTS:
         metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
 
-        movement_values = [
-            v for s, m in zip(submissions, metrics)
-            if (v := _movement_from_wide_or_metric(s, m, product, is_competitor=False, wide_map=wide_map)) is not None
-        ]
+        movement_values, movement_outlets = _latest_product_movement_values(
+            submissions,
+            metrics,
+            product,
+            is_competitor=False,
+            wide_map=wide_map,
+        )
+        movement_stats = movement_statistics(movement_values, movement_outlets)
 
         volume_values = [
             to_float(_value_from_wide_or_metric(s, m, product, "volume_ctn", is_competitor=False, wide_map=wide_map)) or 0
@@ -1325,8 +1320,15 @@ def aggregate_submissions(submissions: list) -> dict:
                 _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
             ]),
-            "mov": final_offtake_movement(movement_values),
-            "_mov_avg": movement_average(movement_values),
+            "mov": movement_stats["display"],
+            "_mov_avg": movement_stats["mean"],
+            "_mov_median": movement_stats["median"],
+            "_mov_adjusted": movement_stats["adjusted"],
+            "_mov_analysis": movement_stats["analysis"],
+            "_mov_count": movement_stats["valid_count"],
+            "_mov_coverage": movement_stats["coverage"],
+            "_mov_provisional": movement_stats["provisional"],
+            "_movement_values": movement_values,
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1356,17 +1358,23 @@ def aggregate_submissions(submissions: list) -> dict:
 
     for product in ALL_COMPETITOR_PRODUCTS:
         metrics = [cm.get(product) or cm.get(_product_lookup_key(product)) for cm in competitor_maps]
-        movement_values = [
-            v
-            for s, m in zip(submissions, metrics)
-            if _include_movement_value(
-                (v := _movement_from_wide_or_metric(s, m, product, is_competitor=True, wide_map=wide_map)),
-                is_competitor=True,
-            )
-        ]
+        movement_values, movement_outlets = _latest_product_movement_values(
+            submissions,
+            metrics,
+            product,
+            is_competitor=True,
+            wide_map=wide_map,
+        )
+        movement_stats = movement_statistics(movement_values, movement_outlets)
         cdata: dict[str, Any] = {
-            "mov": final_offtake_movement(movement_values),
-            "_mov_avg": movement_average(movement_values),
+            "mov": movement_stats["display"],
+            "_mov_avg": movement_stats["mean"],
+            "_mov_median": movement_stats["median"],
+            "_mov_adjusted": movement_stats["adjusted"],
+            "_mov_analysis": movement_stats["analysis"],
+            "_mov_count": movement_stats["valid_count"],
+            "_mov_coverage": movement_stats["coverage"],
+            "_mov_provisional": movement_stats["provisional"],
             "_movement_values": movement_values,
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
@@ -1419,8 +1427,15 @@ def aggregate_submissions(submissions: list) -> dict:
             ]
 
         gb["_movement_values"] = gb_values
-        gb["_mov_avg"] = movement_average(gb_values)
-        gb["mov"] = final_offtake_movement(gb_values)
+        gb_stats = movement_statistics(gb_values, len(data_submissions))
+        gb["_mov_avg"] = gb_stats["mean"]
+        gb["_mov_median"] = gb_stats["median"]
+        gb["_mov_adjusted"] = gb_stats["adjusted"]
+        gb["_mov_analysis"] = gb_stats["analysis"]
+        gb["_mov_count"] = gb_stats["valid_count"]
+        gb["_mov_coverage"] = gb_stats["coverage"]
+        gb["_mov_provisional"] = gb_stats["provisional"]
+        gb["mov"] = gb_stats["display"]
 
         # Re-point every known GB Original alias to the exact same final dict.
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
@@ -1433,9 +1448,9 @@ def aggregate_submissions(submissions: list) -> dict:
             "mov=", gb.get("mov"),
         )
 
-    # Apply the comparison-row normalization after every raw average and
-    # rounded movement is ready. Each row gets exactly one movement 10.
-    _apply_offtake_comparison_goal(result)
+    # Keep every product on the original absolute 0–10 scale. Products that
+    # share a displayed score are ranked by _mov_adjusted when ranking is
+    # needed; no product is artificially promoted to 10.
 
     for product in RING_PRODUCTS:
         aliases = RING_PRODUCT_ALIASES.get(product, [product])
