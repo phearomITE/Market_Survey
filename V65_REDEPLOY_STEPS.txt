@@ -1,0 +1,35 @@
+KB Market Survey V65 - Dealer Submission Alerts
+
+AUTOMATIC ALERTS (Asia/Phnom_Penh)
+- 09:30 AM: dealers with fewer than 10 real outlet submissions
+- 10:30 AM: dealers with fewer than 20 real outlet submissions
+
+MANUAL COMMANDS
+/alert_submit
+/alert_submit 10
+/alert_submit 20
+/alert_submit 2026-07-25 10
+/alert_submit 2026-07-25 20
+
+TARGET GROUP
+1. Deploy V65.
+2. In the Telegram General group/topic, run /alert_submit once.
+3. The bot saves that group in PostgreSQL for future automatic alerts.
+
+Optional Railway variables:
+SUBMIT_ALERT_ENABLED=true
+SUBMIT_ALERT_CHAT_ID=
+SUBMIT_ALERT_THREAD_ID=
+SUBMIT_ALERT_FIRST_TIME=09:30
+SUBMIT_ALERT_FIRST_THRESHOLD=10
+SUBMIT_ALERT_SECOND_TIME=10:30
+SUBMIT_ALERT_SECOND_THRESHOLD=20
+SUBMIT_ALERT_GRACE_MINUTES=30
+
+Git Bash:
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V65_SUBMIT_ALERTS_CHANGED_FILES.zip -d .
+python -m py_compile app/bot/handlers.py app/bot/run_bot.py app/core/config.py app/db/models.py app/services/submission_alert_service.py
+git add .env.example README.md app/bot/handlers.py app/bot/run_bot.py app/core/config.py app/db/models.py app/services/submission_alert_service.py tests/test_v65_submit_alerts.py
+git commit -m "Add scheduled dealer submission alerts"
+git push origin main

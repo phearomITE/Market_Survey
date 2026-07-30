@@ -1,0 +1,29 @@
+KB Market Survey V66 - Summary KPI totals and low-movement outlet detail
+
+Changed files:
+- app/reports/summary_report.py
+- app/reports/aggregator.py
+- app/services/report_service.py
+- templates/Market_Survey_Summary_Template.xlsx
+- tests/test_v66_summary_totals_detail.py
+- README.md
+
+Git Bash:
+cd /d/Bot/Market_Survey_Git
+
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V66_SUMMARY_DETAIL_CHANGED_FILES.zip -d .
+
+python -m py_compile app/reports/summary_report.py app/reports/aggregator.py app/services/report_service.py
+
+git add README.md \
+  app/reports/summary_report.py \
+  app/reports/aggregator.py \
+  app/services/report_service.py \
+  templates/Market_Survey_Summary_Template.xlsx \
+  tests/test_v66_summary_totals_detail.py
+
+git commit -m "Add summary movement totals and outlet detail"
+git push origin main
+
+After Railway is Active:
+/summary 2026-07-25

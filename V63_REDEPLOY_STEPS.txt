@@ -1,0 +1,60 @@
+KB Market Survey V63 - Fast Summary and Export
+
+MAIN SPEED FIXES
+1. Database migrations run once per container, not on every /summary, /export,
+   /start, and 60-second Kobo sync.
+2. /summary and /export load only lightweight submission columns instead of
+   loading tens of thousands of product/competitor ORM rows.
+3. Wide Kobo rows are indexed once per outlet. Field aliases no longer rebuild
+   400-500-column lookup dictionaries for every product and field.
+4. Bulk commands calculate only movement and availability, skipping BBE, stock,
+   prices, Ring Pull, and other calculations they do not use.
+5. /summary and /export share an in-memory dealer analytics cache for the same
+   unchanged report date.
+6. Repeating the same command reuses the generated Excel file when the database
+   snapshot has not changed.
+7. Bulk commands use the existing 60-second auto-sync snapshot immediately.
+   They sync only when the requested date has no database rows.
+
+GIT BASH
+cd /d/Bot/Market_Survey_Git
+
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V63_FAST_BULK_REPORTS.zip -d .
+
+python -m py_compile \
+  app/db/database.py \
+  app/reports/aggregator.py \
+  app/reports/data_export.py \
+  app/reports/member_mode.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+python -c "from app.reports.data_export import create_data_export; from app.reports.aggregator import build_bulk_dealer_aggregates; print('V63 IMPORT OK')"
+
+git add \
+  app/db/database.py \
+  app/reports/aggregator.py \
+  app/reports/data_export.py \
+  app/reports/member_mode.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  templates/Template_Data_Survey.xlsx \
+  tests/test_v63_fast_bulk_reports.py
+
+git commit -m "Speed up summary and export generation"
+git push origin main
+
+TEST AFTER RAILWAY IS ACTIVE
+/summary 2026-07-18
+/export 2026-07-18
+
+RAILWAY LOGS WILL SHOW
+Summary: DB=... | analytics=... | Excel=... | total=...
+Export: DB=... | analytics=... | Excel=... | total=...
+
+Run /sync_kobo first only when you need an immediate Kobo refresh. Otherwise,
+the bot uses the latest automatic 60-second synchronization.

@@ -18,8 +18,7 @@ from app.reports.summary_report import build_summary_rows, create_summary_report
 
 ReportType = Literal["GT", "HORECA"]
 
-GT_OUTLET_TYPES = {"Wholesale", "Drink Shop", "Wet Market", "Trolley"}
-HORECA_OUTLET_TYPES = {
+CHANNEL_SPECIALIST_OUTLET_TYPES = {
     "Local Eat",
     "Coffee,Bakery",
     "Canteen",
@@ -29,13 +28,13 @@ HORECA_OUTLET_TYPES = {
 }
 
 
-def normalize_report_type(value: str | None, *, default: ReportType = "GT") -> ReportType:
-    raw = str(value or "").strip().upper().replace("-", "_")
-    if raw in {"HORECA", "CHANNEL_SPECIALIST", "CHANNEL SPECIALIST", "CHANNEL", "SPECIALIST", "CS"}:
+def normalize_report_type(value: str | None) -> ReportType:
+    normalized = str(value or "GT").strip().upper().replace("_", " ")
+    if normalized in {"GT", "GENERAL", "GENERAL TRADE"}:
+        return "GT"
+    if normalized in {"HORECA", "CHANNEL", "CHANNEL SPECIALIST", "SPECIALIST", "CS"}:
         return "HORECA"
-    if raw in {"GT", "GENERAL", "GENERAL_TRADE", "GENERAL TRADE", ""}:
-        return default
-    raise ValueError("Unknown report type. Use GT or HORECA.")
+    raise ValueError("Report type must be GT or HORECA.")
 
 
 def parse_report_date(value: str | None) -> date:
@@ -45,65 +44,45 @@ def parse_report_date(value: str | None) -> date:
 
 
 def parse_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[str, str, ReportType]:
-    """Parse one-dealer report commands.
+    """Parse /report command arguments.
 
     Supported:
-      /report CA3 2026-07-18
-      /report CA3 GT 2026-07-18
+      /report PVH3 GT 2026-07-07
       /report CA3 HORECA 2026-07-18
 
-    The date is always the last token. A command without an explicit report
-    type remains backward compatible and defaults to GT.
+    The date is always the last token. This prevents trying to parse
+    'CHANNEL' as a YYYY-MM-DD date.
     """
     parts = [str(x).strip() for x in args if str(x).strip()]
     if len(parts) < 2:
-        raise ValueError(
-            "Usage: /report CA3 GT 2026-07-18 or "
-            "/report CA3 HORECA 2026-07-18"
-        )
+        raise ValueError("Usage: /report CA3 GT 2026-07-18 or /report CA3 HORECA 2026-07-18")
 
     dealer = parts[0].upper()
     date_str = parts[-1]
+
+    # Validate date early so the user gets a clean message.
     parse_report_date(date_str)
 
-    middle = " ".join(parts[1:-1]).strip()
-    report_type = normalize_report_type(middle, default="GT")
+    middle = " ".join(parts[1:-1]).strip().upper()
+    if not middle:
+        report_type: ReportType = "GT"
+    else:
+        report_type = normalize_report_type(middle)
+
     return dealer, date_str, report_type
 
 
-def parse_summary_command_args(args: list[str] | tuple[str, ...]) -> tuple[ReportType, str]:
-    """Parse GT/HORECA summary commands.
-
-    Supported:
-      /summary 2026-07-25              (defaults to GT)
-      /summary GT 2026-07-25
-      /summary HORECA 2026-07-25
-    """
-    parts = [str(x).strip() for x in args if str(x).strip()]
-    if not parts:
-        raise ValueError(
-            "Usage: /summary GT 2026-07-25 or /summary HORECA 2026-07-25"
-        )
-    if len(parts) == 1:
-        date_str = parts[0]
-        report_type: ReportType = "GT"
-    elif len(parts) == 2:
-        report_type = normalize_report_type(parts[0])
-        date_str = parts[1]
-    else:
-        raise ValueError(
-            "Usage: /summary GT 2026-07-25 or /summary HORECA 2026-07-25"
-        )
-    parse_report_date(date_str)
-    return report_type, date_str
-
 
 def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[list[str], str]:
-    """Parse a selected-dealer GT report command.
+    """Parse a selected-dealer report command.
 
     Supported examples:
       /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
       /report_multi CPH2,CA2,KDL1,CA1,CA7 2026-07-14
+
+    The last token must be the report date. Dealer codes may be separated by
+    spaces and/or commas. Duplicate dealer codes are removed while preserving
+    the requested order.
     """
     parts = [str(x).strip() for x in args if str(x).strip()]
     if len(parts) < 2:
@@ -140,23 +119,21 @@ def parse_multi_report_command_args(args: list[str] | tuple[str, ...]) -> tuple[
     return dealers, date_str
 
 
-def _submission_report_type(submission: KoboSubmission) -> ReportType:
-    explicit = str(getattr(submission, "report_type", None) or "").strip()
-    if explicit:
-        try:
-            return normalize_report_type(explicit)
-        except ValueError:
-            pass
-    outlet_type = str(getattr(submission, "outlet_type", None) or "").strip()
-    return "HORECA" if outlet_type in HORECA_OUTLET_TYPES else "GT"
+def _is_channel_specialist_submission(s: KoboSubmission) -> bool:
+    return (s.outlet_type or "").strip() in CHANNEL_SPECIALIST_OUTLET_TYPES
 
 
-def _filter_by_report_type(
-    submissions: list[KoboSubmission],
-    report_type: ReportType,
-) -> list[KoboSubmission]:
-    selected = normalize_report_type(report_type)
-    return [row for row in submissions if _submission_report_type(row) == selected]
+def _filter_by_report_type(submissions: list[KoboSubmission], report_type: ReportType) -> list[KoboSubmission]:
+    report_type = normalize_report_type(report_type)
+    def effective_type(s: KoboSubmission) -> ReportType:
+        explicit = (getattr(s, "report_type", None) or "").strip()
+        if explicit:
+            try:
+                return normalize_report_type(explicit)
+            except ValueError:
+                pass
+        return "HORECA" if _is_channel_specialist_submission(s) else "GT"
+    return [s for s in submissions if effective_type(s) == report_type]
 
 
 def get_submissions(dealer: str | None, report_date: date, report_type: ReportType | None = None):
@@ -217,6 +194,7 @@ def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, rep
 
 
 def generate_dealer_report(dealer: str, report_date_str: str, report_type: ReportType = "GT"):
+    report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
     dealer = dealer.upper().strip()
     submissions = get_submissions(dealer, d, report_type=report_type)
@@ -232,7 +210,7 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
             " Run /sync_kobo once and retry."
         )
 
-    agg = aggregate_submissions(submissions, report_type=report_type)
+    agg = aggregate_submissions(submissions)
     agg["report_type"] = report_type
     agg["channel"] = report_type
 
@@ -249,7 +227,7 @@ def generate_today_all_dealers(report_date_str: str | None = None):
     grouped = {}
     for s in submissions:
         grouped.setdefault(s.dealer, []).append(s)
-    aggs = {dealer: aggregate_submissions(rows, report_type="GT") for dealer, rows in grouped.items() if dealer}
+    aggs = {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items() if dealer}
     for agg in aggs.values():
         agg["report_type"] = "GT"
         agg["channel"] = "GT"
@@ -288,6 +266,7 @@ def generate_multi_dealer_reports(
     with no matching submissions receive a blank sheet and are listed in the
     returned status message.
     """
+    report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
     normalized: list[str] = []
     seen: set[str] = set()
@@ -336,7 +315,7 @@ def generate_multi_dealer_reports(
         rows = grouped[dealer]
         if not rows:
             continue
-        agg = aggregate_submissions(rows, report_type=report_type)
+        agg = aggregate_submissions(rows)
         agg["report_type"] = report_type
         agg["channel"] = report_type
         aggs[dealer] = agg
@@ -364,20 +343,12 @@ def generate_multi_dealer_reports(
     return path, png_zip, status
 
 
-def generate_region_dealer_summary(
-    report_date_str: str | None = None,
-    report_type: ReportType = "GT",
-):
-    d = parse_report_date(report_date_str)
+def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_date_str: str | None = None):
     report_type = normalize_report_type(report_type)
+    d = parse_report_date(report_date_str)
     submissions = get_submissions(None, d, report_type=report_type)
     if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(
-            None,
-            d,
-            submissions,
-            report_type=report_type,
-        )
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=report_type)
     rows = build_summary_rows(submissions)
     path = create_summary_report(rows, d, report_type=report_type)
     submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
@@ -385,8 +356,6 @@ def generate_region_dealer_summary(
     total_outlets = sum(r.get("total_outlets", 0) for r in rows)
     return (
         path,
-        f"Generated {report_type} summary for {d}: "
-        f"{submitted_dealers}/65 dealers submitted, "
-        f"{total_submissions} submissions, {total_outlets} outlets",
+        f"Generated {report_type} summary for {d}: {submitted_dealers}/65 dealers submitted, "
+        f"{total_submissions} submissions, {total_outlets} outlets"
     )
-

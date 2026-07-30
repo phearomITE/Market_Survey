@@ -40,6 +40,12 @@ ALIASES = {
         "1. Report / Outlet Visit Information / Outlet Type",
         "1. OUTLET INFORMATION / Outlet Type", "1. OUTLET INFORMATION/Outlet Type",
     ],
+    "report_type": [
+        "final_summary_report_type", "summary_report_type", "report_type",
+        "outlet_info/final_summary_report_type",
+        "1. OUTLET INFORMATION / Final Summary Report Type",
+        "1. OUTLET INFORMATION/Final Summary Report Type",
+    ],
     "submitter_name": [
         "submitter_name", "enter_name", "name_submit", "Enter Name / ឈ្មោះអ្នក Submit",
         "1. OUTLET INFORMATION / Enter Name / ឈ្មោះអ្នក Submit",
@@ -88,13 +94,6 @@ ALIASES = {
         "5. Key Issues and Initiative Idea / Suggestion / Initiative Idea / Suggestion",
         "5. Key Issues and Initiative Idea / Suggestion/Initiative Idea / Suggestion",
     ],
-    "report_type": [
-        "final_summary_report_type", "report_type", "summary_report_type",
-        "outlet_info/final_summary_report_type",
-        "1. OUTLET INFORMATION / Report Type",
-        "1. OUTLET INFORMATION/Report Type",
-        "ប្រភេទរបាយការណ៍ / Report Type",
-    ],
     "report_date": [
         "report_date", "survey_date", "date", "today", "report_info/report_date", "outlet_info/report_date",
         "1. Report / Outlet Visit Information / Report Date",
@@ -129,6 +128,17 @@ OUTLET_TYPE_LABELS = {
     "local_drink": "Local Drink",
     "local drink": "Local Drink",
 }
+
+
+def normalize_report_type(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    value = str(value).strip().lower().replace("_", " ")
+    if value in {"gt", "general", "general trade"}:
+        return "GT"
+    if value in {"horeca", "channel", "channel specialist", "specialist", "cs"}:
+        return "HORECA"
+    return str(value).strip().upper()
 
 
 def flatten_dict(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -229,8 +239,6 @@ def normalize_outlet_type(value: Any) -> str | None:
         return "Sport Club"
     if "motor" in s and "shop" in s:
         return "Motor Shop"
-    if "local" in s and "drink" in s:
-        return "Local Drink"
 
     if "wholesale" in s or "ដុំ" in s:
         return "Wholesale"
@@ -241,24 +249,6 @@ def normalize_outlet_type(value: Any) -> str | None:
     if "trolley" in s or "រទេះ" in s:
         return "Trolley"
     return raw
-
-
-def normalize_report_type(value: Any, outlet_type: str | None = None) -> str:
-    """Normalize the one-link Kobo selector to GT or HORECA.
-
-    Legacy rows are supported: CHANNEL SPECIALIST maps to HORECA, while a
-    blank historical selector falls back to the normalized outlet type and
-    otherwise defaults to GT.
-    """
-    raw = str(value or "").strip().upper().replace("-", "_")
-    if raw in {"HORECA", "CHANNEL_SPECIALIST", "CHANNEL SPECIALIST", "CHANNEL", "SPECIALIST", "CS"}:
-        return "HORECA"
-    if raw in {"GT", "GENERAL", "GENERAL_TRADE", "GENERAL TRADE"}:
-        return "GT"
-
-    if outlet_type in {"Local Eat", "Coffee,Bakery", "Canteen", "Sport Club", "Motor Shop", "Local Drink"}:
-        return "HORECA"
-    return "GT"
 
 
 def to_int(value: Any) -> int | None:
@@ -298,8 +288,6 @@ def normalize_submission(row: dict) -> dict:
     )
     submitted_at = parse_datetime(row.get("_submission_time") or row.get("submission_time") or row.get("end"))
     rdate = parse_date(get_any(row, ALIASES["report_date"])) or (submitted_at.date() if submitted_at else None)
-    outlet_type = normalize_outlet_type(get_any(row, ALIASES["outlet_type"]))
-    report_type = normalize_report_type(get_any(row, ALIASES["report_type"]), outlet_type)
 
     return {
         "submission_id": sub_id,
@@ -311,8 +299,8 @@ def normalize_submission(row: dict) -> dict:
         "member_no": to_int(get_any(row, ALIASES["member_no"])),
         "total_outlet_visit_target": to_int(get_any(row, ALIASES["total_outlet_visit_target"])),
         "outlet_name": get_any(row, ALIASES["outlet_name"]),
-        "outlet_type": outlet_type,
-        "report_type": report_type,
+        "outlet_type": normalize_outlet_type(get_any(row, ALIASES["outlet_type"])),
+        "report_type": normalize_report_type(get_any(row, ALIASES["report_type"])),
         "is_new_outlet": yes_value(get_any(row, ALIASES["is_new_outlet"])),
         "submitter_name": get_any(row, ALIASES["submitter_name"]),
         "phone_number": str(get_any(row, ALIASES["phone_number"], "") or "") or None,

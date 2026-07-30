@@ -15,6 +15,7 @@ from app.services.report_service import (
     generate_region_dealer_summary,
     parse_multi_report_command_args,
     parse_report_command_args,
+    parse_summary_command_args,
 )
 from app.services.render_service import excel_to_png, excel_to_pdf
 
@@ -26,7 +27,7 @@ Commands:
 /sync_kobo
 /debug_kobo
 /status
-/report CA3 GT 2026-07-18
+/report KRG7 GT 2026-06-06
 /report CA3 HORECA 2026-07-18
 /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today
@@ -35,10 +36,10 @@ Commands:
 /summary HORECA 2026-07-25
 /help
 
-/report = generate one dealer report and send large PNG file preview first, then Excel only.
+/report = generate one GT or HORECA dealer report using its matching template.
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
-/summary = generate management summary by Region + Dealer, including 0-submit dealers.
+/summary = generate a separate GT or HORECA Region/Dealer submission summary.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -246,25 +247,28 @@ async def debug_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Debug Kobo failed: {e}")
 
 async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 2:
-        await update.effective_message.reply_text(
-            "Usage:\n/summary GT 2026-07-25\n/summary HORECA 2026-07-25"
-        )
+    try:
+        report_type, rdate = parse_summary_command_args(context.args)
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ {exc}")
         return
 
-    report_type = context.args[0].strip().upper()
-    rdate = context.args[1].strip()
-    if report_type not in {"GT", "HORECA"}:
-        await update.effective_message.reply_text("❌ Report type must be GT or HORECA.")
-        return
     wait = await update.effective_message.reply_text(
         f"📊 Generating {report_type} Region/Dealer summary for {rdate}..."
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, text = await asyncio.to_thread(generate_region_dealer_summary, report_type, rdate)
-        await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
+        path, text = await asyncio.to_thread(
+            generate_region_dealer_summary,
+            rdate,
+            report_type,
+        )
+        await wait.edit_text(f"✅ {text}\n📎 Uploading {report_type} summary Excel...")
         with path.open("rb") as f:
-            await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
+            await update.effective_message.reply_document(
+                document=InputFile(f, filename=path.name),
+                caption=f"📊 {report_type} summary - {rdate}",
+            )
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
+

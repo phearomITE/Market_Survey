@@ -23,10 +23,6 @@ _SYNC_LOCK = Lock()
 _SYNC_FINISHED = Event()
 _SYNC_FINISHED.set()
 
-# Bump this when normalized metric fields change. It forces one safe rebuild
-# of stored metric rows without deleting Kobo submissions.
-SYNC_SCHEMA_VERSION = "v84_gt_horeca_reports_1"
-
 from app.reports.aggregator import (
     ALL_COMPETITOR_PRODUCTS,
     ALL_OWN_PRODUCTS,
@@ -203,13 +199,7 @@ def _replace_metric_rows(db, submission_db_id: int, flat: dict) -> None:
 
 
 def _source_hash(raw: dict) -> str:
-    payload = json.dumps(
-        {"schema": SYNC_SCHEMA_VERSION, "raw": raw},
-        ensure_ascii=False,
-        sort_keys=True,
-        default=str,
-        separators=(",", ":"),
-    )
+    payload = json.dumps(raw, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -229,16 +219,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     skipped_reasons: list[str] = []
 
     with SessionLocal() as db:
-        existing_states = {
-            submission_id: {"source_hash": source_hash, "report_type": report_type}
-            for submission_id, source_hash, report_type in db.execute(
-                select(
-                    KoboSubmission.submission_id,
-                    KoboSubmission.source_hash,
-                    KoboSubmission.report_type,
-                )
-            ).all()
-        }
+        existing_hashes = dict(db.execute(select(KoboSubmission.submission_id, KoboSubmission.source_hash)).all())
 
         for raw in rows:
             data = normalize_submission(raw)
@@ -259,28 +240,21 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
 
             source_hash = _source_hash(raw)
             data["source_hash"] = source_hash
-            existing_state = existing_states.get(data["submission_id"]) or {}
-            existing_hash = existing_state.get("source_hash")
-            existing_report_type = existing_state.get("report_type")
-            needs_gt_horeca_refresh = existing_report_type not in {"GT", "HORECA"}
-
-            if existing_hash == source_hash and not needs_gt_horeca_refresh:
+            existing_hash = existing_hashes.get(data["submission_id"])
+            if existing_hash == source_hash:
                 unchanged += 1
                 continue
 
-            # Keep the fast hash-only backfill for rows that already have the new
-            # GT/HORECA field. Rows missing report_type must run through the full
-            # upsert once so both routing and the new HORECA metrics are created.
-            if data["submission_id"] in existing_states and existing_hash in (None, "") and not needs_gt_horeca_refresh:
+            # V37 first-run optimization: old DB rows have no source_hash yet.
+            # Backfill their hash without deleting/recreating 57 child metric rows.
+            # New rows are still imported fully, and future Kobo edits are detected.
+            if data["submission_id"] in existing_hashes and existing_hash in (None, ""):
                 db.execute(
                     update(KoboSubmission)
                     .where(KoboSubmission.submission_id == data["submission_id"])
-                    .values(source_hash=source_hash)
+                    .values(source_hash=source_hash, report_type=data.get("report_type"))
                 )
-                existing_states[data["submission_id"]] = {
-                    "source_hash": source_hash,
-                    "report_type": existing_report_type,
-                }
+                existing_hashes[data["submission_id"]] = source_hash
                 hash_backfilled += 1
                 continue
 
@@ -299,10 +273,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 continue
 
             _replace_metric_rows(db, sub.id, flat)
-            existing_states[data["submission_id"]] = {
-                "source_hash": source_hash,
-                "report_type": data.get("report_type"),
-            }
+            existing_hashes[data["submission_id"]] = source_hash
             synced += 1
 
         message = (

@@ -13,19 +13,13 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.core.config import settings
 from app.data.dealers import ALL_DEALERS
-from app.reports.aggregator import (
-    OWN_PRODUCTS,
-    COMPETITOR_PRODUCTS,
-    HORECA_OWN_PRODUCTS,
-    HORECA_COMPETITOR_PRODUCTS,
-    RING_PRODUCTS,
-)
+from app.reports.aggregator import OWN_PRODUCTS, COMPETITOR_PRODUCTS, RING_PRODUCTS
 
 # Exact cell layout from template_by_dealer.xlsx.
 # General Trade report uses 4 outlet-type columns.
 GENERAL_OUTLET_COLS = {"Wholesale": 8, "Drink Shop": 12, "Wet Market": 16, "Trolley": 20}
-# HORECA report uses the six outlet-type columns from template_horeca.xlsx.
-HORECA_OUTLET_COLS = {
+# Channel Specialist report uses 5 outlet-type columns.
+CHANNEL_SPECIALIST_OUTLET_COLS = {
     "Local Eat": 8,
     "Coffee,Bakery": 12,
     "Canteen": 16,
@@ -33,10 +27,7 @@ HORECA_OUTLET_COLS = {
     "Motor Shop": 23,
     "Local Drink": 26,
 }
-HORECA_TYPES = set(HORECA_OUTLET_COLS)
-# Backward-compatible aliases for older helper names.
-CHANNEL_SPECIALIST_OUTLET_COLS = HORECA_OUTLET_COLS
-CHANNEL_SPECIALIST_TYPES = HORECA_TYPES
+CHANNEL_SPECIALIST_TYPES = set(CHANNEL_SPECIALIST_OUTLET_COLS)
 OUTLET_COLS = GENERAL_OUTLET_COLS
 FRESHNESS_START_ROW = 7
 FRESHNESS_END_ROW = 24
@@ -46,12 +37,6 @@ MOVEMENT_END_ROW = 42
 RING_PULL_START_ROW = 45
 ISSUE_START_ROW = 45
 SUGGESTION_START_ROW = 45
-# Locked HORECA template has 15 movement rows and starts the shared
-# Ring Pull/Key Issues area one row earlier than the GT template.
-HORECA_MOVEMENT_END_ROW = 41
-HORECA_RING_PULL_START_ROW = 44
-HORECA_ISSUE_START_ROW = 44
-HORECA_SUGGESTION_START_ROW = 44
 
 # Report logo rendering. Increase these values if the logo still appears small in the PNG preview.
 REPORT_LOGO_WIDTH_PX = 110
@@ -367,7 +352,8 @@ def _force_rewrite_competitor_blocks(ws: Worksheet, agg: dict) -> None:
     such as GB Original = 2. The final pass scans the product-name cells and
     rewrites the metric cells from the aggregated result dictionary.
     """
-    for row in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
+    movement_end = 41 if str(ws["A42"].value or "").strip() == "Ring Pull In Outlets" else MOVEMENT_END_ROW
+    for row in range(MOVEMENT_START_ROW, movement_end + 1):
         for product_col in [8, 13, 18, 23]:
             product_label = ws.cell(row, product_col).value
             if not product_label:
@@ -396,7 +382,8 @@ def _force_specific_competitor_value(ws: Worksheet, agg: dict, product_name: str
         return
 
     target = _norm_lookup_key(product_name)
-    for row in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
+    movement_end = 41 if str(ws["A42"].value or "").strip() == "Ring Pull In Outlets" else MOVEMENT_END_ROW
+    for row in range(MOVEMENT_START_ROW, movement_end + 1):
         for col in range(1, 28):
             label = ws.cell(row, col).value
             if _norm_lookup_key(label) == target:
@@ -426,51 +413,31 @@ def _blank_if_none(value):
     return "" if value is None else value
 
 def _is_channel_specialist_report(agg: dict) -> bool:
-    """Backward-compatible HORECA detector used by report layout helpers."""
-    report_type = str(agg.get("report_type") or agg.get("channel") or "").strip().upper()
-    if report_type in {"HORECA", "CHANNEL_SPECIALIST", "CHANNEL SPECIALIST", "CS"}:
+    """Detect Channel Specialist report by outlet-type data or explicit channel field.
+
+    This keeps one template but changes the top outlet-type headers dynamically.
+    """
+    channel = str(agg.get("channel") or agg.get("channel_type") or "").strip().lower()
+    if "channel" in channel or "specialist" in channel or "horeca" in channel:
         return True
     outlet_types = agg.get("outlet_types") or {}
-    return any(k in HORECA_TYPES for k in outlet_types.keys())
-
-
-def _is_horeca_report(agg: dict) -> bool:
-    return _is_channel_specialist_report(agg)
-
-
-def _movement_end_row_for_report(agg: dict) -> int:
-    return HORECA_MOVEMENT_END_ROW if _is_horeca_report(agg) else MOVEMENT_END_ROW
-
-
-def _ring_pull_start_row_for_report(agg: dict) -> int:
-    return HORECA_RING_PULL_START_ROW if _is_horeca_report(agg) else RING_PULL_START_ROW
-
-
-def _issue_start_row_for_report(agg: dict) -> int:
-    return HORECA_ISSUE_START_ROW if _is_horeca_report(agg) else ISSUE_START_ROW
-
-
-def _suggestion_start_row_for_report(agg: dict) -> int:
-    return HORECA_SUGGESTION_START_ROW if _is_horeca_report(agg) else SUGGESTION_START_ROW
-
-
-def _print_end_row_for_report(agg: dict) -> int:
-    return 47 if _is_horeca_report(agg) else 48
+    return any(k in CHANNEL_SPECIALIST_TYPES for k in outlet_types.keys())
 
 
 def _outlet_cols_for_report(agg: dict) -> dict[str, int]:
-    return HORECA_OUTLET_COLS if _is_horeca_report(agg) else GENERAL_OUTLET_COLS
+    return CHANNEL_SPECIALIST_OUTLET_COLS if _is_channel_specialist_report(agg) else GENERAL_OUTLET_COLS
 
 
 def _new_purchase_col_for_report(agg: dict) -> int | None:
-    # The locked HORECA template uses Z for Local Drink and has no separate
-    # New Outlet Purchase output column. GT keeps W.
-    return None if _is_horeca_report(agg) else 23
+    # The dedicated HORECA template uses Z for Local Drink and has no
+    # New Outlet Purchase column.
+    return None if _is_channel_specialist_report(agg) else 23
 
 
 def _volume_col_for_report(agg: dict) -> int:
-    # GT uses Z. HORECA uses AA because Z is Local Drink.
-    return 27 if _is_horeca_report(agg) else 26
+    # General: Z. Channel Specialist: AA.
+    return 27 if _is_channel_specialist_report(agg) else 26
+
 
 
 
@@ -498,18 +465,35 @@ def _unmerge_if_exists(ws: Worksheet, range_text: str) -> None:
 
 
 def _prepare_channel_specialist_layout(ws: Worksheet, agg: dict) -> None:
-    """Keep the uploaded HORECA template layout intact.
+    """Prepare Section 1 columns for Channel Specialist.
 
-    The template already has separate Local Drink (Z) and Volume (AA) cells,
-    so report generation only enforces alignment and never changes merge ranges,
-    widths, row heights, borders or overall size.
+    General template:
+      H:K Wholesale | L:O Drink Shop | P:S Wet Market | T:V Trolley
+      W:Y New Outlet Purchase | Z:AA Volume
+
+    Channel Specialist template:
+      H:K Local Eat | L:O Coffee,Bakery | P:S Canteen | T:V Sport Club
+      W:Y Motor Shop | Z New Outlet Purchase | AA Volume
+
+    The critical fix is to split Z:AA and copy formatting/borders to AA so
+    "Volume" stays inside the table instead of appearing outside the border.
     """
-    if not _is_horeca_report(agg):
+    if not _is_channel_specialist_report(agg):
         return
+
     for r in range(6, FRESHNESS_END_ROW + 1):
+        # Keep W:Y merged for Motor Shop, but split Z:AA for New Outlet + Volume.
+        _unmerge_if_exists(ws, f"Z{r}:AA{r}")
+
+        # After unmerge, AA may be a plain cell with no borders/style. Copy from Z.
+        _copy_cell_style(ws.cell(r, 26), ws.cell(r, 27))
+
+        # Make sure both cells have centered text and visible borders.
         ws.cell(r, 26).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.cell(r, 27).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
+    ws.column_dimensions["Z"].width = max(ws.column_dimensions["Z"].width or 10, 20)
+    ws.column_dimensions["AA"].width = max(ws.column_dimensions["AA"].width or 10, 14)
 
 def _set_outlet_type_headers(ws: Worksheet, agg: dict) -> None:
     """Write the correct header row for General Trade or Channel Specialist.
@@ -528,8 +512,9 @@ def _set_outlet_type_headers(ws: Worksheet, agg: dict) -> None:
     vol_col = _volume_col_for_report(agg)
     if new_col is not None:
         ws.cell(6, new_col).value = "New Outlet Purchase"
-        ws.cell(6, new_col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.cell(6, vol_col).value = "Volume"
+    if new_col is not None:
+        ws.cell(6, new_col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.cell(6, vol_col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
@@ -757,13 +742,11 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws["A1"] = ""
     ws["B1"] = ""
     report_date_time = f"{rdate_txt} {datetime.now().strftime('%H:%M:%S')}"
-    if _is_horeca_report(agg):
-        ws["A3"] = f"Dealer : {dealer}    HORECA                         Report Date: {report_date_time}"
+    if _is_channel_specialist_report(agg):
+        ws["A3"] = f"Dealer : {dealer}    CHANNEL SPECIALIST                         Report Date: {report_date_time}"
     else:
         ws["A3"] = f"Dealer : {dealer}                              Report Date: {report_date_time}"
-    title_font = copy(ws["A3"].font)
-    title_font.bold = True
-    ws["A3"].font = title_font
+    ws["A3"].font = ws["A3"].font.copy(bold=True)
     ws["A4"] = f"Group : {agg.get('group_no') or 2}"
     member_no = agg.get("member_no") or (max(1, min(10, total // 3 or 1)) if total else 0)
     ws["C4"] = f"Member : {member_no}"
@@ -803,7 +786,8 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     # Always restore the header row first. Product data starts on row 26.
     _set_movement_headers(ws)
 
-    for row in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
+    movement_end = 41 if _is_channel_specialist_report(agg) else MOVEMENT_END_ROW
+    for row in range(MOVEMENT_START_ROW, movement_end + 1):
         # Own products: Product, Mov, Stock, Buy In, Sell Out, Ring Pull = B:G
         own_name = _product_key(ws.cell(row, 2).value)
         own = (agg.get("products") or {}).get(own_name, {})
@@ -838,14 +822,15 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     gb_metrics = _lookup_competitor_metrics(agg, "GB Original NCP")
     if gb_metrics:
         gb_mov = _final_movement_from_metrics(gb_metrics)
-        for rr in range(MOVEMENT_START_ROW, _movement_end_row_for_report(agg) + 1):
+        for rr in range(MOVEMENT_START_ROW, movement_end + 1):
             for cc in [8, 13, 18, 23]:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
                     print("✅ FORCE WRITE GB Original to Excel:", gb_mov, "cell", ws.cell(rr, cc + 1).coordinate)
 
     # Section 4: Ring Pull fixed products.
-    for i, product in enumerate(RING_PRODUCTS, start=_ring_pull_start_row_for_report(agg)):
+    ring_pull_start = 44 if _is_channel_specialist_report(agg) else RING_PULL_START_ROW
+    for i, product in enumerate(RING_PRODUCTS, start=ring_pull_start):
         rp = (agg.get("ring_pull") or {}).get(product, {})
         ws.cell(i, 2).value = product
         ws.cell(i, 4).value = int(rp.get("total_outlets", 0) or 0)
@@ -860,10 +845,10 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
         suggestions.append("")
 
     for i in range(4):
-        row = _issue_start_row_for_report(agg) + i
-        suggestion_row = _suggestion_start_row_for_report(agg) + i
+        issue_start = 44 if _is_channel_specialist_report(agg) else ISSUE_START_ROW
+        row = issue_start + i
         issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
-        suggestion_lines = _set_row_text(ws, suggestion_row, 19, i + 1, suggestions[i])
+        suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
         _fit_summary_row_height(ws, row, issue_lines, suggestion_lines)
 
     # Page setup helps LibreOffice render a single clean preview image/PDF.
@@ -872,7 +857,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.print_area = f"A1:AA{_print_end_row_for_report(agg)}"
+    ws.print_area = "A1:AA48"
 
 
 
@@ -884,8 +869,10 @@ def _template_for_aggs(aggs: list[dict]) -> Path:
     """
     base = settings.template_file
     template_dir = base.parent
-    if aggs and all(_is_horeca_report(agg) for agg in aggs):
-        candidate = template_dir / "template_horeca.xlsx"
+    if aggs and all(_is_channel_specialist_report(agg) for agg in aggs):
+        if settings.horeca_template_file.exists():
+            return settings.horeca_template_file
+        candidate = template_dir / "template_channel_specialist.xlsx"
         if candidate.exists():
             return candidate
 
@@ -928,28 +915,19 @@ def create_report_workbook(aggs: list[dict], output_path: Path) -> Path:
 
 
 def create_single_report(agg: dict) -> Path:
-    report_type = "HORECA" if _is_horeca_report(agg) else "GT"
-    name = (
-        f"Market_Improvement_{agg['dealer']}_{report_type}_{agg.get('report_date')}.xlsx"
-    ).replace(":", "-")
+    name = f"Market_Improvement_{agg['dealer']}_{agg.get('report_date')}.xlsx".replace(":", "-")
     return create_report_workbook([agg], settings.export_path / name)
 
 
-def _blank_agg(dealer: str, report_date, report_type: str = "GT") -> dict:
-    is_horeca = str(report_type or "GT").strip().upper() == "HORECA"
-    own_products = HORECA_OWN_PRODUCTS if is_horeca else OWN_PRODUCTS
-    competitor_products = HORECA_COMPETITOR_PRODUCTS if is_horeca else COMPETITOR_PRODUCTS
-    normalized_type = "HORECA" if is_horeca else "GT"
+def _blank_agg(dealer: str, report_date) -> dict:
     return {
         "dealer": dealer,
         "report_date": report_date,
-        "report_type": normalized_type,
-        "channel": normalized_type,
         "total_outlets": 0,
         "outlet_types": {},
         "location_text": "",
-        "products": {p: {"availability": {}} for p in own_products},
-        "competitors": {p: {} for p in competitor_products},
+        "products": {p: {"availability": {}} for p in OWN_PRODUCTS},
+        "competitors": {p: {} for p in COMPETITOR_PRODUCTS},
         "ring_pull": {p: {"total_outlets": 0, "qty": 0} for p in RING_PRODUCTS},
         "key_issues": ["", "", "", ""],
         "suggestions": ["", "", "", ""],
@@ -977,4 +955,3 @@ def create_selected_dealer_report(
         dealer_part = f"{len(ordered)}_Dealers"
     out = settings.export_path / f"Market_Improvement_{dealer_part}_{report_date}.xlsx"
     return create_report_workbook(aggs, out)
-

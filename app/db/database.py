@@ -8,18 +8,12 @@ class Base(DeclarativeBase):
     pass
 
 
-_db_url = settings.db_url
-_engine_kwargs: dict = {"pool_pre_ping": True}
-if _db_url.startswith("postgresql"):
-    _engine_kwargs.update(
-        pool_recycle=300,
-        connect_args={"connect_timeout": 15},
-    )
-elif _db_url.startswith("sqlite"):
-    # Used only by offline tests/development. Railway remains PostgreSQL.
-    _engine_kwargs["connect_args"] = {"check_same_thread": False}
-
-engine = create_engine(_db_url, **_engine_kwargs)
+engine = create_engine(
+    settings.db_url,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={"connect_timeout": 15},
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -56,6 +50,16 @@ def _ensure_light_migrations() -> None:
         ]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_submissions ADD COLUMN IF NOT EXISTS {col} {ddl}")
 
+        _safe_exec(conn, """
+            UPDATE kobo_submissions
+            SET report_type = CASE
+                WHEN outlet_type IN ('Local Eat','Coffee,Bakery','Canteen','Sport Club','Motor Shop','Local Drink')
+                    THEN 'HORECA'
+                ELSE 'GT'
+            END
+            WHERE report_type IS NULL OR btrim(report_type) = ''
+        """)
+
 
         # Ensure numeric columns stay numeric even when older versions created them as VARCHAR.
         _safe_exec(conn, """
@@ -72,19 +76,6 @@ def _ensure_light_migrations() -> None:
             ALTER TABLE IF EXISTS kobo_submissions
             ALTER COLUMN total_outlet_visit_target TYPE INTEGER
             USING NULLIF(regexp_replace(total_outlet_visit_target::text, '[^0-9-]', '', 'g'), '')::integer
-        """)
-
-        # Backfill old normal rows before the first V84 Kobo resync. Exact values
-        # from final_summary_report_type are written by parser.py during sync.
-        _safe_exec(conn, """
-            UPDATE kobo_submissions
-            SET report_type = CASE
-                WHEN outlet_type IN ('Local Eat', 'Coffee,Bakery', 'Canteen', 'Sport Club', 'Motor Shop', 'Local Drink')
-                    THEN 'HORECA'
-                ELSE 'GT'
-            END
-            WHERE report_type IS NULL
-              AND outlet_type IS NOT NULL
         """)
 
         # Remove old raw payload JSONB column per user's production requirement.

@@ -1,0 +1,53 @@
+V84A — Restore /map and /dashboard handler compatibility
+
+CAUSE
+-----
+V84 replaced app/bot/handlers.py but kept the newer app/bot/run_bot.py.
+run_bot.py imports dashboard_cmd, so Python crashes before Telegram starts.
+
+APPLY
+-----
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V84A_HANDLER_IMPORT_HOTFIX.zip \
+  -d .
+
+python patch_v84a_restore_handler_compat.py
+
+mkdir -p tests
+mv -f test_v84a_handler_compat.py \
+  tests/test_v84a_handler_compat.py
+
+python -m py_compile \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+grep -n \
+  "async def map_cmd\|async def dashboard_cmd\|v84_removed_command" \
+  app/bot/handlers.py
+
+git status
+git diff -- app/bot/handlers.py
+
+git add \
+  app/bot/handlers.py \
+  tests/test_v84a_handler_compat.py
+
+git commit -m "Restore map and dashboard handlers after V84"
+
+git push origin main
+
+EXPECTED RAILWAY LOG
+--------------------
+Starting Container
+Movement map web server starting on PORT=8080
+KB Market Survey Bot running...
+Telegram polling started
+
+Then test:
+/map
+/dashboard
+/summary GT 2026-07-25
+/summary HORECA 2026-07-25
+/report CA3 HORECA 2026-07-18

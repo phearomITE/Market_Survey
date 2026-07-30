@@ -1,0 +1,33 @@
+KB Market Survey V74 - Restore Raw Movement Service
+
+ERROR
+ImportError: cannot import name 'generate_raw_movement_export'
+from app.services.report_service
+
+CAUSE
+The V73 summary update replaced report_service.py and accidentally removed the
+V72 raw-movement service function. handlers.py still imports that function.
+
+FILES
+- app/services/report_service.py
+- app/reports/raw_movement_export.py
+- tests/test_v74_raw_movement_import.py
+
+GIT BASH
+cd /d/Bot/Market_Survey_Git
+
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V74_RAW_MOVEMENT_IMPORT_FIX.zip -d .
+
+python -m py_compile   app/services/report_service.py   app/reports/raw_movement_export.py   app/bot/handlers.py   app/bot/run_bot.py
+
+python -c "from app.services.report_service import generate_raw_movement_export; print('RAW MOVEMENT IMPORT OK')"
+
+git add   app/services/report_service.py   app/reports/raw_movement_export.py   tests/test_v74_raw_movement_import.py
+
+git commit -m "Restore raw movement export service"
+git push origin main
+
+AFTER RAILWAY IS ACTIVE
+/status
+/raw_movement 2026-07-25
+/summary 2026-07-25

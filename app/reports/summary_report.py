@@ -153,11 +153,11 @@ def _style_summary_sheet(ws) -> None:
 def create_summary_report(
     rows: list[dict],
     report_date: date,
-    report_type: str = "GT",
     output_path: Path | None = None,
+    report_type: str = "GT",
 ) -> Path:
     settings.export_path.mkdir(parents=True, exist_ok=True)
-    report_type = "HORECA" if str(report_type or "GT").strip().upper() == "HORECA" else "GT"
+    report_type = str(report_type or "GT").upper()
     output_path = output_path or settings.export_path / f"Market_Survey_Summary_{report_type}_{report_date}.xlsx"
 
     wb = Workbook()
@@ -174,10 +174,7 @@ def create_summary_report(
     ws.merge_cells("A1:H1")
     ws["A1"] = f"KB Market Survey - {report_type} Region & Dealer Submission Summary"
     ws.merge_cells("A2:H2")
-    ws["A2"] = (
-        f"Report Type: {report_type} | Report Date: {report_date} | "
-        f"Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
-    )
+    ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
 
     kpis = [
         ("Total Regions", len(set(r["region"] for r in rows))),

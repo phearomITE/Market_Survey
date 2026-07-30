@@ -12,278 +12,200 @@ from sqlalchemy import text
 
 from app.db.database import SessionLocal
 
-GT_OWN_PRODUCTS = ['CB LITE ORD',
- 'CBC 4.4 NCP',
- 'CB Original NCP',
- 'CB LITE NCP',
- 'CB BLACK NCP',
- 'CAMBODIA COLA',
- 'WURKZ',
- 'CAMBODIA ED',
- 'DAZZ',
- 'DAZZ Zero Sugar',
- 'IZE PET 300ml Flavour',
- 'IZE COLA PET 1.5L All SKUs',
- 'EXPREZ Melon',
- 'Wurkz Ice',
- 'CAMBODIA Sport 300mL',
- 'CAMBODIA Sport 500mL',
- 'CAMBODIA WATER 500mL',
- 'CAMBODIA WATER 1500mL']
+OWN_PRODUCTS = [
+    "CB LITE ORD",
+    "CBC 4.4 NCP",
+    "CB Original NCP",
+    "CB LITE NCP",
+    "CB BLACK NCP",
+    "CAMBODIA COLA",
+    "WURKZ",
+    "CAMBODIA ED",
+    "DAZZ",
+    "DAZZ Zero Sugar",
+    "IZE PET 300ml Flavour",
+    "IZE COLA PET 1.5L All SKUs",
+    "EXPREZ Melon",
+    "Wurkz Ice",
+    "CAMBODIA Sport 300mL",
+    "CAMBODIA Sport 500mL",
+    "CAMBODIA WATER 500mL",
+    "CAMBODIA WATER 1500mL",
+]
 
-GT_COMPETITOR_PRODUCTS = ['GB SNOW ORD',
- 'HANUMAN LITE ORD',
- 'Krud LITE ORD',
- 'CB Original NCP',
- 'GB Original NCP',
- 'Krud NCP',
- 'GB SNOW NCP',
- 'Hanuman LITE NCP',
- 'Krud LITE NCP',
- 'Greet LITE NCP',
- 'Hanuman Black NCP',
- 'Coca Cola 330ml',
- 'Boostrong',
- 'Krud ED',
- 'Champion',
- 'King Kong Ice',
- 'Krud Ice',
- 'Super Boostrong',
- 'King Kong',
- 'AIRA',
- 'BACCHUSE',
- 'Dragon',
- 'BACCHUSE Sugar Free',
- 'POP Z Flavour',
- 'V Cola 350ml',
- 'Coca 1.5L',
- 'Big Cola 3L',
- 'EXPREZ Can 330ml',
- 'Sting Can 330ml',
- 'Idol Can 330ml',
- 'CAMBODIA Sport 300ml',
- 'Pocari Sweat',
- 'V-Active Sport',
- 'Vital 500mL',
- 'Provida 500mL',
- 'Ganzberg 500ml',
- 'Hitech 500mL',
- 'Vital 1500mL',
- 'Provida 1500mL',
- 'Ganzberg 1500ml',
- 'Hitech 1500mL']
+COMPETITOR_PRODUCTS = [
+    "GB SNOW ORD",
+    "HANUMAN LITE ORD",
+    "Krud LITE ORD",
+    "CB Original NCP",
+    "GB Original NCP",
+    "Krud NCP",
+    "GB SNOW NCP",
+    "Hanuman LITE NCP",
+    "Krud LITE NCP",
+    "Greet LITE NCP",
+    "Hanuman Black NCP",
+    "Coca Cola 330ml",
+    "Boostrong",
+    "Krud ED",
+    "Champion",
+    "King Kong Ice",
+    "Krud Ice",
+    "Super Boostrong",
+    "King Kong",
+    "AIRA",
+    "BACCHUSE",
+    "Dragon",
+    "BACCHUSE Sugar Free",
+    "POP Z Flavour",
+    "V Cola 350ml",
+    "Coca 1.5L",
+    "Big Cola 3L",
+    "EXPREZ Can 330ml",
+    "Sting Can 330ml",
+    "Idol Can 330ml",
+    "CAMBODIA Sport 300ml",
+    "Pocari Sweat",
+    "V-Active Sport",
+    "Vital 500mL",
+    "Provida 500mL",
+    "Ganzberg 500ml",
+    "Hitech 500mL",
+    "Vital 1500mL",
+    "Provida 1500mL",
+    "Ganzberg 1500ml",
+    "Hitech 1500mL",
+]
 
-HORECA_OWN_PRODUCTS = ['CB Pint',
- 'CBL Pint',
- 'CB SUPEEME Pint',
- 'CB Black Pint',
- 'CB LITE ORD',
- 'CBC 4.4 NCP',
- 'CB Original NCP',
- 'CB BLACK NCP',
- 'CAMBODIA COLA',
- 'WURKZ',
- 'CAMBODIA ED',
- 'DAZZ',
- 'DAZZ Zero Sugar',
- 'EXPREZ Can 330ml',
- 'EXPREZ Melon',
- 'CAMBODIA Sport 300mL',
- 'CAMBODIA Sport 500mL',
- 'CAMBODIA WATER 500mL']
+HORECA_OWN_PRODUCTS = ["CB Pint", "CBL Pint", "CB SUPEEME Pint", "CB Black Pint"]
+HORECA_COMPETITOR_PRODUCTS = [
+    "Tiger Crystal Pint",
+    "HANUMAN LITE Pint",
+    "Vathanac LITE Pint",
+    "HANUMAN Black Pint",
+]
+ALL_OWN_PRODUCTS = OWN_PRODUCTS + HORECA_OWN_PRODUCTS
+ALL_COMPETITOR_PRODUCTS = COMPETITOR_PRODUCTS + HORECA_COMPETITOR_PRODUCTS
 
-HORECA_COMPETITOR_PRODUCTS = ['Angkor Pint',
- 'Tiger Pint',
- 'CB SUPEEME Pint',
- 'Tiger Crystal Pint',
- 'HANUMAN LITE Pint',
- 'Vathanac LITE Pint',
- 'ABC Pint',
- 'HANUMAN Black Pint',
- 'Dragon Pint',
- 'GB SNOW ORD',
- 'HANUMAN LITE ORD',
- 'Krud LITE ORD',
- 'GB Original NCP',
- 'Krud NCP',
- 'GB SNOW NCP',
- 'Hanuman LITE NCP',
- 'Krud LITE NCP',
- 'Greet LITE NCP',
- 'Hanuman Black NCP',
- 'Coca Cola 330ml',
- 'V Cola 330ml',
- 'Boostrong',
- 'Krud ED',
- 'BACCHUSE',
- 'Dragon',
- 'BACCHUSE Sugar Free',
- 'EXPREZ Melon',
- 'Idol Can 330ml',
- 'Sting Can 330ml',
- 'CAMBODIA Sport 300mL',
- 'Pocari Sweat',
- 'V-Active Sport',
- 'Vital 500mL',
- 'Provida 500mL',
- 'Ganzberg 500ml',
- 'Hitech 500mL']
+RING_PRODUCTS = ["CBL NCP 6 Can", "CBL NCP 5 USD"]
+RING_PRODUCT_ALIASES = {
+    "CBL NCP 6 Can": ["CBL NCP 6 Can", "CBC, CBL Can and CBB Can"],
+    "CBL NCP 5 USD": ["CBL NCP 5 USD", "Wurkz NCP 5 USD"],
+}
 
-RING_PRODUCTS = ['CBL NCP 6 Can', 'CBL NCP 5 USD']
-RING_PRODUCT_ALIASES = {'CBL NCP 6 Can': ['CBL NCP 6 Can', 'CBC, CBL Can and CBB Can'],
- 'CBL NCP 5 USD': ['CBL NCP 5 USD', 'Wurkz NCP 5 USD']}
+OFFTAKE_COMPARE_GROUPS = [
+    ["CB LITE ORD", "GB SNOW ORD", "HANUMAN LITE ORD", "Krud LITE ORD"],
+    ["CBC 4.4 NCP", "CB Original NCP", "GB Original NCP", "Krud NCP"],
+    ["CB LITE NCP", "GB SNOW NCP", "Hanuman LITE NCP", "Krud LITE NCP", "Greet LITE NCP"],
+    ["CB BLACK NCP", "Hanuman Black NCP"],
+    ["CAMBODIA COLA", "Coca Cola 330ml"],
+    ["WURKZ", "Boostrong", "Krud ED"],
+    ["Wurkz Ice", "Champion", "King Kong Ice", "Krud Ice"],
+    ["CAMBODIA ED", "Super Boostrong", "King Kong", "AIRA"],
+    ["DAZZ", "BACCHUSE", "Dragon"],
+    ["DAZZ Zero Sugar", "BACCHUSE Sugar Free"],
+    ["IZE PET 300ml Flavour", "POP Z Flavour", "V Cola 350ml"],
+    ["IZE COLA PET 1.5L All SKUs", "Coca 1.5L", "Big Cola 3L"],
+    ["EXPREZ Melon", "EXPREZ Can 330ml", "Sting Can 330ml", "Idol Can 330ml"],
+    ["CAMBODIA Sport 500mL", "CAMBODIA Sport 300ml", "Pocari Sweat", "V-Active Sport"],
+    ["CAMBODIA WATER 500mL", "Vital 500mL", "Provida 500mL", "Ganzberg 500ml", "Hitech 500mL"],
+    ["CAMBODIA WATER 1500mL", "Vital 1500mL", "Provida 1500mL", "Ganzberg 1500ml", "Hitech 1500mL"],
+]
 
-GT_OFFTAKE_COMPARE_GROUPS = [['CB LITE ORD', 'GB SNOW ORD', 'HANUMAN LITE ORD', 'Krud LITE ORD'],
- ['CBC 4.4 NCP', 'CB Original NCP', 'GB Original NCP', 'Krud NCP'],
- ['CB LITE NCP', 'GB SNOW NCP', 'Hanuman LITE NCP', 'Krud LITE NCP', 'Greet LITE NCP'],
- ['CB BLACK NCP', 'Hanuman Black NCP'],
- ['CAMBODIA COLA', 'Coca Cola 330ml'],
- ['WURKZ', 'Boostrong', 'Krud ED'],
- ['Wurkz Ice', 'Champion', 'King Kong Ice', 'Krud Ice'],
- ['CAMBODIA ED', 'Super Boostrong', 'King Kong', 'AIRA'],
- ['DAZZ', 'BACCHUSE', 'Dragon'],
- ['DAZZ Zero Sugar', 'BACCHUSE Sugar Free'],
- ['IZE PET 300ml Flavour', 'POP Z Flavour', 'V Cola 350ml'],
- ['IZE COLA PET 1.5L All SKUs', 'Coca 1.5L', 'Big Cola 3L'],
- ['EXPREZ Melon', 'EXPREZ Can 330ml', 'Sting Can 330ml', 'Idol Can 330ml'],
- ['CAMBODIA Sport 500mL', 'CAMBODIA Sport 300ml', 'Pocari Sweat', 'V-Active Sport'],
- ['CAMBODIA WATER 500mL', 'Vital 500mL', 'Provida 500mL', 'Ganzberg 500ml', 'Hitech 500mL'],
- ['CAMBODIA WATER 1500mL', 'Vital 1500mL', 'Provida 1500mL', 'Ganzberg 1500ml', 'Hitech 1500mL']]
+PRODUCT_CODES = {
+    "CB Pint": ["cb_pint"],
+    "CBL Pint": ["cbl_pint"],
+    "CB SUPEEME Pint": ["cb_supeeme_pint", "cb_supreme_pint"],
+    "CB Black Pint": ["cb_black_pint"],
+    "CB LITE ORD": ["cb_lite_ord", "cbc_lite_ord"],
+    "CBC 4.4 NCP": ["cbc44_ncp", "cbc_4_4_ncp", "cbc44", "cbc_4_4"],
+    "CB Original NCP": ["cb_original_ncp", "cb_original", "cb_original_beer", "cb_original_can", "cb_ori"],
+    "CB LITE NCP": ["cb_lite_ncp", "cbc_lite_ncp", "cb_lite", "cbc_lite"],
+    "CB BLACK NCP": ["cb_black_ncp", "cb_black"],
+    "CAMBODIA COLA": ["cambodia_cola_330", "cambodia_cola", "cambodia_cola_330ml"],
+    "WURKZ": ["wurkz"],
+    "CAMBODIA ED": ["cambodia_ed", "cambodia_energy", "energy_menthol"],
+    "DAZZ": ["dazz"],
+    "DAZZ Zero Sugar": ["dazz_zero_sugar", "dazz_zero"],
+    "IZE PET 300ml Flavour": ["ize_pet_300_flavour", "ize_pet_300", "ize_pet_300_all", "ize_pet_300ml"],
+    "IZE COLA PET 1.5L All SKUs": ["ize_cola_pet_1500", "ize_cola_pet_15_all", "ize_cola_1500"],
+    "EXPREZ Melon": ["exprez_melon", "exprez_cucumber", "exprez"],
+    "Wurkz Ice": ["wurkz_ice"],
+    "CAMBODIA Sport 300mL": ["cambodia_sport_300"],
+    "CAMBODIA Sport 500mL": ["cambodia_sport_500"],
+    "CAMBODIA WATER 500mL": ["cambodia_water_500"],
+    "CAMBODIA WATER 1500mL": ["cambodia_water_1500"],
+}
 
-HORECA_OFFTAKE_COMPARE_GROUPS = [['CB Pint', 'Angkor Pint', 'Tiger Pint'],
- ['CBL Pint', 'CB SUPEEME Pint', 'Tiger Crystal Pint', 'HANUMAN LITE Pint', 'Vathanac LITE Pint'],
- ['CB Black Pint', 'ABC Pint', 'HANUMAN Black Pint', 'Dragon Pint'],
- ['CB LITE ORD', 'GB SNOW ORD', 'HANUMAN LITE ORD', 'Krud LITE ORD'],
- ['CBC 4.4 NCP', 'GB Original NCP', 'Krud NCP'],
- ['CB Original NCP', 'GB SNOW NCP', 'Hanuman LITE NCP', 'Krud LITE NCP', 'Greet LITE NCP'],
- ['CB BLACK NCP', 'Hanuman Black NCP'],
- ['CAMBODIA COLA', 'Coca Cola 330ml', 'V Cola 330ml'],
- ['WURKZ', 'Boostrong', 'Krud ED'],
- ['CAMBODIA ED'],
- ['DAZZ', 'BACCHUSE', 'Dragon'],
- ['DAZZ Zero Sugar', 'BACCHUSE Sugar Free'],
- ['EXPREZ Can 330ml', 'EXPREZ Melon', 'Idol Can 330ml', 'Sting Can 330ml'],
- ['CAMBODIA Sport 500mL', 'CAMBODIA Sport 300mL', 'Pocari Sweat', 'V-Active Sport'],
- ['CAMBODIA WATER 500mL', 'Vital 500mL', 'Provida 500mL', 'Ganzberg 500ml', 'Hitech 500mL']]
+COMPETITOR_CODES = {
+    "Tiger Crystal Pint": ["tiger_crystal_pint"],
+    "HANUMAN LITE Pint": ["hanuman_lite_pint"],
+    "Vathanac LITE Pint": ["vathanac_lite_pint"],
+    "HANUMAN Black Pint": ["hanuman_black_pint"],
+    "GB SNOW ORD": ["gb_snow_ord"],
+    "HANUMAN LITE ORD": ["hanuman_lite_ord"],
+    "Krud LITE ORD": ["krud_lite_ord"],
+    "CB Original NCP": ["cb_original_ncp", "cb_original"],
+    "GB Original NCP": ["gb_original_ncp", "gb_original"],
+    "Krud NCP": ["krud_ncp", "krud"],
+    "GB SNOW NCP": ["gb_snow_ncp", "gb_snow"],
+    "Hanuman LITE NCP": ["hanuman_lite_ncp", "hanuman_lite"],
+    "Krud LITE NCP": ["krud_lite_ncp", "krud_lite"],
+    "Greet LITE NCP": ["greet_lite_ncp", "greet_lite", "great_lite"],
+    "Hanuman Black NCP": ["hanuman_black_ncp", "hanuman_black"],
+    "Coca Cola 330ml": ["coca_cola_330"],
+    "Boostrong": ["boostrong"],
+    "Krud ED": ["krud_ed"],
+    "Champion": ["champion"],
+    "King Kong Ice": ["king_kong_ice"],
+    "Krud Ice": ["krud_ice"],
+    "Super Boostrong": ["super_boostrong"],
+    "King Kong": ["king_kong"],
+    "AIRA": ["aira"],
+    "BACCHUSE": ["bacchuse"],
+    "Dragon": ["dragon"],
+    "BACCHUSE Sugar Free": ["bacchuse_sugar_free"],
+    "POP Z Flavour": ["pop_z_flavour"],
+    "V Cola 350ml": ["v_cola_350"],
+    "Coca 1.5L": ["coca_1500", "coca_15l", "coca_1_5l"],
+    "Big Cola 3L": ["big_cola_3l"],
+    "EXPREZ Can 330ml": ["exprez_can_330"],
+    "Sting Can 330ml": ["sting_can_330"],
+    "Idol Can 330ml": ["idol_can_330"],
+    "CAMBODIA Sport 300ml": ["cambodia_sport_300"],
+    "Pocari Sweat": ["pocari_sweat"],
+    "V-Active Sport": ["v_active_sport"],
+    "Vital 500mL": ["vital_500"],
+    "Provida 500mL": ["provida_500"],
+    "Ganzberg 500ml": ["ganzberg_500"],
+    "Hitech 500mL": ["hitech_500"],
+    "Vital 1500mL": ["vital_1500"],
+    "Provida 1500mL": ["provida_1500"],
+    "Ganzberg 1500ml": ["ganzberg_1500"],
+    "Hitech 1500mL": ["hitech_1500"],
+}
 
-# Backward-compatible GT exports. Kobo sync uses ALL_* so one asset supports both routes.
-OWN_PRODUCTS = GT_OWN_PRODUCTS
-COMPETITOR_PRODUCTS = GT_COMPETITOR_PRODUCTS
-OFFTAKE_COMPARE_GROUPS = GT_OFFTAKE_COMPARE_GROUPS
-ALL_OWN_PRODUCTS = list(dict.fromkeys(GT_OWN_PRODUCTS + HORECA_OWN_PRODUCTS))
-ALL_COMPETITOR_PRODUCTS = list(dict.fromkeys(GT_COMPETITOR_PRODUCTS + HORECA_COMPETITOR_PRODUCTS))
-ALL_OFFTAKE_COMPARE_GROUPS = GT_OFFTAKE_COMPARE_GROUPS + HORECA_OFFTAKE_COMPARE_GROUPS
-
-PRODUCT_CODES = {'CB LITE ORD': ['cb_lite_ord', 'cbc_lite_ord'],
- 'CBC 4.4 NCP': ['cbc44_ncp', 'cbc_4_4_ncp', 'cbc44', 'cbc_4_4'],
- 'CB Original NCP': ['cb_original_ncp', 'cb_original', 'cb_original_beer', 'cb_original_can', 'cb_ori'],
- 'CB LITE NCP': ['cb_lite_ncp', 'cbc_lite_ncp', 'cb_lite', 'cbc_lite'],
- 'CB BLACK NCP': ['cb_black_ncp', 'cb_black'],
- 'CAMBODIA COLA': ['cambodia_cola_330', 'cambodia_cola', 'cambodia_cola_330ml'],
- 'WURKZ': ['wurkz'],
- 'CAMBODIA ED': ['cambodia_ed', 'cambodia_energy', 'energy_menthol'],
- 'DAZZ': ['dazz'],
- 'DAZZ Zero Sugar': ['dazz_zero_sugar', 'dazz_zero'],
- 'IZE PET 300ml Flavour': ['ize_pet_300_flavour', 'ize_pet_300', 'ize_pet_300_all', 'ize_pet_300ml'],
- 'IZE COLA PET 1.5L All SKUs': ['ize_cola_pet_1500', 'ize_cola_pet_15_all', 'ize_cola_1500'],
- 'EXPREZ Melon': ['exprez_melon', 'exprez_cucumber', 'exprez'],
- 'Wurkz Ice': ['wurkz_ice'],
- 'CAMBODIA Sport 300mL': ['cambodia_sport_300'],
- 'CAMBODIA Sport 500mL': ['cambodia_sport_500'],
- 'CAMBODIA WATER 500mL': ['cambodia_water_500'],
- 'CAMBODIA WATER 1500mL': ['cambodia_water_1500'],
- 'CB Pint': ['cb_pint'],
- 'CBL Pint': ['cbl_pint'],
- 'CB SUPEEME Pint': ['cb_supeeme_pint'],
- 'CB Black Pint': ['cb_black_pint'],
- 'EXPREZ Can 330ml': ['exprez_can_330']}
-
-COMPETITOR_CODES = {'GB SNOW ORD': ['gb_snow_ord'],
- 'HANUMAN LITE ORD': ['hanuman_lite_ord'],
- 'Krud LITE ORD': ['krud_lite_ord'],
- 'CB Original NCP': ['cb_original_ncp', 'cb_original'],
- 'GB Original NCP': ['gb_original_ncp', 'gb_original'],
- 'Krud NCP': ['krud_ncp', 'krud'],
- 'GB SNOW NCP': ['gb_snow_ncp', 'gb_snow'],
- 'Hanuman LITE NCP': ['hanuman_lite_ncp', 'hanuman_lite'],
- 'Krud LITE NCP': ['krud_lite_ncp', 'krud_lite'],
- 'Greet LITE NCP': ['greet_lite_ncp', 'greet_lite', 'great_lite'],
- 'Hanuman Black NCP': ['hanuman_black_ncp', 'hanuman_black'],
- 'Coca Cola 330ml': ['coca_cola_330'],
- 'Boostrong': ['boostrong'],
- 'Krud ED': ['krud_ed'],
- 'Champion': ['champion'],
- 'King Kong Ice': ['king_kong_ice'],
- 'Krud Ice': ['krud_ice'],
- 'Super Boostrong': ['super_boostrong'],
- 'King Kong': ['king_kong'],
- 'AIRA': ['aira'],
- 'BACCHUSE': ['bacchuse'],
- 'Dragon': ['dragon'],
- 'BACCHUSE Sugar Free': ['bacchuse_sugar_free'],
- 'POP Z Flavour': ['pop_z_flavour'],
- 'V Cola 350ml': ['v_cola_350'],
- 'Coca 1.5L': ['coca_1500', 'coca_15l', 'coca_1_5l'],
- 'Big Cola 3L': ['big_cola_3l'],
- 'EXPREZ Can 330ml': ['exprez_can_330'],
- 'Sting Can 330ml': ['sting_can_330'],
- 'Idol Can 330ml': ['idol_can_330'],
- 'CAMBODIA Sport 300ml': ['cambodia_sport_300'],
- 'Pocari Sweat': ['pocari_sweat'],
- 'V-Active Sport': ['v_active_sport'],
- 'Vital 500mL': ['vital_500'],
- 'Provida 500mL': ['provida_500'],
- 'Ganzberg 500ml': ['ganzberg_500'],
- 'Hitech 500mL': ['hitech_500'],
- 'Vital 1500mL': ['vital_1500'],
- 'Provida 1500mL': ['provida_1500'],
- 'Ganzberg 1500ml': ['ganzberg_1500'],
- 'Hitech 1500mL': ['hitech_1500'],
- 'Angkor Pint': ['angkor'],
- 'Tiger Pint': ['tiger'],
- 'CB SUPEEME Pint': ['cb_supeeme_pint'],
- 'Tiger Crystal Pint': ['tiger_crystal_pint'],
- 'HANUMAN LITE Pint': ['hanuman_lite_pint'],
- 'Vathanac LITE Pint': ['vathanac_lite_pint'],
- 'ABC Pint': ['abc'],
- 'HANUMAN Black Pint': ['hanuman_black_pint'],
- 'Dragon Pint': ['dragon_beer'],
- 'V Cola 330ml': ['v_cola_330'],
- 'EXPREZ Melon': ['exprez_melon'],
- 'CAMBODIA Sport 300mL': ['cambodia_sport_300']}
-
-PRODUCT_LABEL_ALIASES = {'CB LITE ORD': ['CB LITE ORD', 'CBC LITE ORD'],
- 'CBC 4.4 NCP': ['CBC 4.4 NCP', 'CBC 4.4'],
- 'CB Original NCP': ['CB Original NCP', 'CB Original'],
- 'CB LITE NCP': ['CB LITE NCP', 'CB LITE', 'CBC LITE'],
- 'CB BLACK NCP': ['CB BLACK NCP', 'CB BLACK'],
- 'CAMBODIA COLA': ['CAMBODIA COLA', 'CAMBODIA COLA 330ml'],
- 'CAMBODIA ED': ['CAMBODIA ED', 'ភេសជ្ជៈប៉ូវកម្លាំង\u200bកម្ពុជា'],
- 'IZE PET 300ml Flavour': ['IZE PET 300ml Flavour', 'IZE PET 300ml All SKUs'],
- 'EXPREZ Melon': ['EXPREZ Melon', 'EXPREZ ត្រសក់ផ្អែម'],
- 'CAMBODIA Sport 300mL': ['CAMBODIA Sport 300mL', 'CAMBODIA Sport 300ml'],
- 'CAMBODIA Sport 500mL': ['CAMBODIA Sport 500mL', 'CAMBODIA Sport 500ml'],
- 'GB Original NCP': ['GB Original NCP', 'GB Original', 'GB  Original'],
- 'GB SNOW NCP': ['GB SNOW NCP', 'GB SNOW'],
- 'Hanuman LITE NCP': ['Hanuman LITE NCP', 'Hanuman Lite'],
- 'Krud NCP': ['Krud NCP', 'Krud'],
- 'Krud LITE NCP': ['Krud LITE NCP', 'Krud Lite'],
- 'Greet LITE NCP': ['Greet LITE NCP', 'Greet Lite', 'Great Lite'],
- 'Hanuman Black NCP': ['Hanuman Black NCP', 'Hanuman Black'],
- 'Ganzberg 500ml': ['Ganzberg 500ml', 'Ganzberg  500ml'],
- 'CB Pint': ['CB Pint'],
- 'CBL Pint': ['CBL Pint', 'CB LITE Pint'],
- 'CB SUPEEME Pint': ['CB SUPEEME Pint', 'CB SUPREME Pint'],
- 'CB Black Pint': ['CB Black Pint', 'CB BLACK Pint'],
- 'Angkor Pint': ['Angkor Pint', 'Angkor'],
- 'Tiger Pint': ['Tiger Pint', 'Tiger'],
- 'Tiger Crystal Pint': ['Tiger Crystal Pint'],
- 'HANUMAN LITE Pint': ['HANUMAN LITE Pint', 'Hanuman LITE Pint'],
- 'Vathanac LITE Pint': ['Vathanac LITE Pint', 'Vathanac Pint'],
- 'ABC Pint': ['ABC Pint', 'ABC'],
- 'HANUMAN Black Pint': ['HANUMAN Black Pint', 'Hanuman Black Pint'],
- 'Dragon Pint': ['Dragon Pint'],
- 'V Cola 330ml': ['V Cola 330ml', 'V-Cola 330ml']}
+PRODUCT_LABEL_ALIASES = {
+    "CB LITE ORD": ["CB LITE ORD", "CBC LITE ORD"],
+    "CBC 4.4 NCP": ["CBC 4.4 NCP", "CBC 4.4"],
+    "CB Original NCP": ["CB Original NCP", "CB Original"],
+    "CB LITE NCP": ["CB LITE NCP", "CB LITE", "CBC LITE"],
+    "CB BLACK NCP": ["CB BLACK NCP", "CB BLACK"],
+    "CAMBODIA COLA": ["CAMBODIA COLA", "CAMBODIA COLA 330ml"],
+    "CAMBODIA ED": ["CAMBODIA ED", "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា"],
+    "IZE PET 300ml Flavour": ["IZE PET 300ml Flavour", "IZE PET 300ml All SKUs"],
+    "EXPREZ Melon": ["EXPREZ Melon", "EXPREZ ត្រសក់ផ្អែម"],
+    "CAMBODIA Sport 300mL": ["CAMBODIA Sport 300mL", "CAMBODIA Sport 300ml"],
+    "CAMBODIA Sport 500mL": ["CAMBODIA Sport 500mL", "CAMBODIA Sport 500ml"],
+    "GB Original NCP": ["GB Original NCP", "GB Original", "GB  Original"],
+    "GB SNOW NCP": ["GB SNOW NCP", "GB SNOW"],
+    "Hanuman LITE NCP": ["Hanuman LITE NCP", "Hanuman Lite"],
+    "Krud NCP": ["Krud NCP", "Krud"],
+    "Krud LITE NCP": ["Krud LITE NCP", "Krud Lite"],
+    "Greet LITE NCP": ["Greet LITE NCP", "Greet Lite", "Great Lite"],
+    "Hanuman Black NCP": ["Hanuman Black NCP", "Hanuman Black"],
+    "Ganzberg 500ml": ["Ganzberg 500ml", "Ganzberg  500ml"],
+}
 
 STATUS_TO_MOVEMENT = {
     "no_sale": 0,
@@ -493,7 +415,7 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     return None
 
 
-def _apply_offtake_comparison_goal(result: dict, comparison_groups: list[list[str]] | None = None) -> None:
+def _apply_offtake_comparison_goal(result: dict) -> None:
     """Normalize movement scores inside every comparison row.
 
     Business rule:
@@ -515,7 +437,7 @@ def _apply_offtake_comparison_goal(result: dict, comparison_groups: list[list[st
     Missing values stay blank. A real zero stays zero and is not promoted,
     because zero means no movement rather than a scored competing product.
     """
-    for group in (comparison_groups or OFFTAKE_COMPARE_GROUPS):
+    for group in OFFTAKE_COMPARE_GROUPS:
         items: list[dict[str, Any]] = []
         seen_ids: set[int] = set()
 
@@ -869,7 +791,7 @@ def competitor_field(product: str, field: str) -> list[str]:
     # Some report comparison items are also own-product freshness rows
     # (CB Original NCP and CAMBODIA Sport 300ml). Reuse their own form fields.
     own_alias = "CAMBODIA Sport 300mL" if product == "CAMBODIA Sport 300ml" else product
-    if own_alias in ALL_OWN_PRODUCTS:
+    if own_alias in OWN_PRODUCTS:
         keys += product_field(own_alias, field)
     for code in codes:
         field_aliases = [field]
@@ -1348,14 +1270,7 @@ def _available_from_wide_or_metric(
 
     return _metric_or_payload_available(submission, metric, product)
 
-def aggregate_submissions(submissions: list, report_type: str = "GT") -> dict:
-    report_type_name = str(report_type or "GT").strip().upper().replace("-", "_")
-    is_horeca = report_type_name in {"HORECA", "CHANNEL_SPECIALIST", "CHANNEL SPECIALIST", "CS"}
-    report_type_name = "HORECA" if is_horeca else "GT"
-    own_products = HORECA_OWN_PRODUCTS if is_horeca else GT_OWN_PRODUCTS
-    competitor_products = HORECA_COMPETITOR_PRODUCTS if is_horeca else GT_COMPETITOR_PRODUCTS
-    comparison_groups = HORECA_OFFTAKE_COMPARE_GROUPS if is_horeca else GT_OFFTAKE_COMPARE_GROUPS
-
+def aggregate_submissions(submissions: list) -> dict:
     all_submissions = list(submissions or [])
 
     # A row whose Outlet Name is a summary marker is a control/summary row,
@@ -1380,8 +1295,6 @@ def aggregate_submissions(submissions: list, report_type: str = "GT") -> dict:
         "ring_pull": {},
         "key_issues": [],
         "suggestions": [],
-        "report_type": report_type_name,
-        "channel": report_type_name,
     }
 
     # Keep the rest of the existing aggregation logic unchanged, but make it
@@ -1393,7 +1306,7 @@ def aggregate_submissions(submissions: list, report_type: str = "GT") -> dict:
     ring_maps = [_metric_by_product(list(getattr(s, "ring_pull_metrics", []) or [])) for s in submissions]
     wide_map = _wide_payloads_by_submission(submissions)
 
-    for product in own_products:
+    for product in ALL_OWN_PRODUCTS:
         metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
 
         movement_values = [
@@ -1441,7 +1354,7 @@ def aggregate_submissions(submissions: list, report_type: str = "GT") -> dict:
         pdata["availability"] = counts
         result["products"][product] = pdata
 
-    for product in competitor_products:
+    for product in ALL_COMPETITOR_PRODUCTS:
         metrics = [cm.get(product) or cm.get(_product_lookup_key(product)) for cm in competitor_maps]
         movement_values = [
             v
@@ -1522,7 +1435,7 @@ def aggregate_submissions(submissions: list, report_type: str = "GT") -> dict:
 
     # Apply the comparison-row normalization after every raw average and
     # rounded movement is ready. Each row gets exactly one movement 10.
-    _apply_offtake_comparison_goal(result, comparison_groups)
+    _apply_offtake_comparison_goal(result)
 
     for product in RING_PRODUCTS:
         aliases = RING_PRODUCT_ALIASES.get(product, [product])

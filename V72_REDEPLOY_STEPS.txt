@@ -1,0 +1,47 @@
+KB Market Survey V72 - Raw Movement Export
+
+New command:
+/raw_movement 2026-07-25
+/raw_movement CHANNEL SPECIALIST 2026-07-25
+
+Alias:
+/movement_raw 2026-07-25
+
+Workbook sheets:
+1. Raw_Movement
+   Date | Region | Dealer | Product | Movement Rate
+   One row per explicitly submitted score from 1 to 10.
+
+2. All_Products
+   Date | Region | Dealer | 57 product columns
+   Each product cell is its raw average before comparison-group promotion.
+
+Rules:
+- Excludes blank scores, zero placeholders and status-only answers.
+- Excludes final summary control rows such as បូកសរុបរួម.
+- GENERAL uses the same outlet-type scope as the General final report.
+- Existing PostgreSQL data is used immediately; Kobo sync runs only when the requested date has no rows.
+
+Git Bash:
+cd /d/Bot/Market_Survey_Git
+
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V72_RAW_MOVEMENT_EXPORT.zip -d .
+
+python -m py_compile \
+  app/reports/raw_movement_export.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git add README.md \
+  app/reports/raw_movement_export.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_v72_raw_movement_export.py
+
+git commit -m "Add raw movement data export"
+git push origin main
+
+After Railway is Active:
+/raw_movement 2026-07-25

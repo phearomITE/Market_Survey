@@ -1,0 +1,33 @@
+KB Market Survey V75B — Flexible asyncio lifecycle patch
+
+This version supports both:
+- def main():
+- def main() -> None:
+
+APPLY
+-----
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V75B_FLEXIBLE_ASYNCIO_FIX.zip \
+  -d .
+
+python patch_v75b_flexible_asyncio.py
+
+mkdir -p tests
+mv -f test_v75b_asyncio_lifecycle.py \
+  tests/test_v75b_asyncio_lifecycle.py
+
+python -m py_compile app/bot/run_bot.py
+
+grep -n "asyncio.run\|run_polling\|Telegram polling started" \
+  app/bot/run_bot.py
+
+git status
+git diff -- app/bot/run_bot.py
+
+git add app/bot/run_bot.py tests/test_v75b_asyncio_lifecycle.py
+git commit -m "Fix Railway asyncio lifecycle"
+git push origin main
+
+Do not use --allow-empty.

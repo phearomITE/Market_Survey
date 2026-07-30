@@ -1,0 +1,60 @@
+KB Market Survey V71 - Export + Unified Final Movement
+
+Main fixes
+1. /export is registered again and generates the approved Summary_Data and Location_Outlet workbook.
+2. Movement average uses only explicitly submitted positive scores 1..10.
+3. Blank and zero movement values are excluded from the denominator for own and competitor products.
+4. The highest raw-average product in each comparison group is raised to 10.
+5. The same increase is added to all other scored products in the group.
+6. Duplicate positive final ratings are resolved by raw-average rank, leaving one Movement 10 per group.
+7. /report, /summary, and /export all read the same final aggregate movement.
+8. /summary and /export use batched wide-table reads and a shared snapshot cache.
+9. /alert_submit remains manual only; no scheduled dealer-submit alerts.
+
+Git Bash
+cd /d/Bot/Market_Survey_Git
+
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V71_EXPORT_FINAL_MOVEMENT_CHANGED_FILES.zip -d .
+
+python -m py_compile \
+  app/reports/aggregator.py \
+  app/reports/data_export.py \
+  app/reports/member_mode.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/db/database.py \
+  app/db/models.py \
+  app/kobo/parser.py \
+  app/kobo/sync.py
+
+git add .env.example README.md \
+  app/bot/handlers.py app/bot/run_bot.py app/core/config.py \
+  app/db/database.py app/db/models.py \
+  app/kobo/parser.py app/kobo/sync.py \
+  app/reports/aggregator.py app/reports/data_export.py \
+  app/reports/member_mode.py app/reports/summary_report.py \
+  app/services/report_service.py app/services/submission_alert_service.py \
+  templates/Template_Data_Survey.xlsx \
+  templates/Market_Survey_Summary_Template.xlsx \
+  tests/test_v70_manual_submit_alerts.py \
+  tests/test_v71_export_movement_consistency.py
+
+git commit -m "Fix export and unify final movement calculation"
+git push origin main
+
+After Railway is Active
+/sync_kobo
+/report CUK7 2026-07-25
+/summary 2026-07-25
+/export 2026-07-25
+
+Expected example
+CB LITE NCP scores: 10,10,10,10,10,10,9,10
+Average = 79 / 8 = 9.875 -> rounded 10
+GB SNOW NCP scores: 6,7,9,7,7,8,10,8
+Average = 62 / 8 = 7.75 -> rounded 8
+Increase = 10 - 10 = 0
+Final: CB LITE NCP 10, GB SNOW NCP 8
