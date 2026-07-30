@@ -15,15 +15,12 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import KoboSubmission
 from app.db.models import KoboCompetitorMetric, KoboProductMetric
-from app.reports.aggregator import (
-    ALL_OFFTAKE_COMPARE_GROUPS,
-    ALL_OWN_PRODUCTS,
-)
+from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, OWN_PRODUCTS
 
 
 router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent
-OWN_PRODUCT_SET = set(ALL_OWN_PRODUCTS)
+OWN_PRODUCT_SET = set(OWN_PRODUCTS)
 APPROVED_REPORT_DATES = (
     date(2026, 7, 4),
     date(2026, 7, 18),
@@ -32,10 +29,6 @@ APPROVED_REPORT_DATES = (
 
 
 PRODUCT_CATEGORIES = {
-    "CB Pint": "Beer",
-    "CBL Pint": "Beer",
-    "CB SUPEEME Pint": "Beer",
-    "CB Black Pint": "Beer",
     "CB LITE ORD": "Beer",
     "CBC 4.4 NCP": "Beer",
     "CB Original NCP": "Beer",
@@ -60,7 +53,7 @@ PRODUCT_CATEGORIES = {
 # Competitor products inherit the category of the own product at the start of
 # their comparison group. This prevents beer competitors appearing under the
 # generic "Competitor" category.
-for comparison_group in ALL_OFFTAKE_COMPARE_GROUPS:
+for comparison_group in OFFTAKE_COMPARE_GROUPS:
     own_product = comparison_group[0]
     category = PRODUCT_CATEGORIES.get(own_product, "Other")
     for compared_product in comparison_group:

@@ -2,91 +2,75 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <meta name="theme-color" content="#d90429">
   <title>KB Outlet Movement</title>
-  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://server.arcgisonline.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="/web/map.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark">KB</div>
-      <div><strong>KB OUTLET MOVEMENT</strong><span>Kobo Survey Data</span></div>
-    </div>
+    <div class="brand"><span class="logo">KB</span><div><b>KB OUTLET MOVEMENT</b><small>Kobo Survey Data</small></div></div>
     <nav>
-      <button id="mapViewBtn" class="nav-btn">🗺 Map</button>
-      <button id="dashboardBtn" class="nav-btn">▦ Dashboard</button>
-      <button id="refreshBtn" class="icon-btn" title="Refresh">↻</button>
+      <button id="mapViewBtn">🗺 Map</button>
+      <button id="dashboardBtn">▦ Dashboard</button>
+      <button id="refreshBtn" aria-label="Refresh">↻</button>
     </nav>
   </header>
 
-  <main id="mapScreen">
+  <main id="mapScreen" class="map-screen">
     <aside id="filterPanel" class="filters">
-      <div class="panel-title">
-        <h2>Filters</h2>
-        <button id="closeFilters" class="mobile-only close-btn">×</button>
-      </div>
-      <label>Region<select id="region"><option value="">All regions</option></select></label>
-      <label>Dealer<select id="dealer"><option value="">All dealers</option></select></label>
-      <label>Report Date<select id="reportDate"><option value="">All report dates</option></select></label>
-      <label>Province / Capital<select id="province"><option value="">All provinces</option></select></label>
-      <label>District / Khan<select id="district"><option value="">All districts</option></select></label>
-      <label>Commune / Sangkat<select id="commune"><option value="">All communes</option></select></label>
-      <label>Product Category<select id="category"><option value="">All categories</option></select></label>
-      <label>Product<select id="product"><option value="">All products</option></select></label>
-      <label>Movement Score
-        <select id="movement">
-          <option value="">All scores (0–10)</option>
-          <option value="0-4">0–4 · Very Low</option>
-          <option value="5-8">5–8 · Medium</option>
-          <option value="9-10">9–10 · Very Strong</option>
-        </select>
-      </label>
+      <div class="panel-title"><h2>FILTERS</h2><button id="closeFilters">×</button></div>
+      <label><span>Region</span><select id="region"><option value="">All regions</option></select></label>
+      <label><span>Dealer</span><select id="dealer"><option value="">All dealers</option></select></label>
+      <label><span>Report Date</span><select id="reportDate"><option value="">All report dates</option></select></label>
+      <label><span>Province / Capital</span><select id="province"><option value="">All provinces</option></select></label>
+      <label><span>District / Khan</span><select id="district"><option value="">All districts</option></select></label>
+      <label><span>Commune / Sangkat</span><select id="commune"><option value="">All communes</option></select></label>
+      <label><span>Product Category</span><select id="category"><option value="">All categories</option></select></label>
+      <label><span>Product</span><select id="product"><option value="">All products</option></select></label>
+      <label><span>Movement Score</span><select id="movement"><option value="">All scores (1–10)</option><option value="very-low">1–4 · Very Low</option><option value="medium">5–8 · Medium</option><option value="very-strong">9–10 · Very Strong</option></select></label>
       <button id="applyBtn" class="primary">Apply Filters</button>
       <button id="resetBtn" class="secondary">Reset</button>
     </aside>
 
-    <section class="map-area">
+    <section class="map-wrap">
+      <button id="openFilters" class="open-filters">☰ Filters</button>
       <div id="map"></div>
-      <button id="openFilters" class="filter-fab mobile-only">☰ Filters</button>
       <div id="stats" class="stats"></div>
-      <div class="legend">
-        <strong>MOVEMENT RATING</strong>
-        <span><i class="red"></i>0–4 Very Low</span>
-        <span><i class="yellow"></i>5–8 Medium</span>
-        <span><i class="green"></i>9–10 Very Strong</span>
-      </div>
-      <div id="emptyState" class="empty hidden">
-        <strong>No matching movement ratings</strong>
-        <span>Change filters or synchronize Kobo data.</span>
-      </div>
+      <div class="legend"><b>MOVEMENT RATING</b><span><i class="red"></i>1–4 Very Low</span><span><i class="yellow"></i>5–8 Medium</span><span><i class="green"></i>9–10 Very Strong</span></div>
+      <div id="emptyState" class="empty-state hidden"><strong>No matching survey data</strong><span>Change the filters and try again.</span></div>
       <article id="detailCard" class="detail-card hidden"></article>
     </section>
-
   </main>
 
-  <section id="dashboardScreen" class="dashboard hidden">
-    <div class="dashboard-title"><div><small>LIVE KOBO OVERVIEW</small><h1>Movement Dashboard</h1></div></div>
-    <div id="dashboardFilters" class="dashboard-filters"></div>
-    <div id="kpiGrid" class="kpi-grid"></div>
-    <div class="charts">
-      <article><h3>Ratings by Region</h3><div id="regionChart"></div></article>
-      <article><h3>Ratings by Dealer</h3><div id="dealerChart"></div></article>
-      <article><h3>Top Products</h3><div id="productChart"></div></article>
-    </div>
-  </section>
+  <main id="dashboardScreen" class="dashboard hidden">
+    <section class="dashboard-head">
+      <div><small>LIVE SURVEY OVERVIEW</small><h1>Movement Dashboard</h1></div>
+    </section>
+    <section id="dashboardFilters" class="dashboard-filters"></section>
+    <section id="kpiGrid" class="kpi-grid"></section>
+    <section class="chart-grid">
+      <article><h2>By Region</h2><div id="regionChart"></div></article>
+      <article><h2>By Dealer</h2><div id="dealerChart"></div></article>
+      <article><h2>Top Products</h2><div id="productChart"></div></article>
+    </section>
+  </main>
 
-  <div id="loading" class="loading hidden"><span></span>Loading Kobo data…</div>
-  <dialog id="editDialog"><form id="editForm">
-    <div class="dialog-head"><div><small>UPDATE PRODUCT RATING</small><h2 id="editTitle">Edit rating</h2></div><button type="button" id="closeEdit">×</button></div>
-    <label>Movement score (0–10)<input id="editMovement" type="number" min="0" max="10" required></label>
-    <label>Stock status<input id="editStock" maxlength="80"></label>
-    <label>Key issue<textarea id="editIssue" rows="5" maxlength="5000"></textarea></label>
-    <div class="dialog-actions"><button type="button" class="secondary" id="cancelEdit">Cancel</button><button class="primary">Save Changes</button></div>
-  </form></dialog>
+  <div id="loading" class="loading"><span></span><b>Loading movement data…</b></div>
+
+  <dialog id="editDialog">
+    <form id="editForm">
+      <div class="dialog-title"><h2 id="editTitle">Edit rating</h2><button id="closeEdit" type="button">×</button></div>
+      <label><span>Stock</span><input id="editStock" maxlength="100"></label>
+      <label><span>Movement (0–10)</span><input id="editMovement" type="number" min="0" max="10" step="1" required></label>
+      <label><span>Key Issue</span><textarea id="editIssue" rows="4"></textarea></label>
+      <div class="dialog-actions"><button id="cancelEdit" type="button" class="secondary">Cancel</button><button type="submit" class="primary">Save changes</button></div>
+    </form>
+  </dialog>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="/web/map.js"></script>
+  <script src="/web/map.js" defer></script>
 </body>
 </html>

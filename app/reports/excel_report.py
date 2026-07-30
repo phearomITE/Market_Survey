@@ -743,7 +743,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws["B1"] = ""
     report_date_time = f"{rdate_txt} {datetime.now().strftime('%H:%M:%S')}"
     if _is_channel_specialist_report(agg):
-        ws["A3"] = f"Dealer : {dealer}    CHANNEL SPECIALIST                         Report Date: {report_date_time}"
+        ws["A3"] = f"Dealer : {dealer}                                      Report Date: {report_date_time}"
     else:
         ws["A3"] = f"Dealer : {dealer}                              Report Date: {report_date_time}"
     ws["A3"].font = ws["A3"].font.copy(bold=True)

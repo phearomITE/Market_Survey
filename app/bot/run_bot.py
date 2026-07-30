@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import threading
 from datetime import datetime
 from urllib.parse import urlsplit
 
@@ -26,6 +28,35 @@ from app.kobo.sync import sync_kobo
 
 _auto_sync_task: asyncio.Task | None = None
 _last_auto_sync: dict | None = None
+_web_server_thread: threading.Thread | None = None
+
+
+def _start_web_server() -> None:
+    """Run FastAPI map/dashboard beside the polling bot in one Railway service."""
+    global _web_server_thread
+    if _web_server_thread and _web_server_thread.is_alive():
+        return
+
+    port = int(os.getenv("PORT", "8080"))
+
+    def serve() -> None:
+        import uvicorn
+
+        uvicorn.run(
+            "app.main:app",
+            host="0.0.0.0",
+            port=port,
+            log_level="info",
+            access_log=False,
+        )
+
+    _web_server_thread = threading.Thread(
+        target=serve,
+        name="movement-map-web",
+        daemon=True,
+    )
+    _web_server_thread.start()
+    print(f"🌐 Movement map and dashboard starting on PORT={port}")
 
 
 async def _auto_sync_loop() -> None:
@@ -171,6 +202,7 @@ def main() -> None:
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
+    _start_web_server()
 
     app = _build_application()
 
