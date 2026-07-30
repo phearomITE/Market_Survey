@@ -2,18 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-import os
-import threading
 from urllib.parse import urlsplit
-
-import uvicorn
 
 from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
-    debug_kobo_cmd,
     dashboard_cmd,
-    export_cmd,
+    debug_kobo_cmd,
     help_cmd,
     map_cmd,
     report_cmd,
@@ -60,11 +55,6 @@ async def _auto_sync_loop() -> None:
         try:
             started = datetime.now()
             result = await asyncio.to_thread(sync_kobo)
-            if getattr(settings, "reverse_geocoding_enabled", False):
-                from app.web.geocode import enrich_missing_administrative_locations
-                enriched = await asyncio.to_thread(enrich_missing_administrative_locations)
-                if enriched:
-                    print(f"📍 GPS administration enriched: {enriched} outlets")
 
             _last_auto_sync = {
                 "time": started,
@@ -163,7 +153,6 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("summary", summary_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
     app.add_handler(CommandHandler("dashboard", dashboard_cmd))
-    app.add_handler(CommandHandler("export", export_cmd))
 
     return app
 
@@ -182,21 +171,6 @@ def main() -> None:
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
-
-    port = int(os.getenv("PORT", "8080"))
-    web_thread = threading.Thread(
-        target=lambda: uvicorn.run(
-            "app.main:app",
-            host="0.0.0.0",
-            port=port,
-            loop="asyncio",
-            log_level="info",
-        ),
-        name="movement-map-web",
-        daemon=True,
-    )
-    web_thread.start()
-    print(f"🌐 Movement map web server starting on PORT={port}")
 
     app = _build_application()
 
