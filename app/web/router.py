@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import KoboSubmission
 from app.db.models import KoboCompetitorMetric, KoboProductMetric
-from app.reports.aggregator import OWN_PRODUCTS
+from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, OWN_PRODUCTS
 
 
 router = APIRouter()
@@ -44,6 +44,15 @@ PRODUCT_CATEGORIES = {
     "CAMBODIA WATER 500mL": "Water",
     "CAMBODIA WATER 1500mL": "Water",
 }
+
+# Competitor products inherit the category of the own product at the start of
+# their comparison group. This prevents beer competitors appearing under the
+# generic "Competitor" category.
+for comparison_group in OFFTAKE_COMPARE_GROUPS:
+    own_product = comparison_group[0]
+    category = PRODUCT_CATEGORIES.get(own_product, "Other")
+    for compared_product in comparison_group:
+        PRODUCT_CATEGORIES.setdefault(compared_product, category)
 
 
 def _db():
@@ -136,15 +145,15 @@ def _metric_row(submission: KoboSubmission, metric: Any, product_type: str) -> d
 @router.get("/api/map/data")
 def map_data(
     access: str = Depends(_authorize),
-    region: str = "",
-    dealer: str = "",
-    report_date: str = "",
-    category: str = "",
-    product: str = "",
-    movement: str = "",
-    province: str = "",
-    district: str = "",
-    commune: str = "",
+    region: list[str] = Query(default=[]),
+    dealer: list[str] = Query(default=[]),
+    report_date: list[str] = Query(default=[]),
+    category: list[str] = Query(default=[]),
+    product: list[str] = Query(default=[]),
+    movement: list[str] = Query(default=[]),
+    province: list[str] = Query(default=[]),
+    district: list[str] = Query(default=[]),
+    commune: list[str] = Query(default=[]),
     mobile: bool = False,
     db: Session = Depends(_db),
 ):
@@ -161,20 +170,21 @@ def map_data(
         .order_by(KoboSubmission.report_date.desc(), KoboSubmission.id.desc())
     )
     if region:
-        stmt = stmt.where(KoboSubmission.region == region)
+        stmt = stmt.where(KoboSubmission.region.in_(region))
     if dealer:
-        stmt = stmt.where(KoboSubmission.dealer == dealer)
+        stmt = stmt.where(KoboSubmission.dealer.in_(dealer))
     if report_date:
         try:
-            stmt = stmt.where(KoboSubmission.report_date == date.fromisoformat(report_date))
+            parsed_dates = [date.fromisoformat(value) for value in report_date]
+            stmt = stmt.where(KoboSubmission.report_date.in_(parsed_dates))
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid report date")
     if province:
-        stmt = stmt.where(KoboSubmission.province == province)
+        stmt = stmt.where(KoboSubmission.province.in_(province))
     if district:
-        stmt = stmt.where(KoboSubmission.district == district)
+        stmt = stmt.where(KoboSubmission.district.in_(district))
     if commune:
-        stmt = stmt.where(KoboSubmission.commune == commune)
+        stmt = stmt.where(KoboSubmission.commune.in_(commune))
 
     submissions = db.execute(stmt).scalars().unique().all()
     all_rows: list[dict[str, Any]] = []
@@ -194,19 +204,32 @@ def map_data(
         "dates": sorted({row["report_date"] for row in all_rows if row["report_date"]}, reverse=True),
         "categories": sorted({row["category"] for row in all_rows if row["category"]}),
         "products": sorted({row["product"] for row in all_rows if row["product"]}),
+        "products_by_category": {
+            category_name: sorted({
+                row["product"] for row in all_rows
+                if row["category"] == category_name and row["product"]
+            })
+            for category_name in sorted({row["category"] for row in all_rows if row["category"]})
+        },
         "provinces": sorted({row["province"] for row in all_rows if row["province"]}),
         "districts": sorted({row["district"] for row in all_rows if row["district"]}),
         "communes": sorted({row["commune"] for row in all_rows if row["commune"]}),
     }
     rows = all_rows
     if category:
-        rows = [row for row in rows if row["category"] == category]
+        rows = [row for row in rows if row["category"] in category]
     if product:
-        rows = [row for row in rows if row["product"] == product]
+        rows = [row for row in rows if row["product"] in product]
     if movement:
         try:
-            low, high = [int(value) for value in movement.split("-", 1)]
-            rows = [row for row in rows if low <= row["movement"] <= high]
+            ranges = [
+                tuple(int(value) for value in selected_range.split("-", 1))
+                for selected_range in movement
+            ]
+            rows = [
+                row for row in rows
+                if any(low <= row["movement"] <= high for low, high in ranges)
+            ]
         except (ValueError, TypeError):
             raise HTTPException(status_code=422, detail="Invalid movement range")
 
@@ -230,20 +253,19 @@ def map_data(
             marker_by_submission[row["submission_id"]] = row
 
     markers = []
-    marker_limit = 500 if mobile else 1200
+    marker_limit = 180 if mobile else 900
     for submission_id, representative in marker_by_submission.items():
         marker = dict(representative)
         markers.append(marker)
         if len(markers) >= marker_limit:
             break
-    row_limit = 100 if mobile else 300
-    visible_rows = rows[:row_limit]
-
     return {
-        "rows": visible_rows,
+        # The table was removed. Product details are fetched only after a user
+        # taps a marker, keeping the first mobile response small.
+        "rows": [],
         "markers": markers,
         "total_ratings": len(rows),
-        "rows_truncated": len(rows) > len(visible_rows),
+        "rows_truncated": False,
         "markers_truncated": outlet_count > len(markers),
         "can_edit": bool(settings.map_editor_token.strip() and access == settings.map_editor_token.strip()),
         "options": options,

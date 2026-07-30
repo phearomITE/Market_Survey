@@ -1,7 +1,6 @@
 const qs = new URLSearchParams(location.search);
 const access = qs.get("access") || "";
-const state = { data: null, markers: [], selected: null };
-let selectedOnly = false;
+const state = { data: null, markers: [], areas: [], selected: null, multi: {} };
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -20,7 +19,7 @@ function params() {
   const p = new URLSearchParams({ access });
   if (matchMedia("(max-width: 900px)").matches) p.set("mobile", "true");
   [["region","region"],["dealer","dealer"],["reportDate","report_date"],["province","province"],["district","district"],["commune","commune"],["category","category"],["product","product"],["movement","movement"]]
-    .forEach(([id,key]) => { if ($(id).value) p.set(key, $(id).value); });
+    .forEach(([id,key]) => selectedValues(id).forEach(value => p.append(key, value)));
   return p;
 }
 
@@ -41,9 +40,75 @@ async function loadData(preserveOptions=false) {
 }
 
 function fill(id, values, placeholder) {
-  const select = $(id), current = select.value;
+  const select = $(id), current = selectedValues(id);
+  select.dataset.placeholder = placeholder;
   select.innerHTML = `<option value="">${placeholder}</option>` + values.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
-  if ([...select.options].some(o => o.value === current)) select.value = current;
+  [...select.options].forEach(option => option.selected = current.includes(option.value));
+  rebuildMulti(id);
+}
+
+function selectedValues(id) {
+  const select = $(id);
+  if (!select) return [];
+  return [...select.selectedOptions].map(option => option.value).filter(Boolean);
+}
+
+function enhanceMulti(id, onChange) {
+  const select = $(id);
+  if (!select || state.multi[id]) return;
+  select.multiple = true;
+  select.classList.add("multi-source");
+  const control = document.createElement("div");
+  control.className = "multi-control";
+  control.innerHTML = `<button type="button" class="multi-trigger"></button><div class="multi-menu"></div>`;
+  select.after(control);
+  state.multi[id] = { control, onChange };
+  control.onclick = event => event.stopPropagation();
+  control.querySelector(".multi-trigger").onclick = event => {
+    event.stopPropagation();
+    document.querySelectorAll(".multi-control.open").forEach(item => {
+      if (item !== control) item.classList.remove("open");
+    });
+    control.classList.toggle("open");
+  };
+  rebuildMulti(id);
+}
+
+function rebuildMulti(id) {
+  const entry = state.multi[id], select = $(id);
+  if (!entry || !select) return;
+  const menu = entry.control.querySelector(".multi-menu");
+  const choices = [...select.options].filter(option => option.value);
+  menu.innerHTML = choices.map(option => `
+    <label><input type="checkbox" value="${esc(option.value)}" ${option.selected?"checked":""}>
+    <span>${esc(option.textContent)}</span></label>`).join("") || "<p>No options</p>";
+  menu.querySelectorAll("input").forEach(input => input.onchange = () => {
+    const option = [...select.options].find(item => item.value === input.value);
+    if (option) option.selected = input.checked;
+    updateMultiLabel(id);
+    if (entry.onChange) entry.onChange();
+  });
+  updateMultiLabel(id);
+}
+
+function updateMultiLabel(id) {
+  const entry = state.multi[id], select = $(id);
+  if (!entry || !select) return;
+  const values = selectedValues(id);
+  const labels = [...select.selectedOptions].filter(option => option.value).map(option => option.textContent);
+  entry.control.querySelector(".multi-trigger").textContent =
+    values.length === 0 ? (select.dataset.placeholder || "All") :
+    values.length <= 2 ? labels.join(", ") : `${values.length} selected`;
+}
+
+function refreshProducts() {
+  if (!state.data) return;
+  const categories = selectedValues("category");
+  const mapping = state.data.options.products_by_category || {};
+  const products = categories.length
+    ? [...new Set(categories.flatMap(category => mapping[category] || []))].sort()
+    : state.data.options.products;
+  fill("product", products, "All products");
 }
 
 function populateOptions(o) {
@@ -67,22 +132,28 @@ function populateOptions(o) {
       clone.id = `dash-${id}`;
       return `<label><span>${filterLabels[id]}</span>${clone.outerHTML}</label>`;
     }).join("");
-  $("dashboardFilters").querySelectorAll("select").forEach(select => select.addEventListener("change", () => {
-    $(select.id.replace("dash-","")).value = select.value; loadData(true);
-  }));
+  $("dashboardFilters").querySelectorAll("select").forEach(select => {
+    const sourceId = select.id.replace("dash-","");
+    enhanceMulti(select.id, () => {
+      const source = $(sourceId);
+      const selected = selectedValues(select.id);
+      [...source.options].forEach(option => option.selected = selected.includes(option.value));
+      updateMultiLabel(sourceId);
+      if (sourceId === "category") refreshProducts();
+      loadData(true);
+    });
+  });
 }
 
 function renderAll() {
-  renderMarkers(); renderStats(); renderTable(); renderDashboard();
-  const visible = state.data.rows.length, total = state.data.total_ratings;
-  $("rowCount").textContent = state.data.rows_truncated
-    ? `(showing ${visible.toLocaleString()} of ${total.toLocaleString()} ratings)`
-    : `(${total.toLocaleString()} ratings)`;
+  renderMarkers(); renderStats(); renderDashboard();
+  const total = state.data.total_ratings;
   $("emptyState").classList.toggle("hidden", total > 0);
 }
 
 function renderMarkers() {
   state.markers.forEach(marker => marker.remove()); state.markers = [];
+  state.areas.forEach(area => area.remove()); state.areas = [];
   const bounds = [];
   const rows = state.data.markers;
   let index = 0;
@@ -90,6 +161,12 @@ function renderMarkers() {
     const end = Math.min(index + 80, rows.length);
     for (; index < end; index += 1) {
       const row = rows[index];
+      const areaColor = row.band === "very-low" ? "#e5232e" : row.band === "medium" ? "#f5b400" : "#118a45";
+      const area = L.circle([row.latitude,row.longitude], {
+        radius: matchMedia("(max-width: 900px)").matches ? 2200 : 1500,
+        stroke: false, fillColor: areaColor, fillOpacity: 0.14,
+        interactive: false,
+      }).addTo(map);
       const marker = L.marker([row.latitude,row.longitude], {
         icon: L.divIcon({
           className: "movement-marker-wrap",
@@ -100,6 +177,7 @@ function renderMarkers() {
       }).bindTooltip(`${esc(row.outlet_name)} · Movement ${row.movement}`, {direction:"top"})
         .addTo(map).on("click", () => showDetail(row));
       state.markers.push(marker); bounds.push([row.latitude,row.longitude]);
+      state.areas.push(area);
     }
     if (index < rows.length) requestAnimationFrame(renderBatch);
     else if (bounds.length) map.fitBounds(bounds, { padding:[45,45], maxZoom:16 });
@@ -136,7 +214,7 @@ function showDetail(row) {
     <div class="rating"><span>Movement Rating</span><b>${row.movement} / 10</b></div>
     ${row.product_ratings?.length?`<div class="product-ratings"><b>ALL PRODUCT RATINGS (${row.product_ratings.length})</b>${row.product_ratings.map(item=>`<button onclick="selectProductRating('${esc(item.id)}')"><span>${esc(item.product)}</span><i class="score-pill ${item.band}">${item.movement}</i></button>`).join("")}</div>`:""}
     <div class="meta"><span>Report Date</span><b>${esc(row.report_date||"—")}</b><span>Submitter</span><b>${esc(row.submitter||"—")}</b></div>
-    <div class="actions"><a class="view-list" href="#" onclick="viewInList('${esc(row.id)}');return false">View Only in List</a><a class="navigate" href="${destination}" target="_blank" rel="noopener">Navigate</a>${state.data.can_edit?'<button class="edit-rating" onclick="openEdit();return false">✎ Edit Stock, Movement & Key Issue</button>':''}</div>`;
+    <div class="actions"><a class="navigate" href="${destination}" target="_blank" rel="noopener">Navigate</a>${state.data.can_edit?'<button class="edit-rating" onclick="openEdit();return false">✎ Edit Stock, Movement & Key Issue</button>':''}</div>`;
   $("detailCard").classList.remove("hidden");
   document.querySelectorAll("tbody tr").forEach(tr => tr.classList.toggle("selected", tr.dataset.id === row.id));
   if (!row.product_ratings) loadOutletRatings(row);
@@ -152,22 +230,11 @@ async function loadOutletRatings(row) {
   } catch (_) {}
 }
 window.closeDetail = () => $("detailCard").classList.add("hidden");
-window.viewInList = id => {
-  selectedOnly = true; renderTable();
-  const tr = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
-  if (tr) { tr.scrollIntoView({behavior:"smooth",block:"center"}); tr.classList.add("selected"); }
-};
 window.openEdit = () => {
   const row=state.selected;if(!row)return;
   $("editTitle").textContent=`${row.outlet_name} · ${row.product}`;
   $("editMovement").value=row.movement;$("editStock").value=row.stock_status||"";$("editIssue").value=row.key_issue||"";
   $("editDialog").showModal();
-};
-window.openEditFor = id => {
-  const row=state.data.rows.find(item=>item.id===id);
-  if(!row)return;
-  state.selected=row;
-  openEdit();
 };
 window.selectProductRating=id=>{
   const row=(state.selected?.product_ratings||[]).find(item=>item.id===id);
@@ -175,24 +242,6 @@ window.selectProductRating=id=>{
   const full=state.data.rows.find(item=>item.id===id)||{...state.selected,...row,product_ratings:state.selected.product_ratings};
   showDetail(full);
 };
-
-function renderTable() {
-  const tableRows=selectedOnly&&state.selected?[state.selected]:state.data.rows;
-  $("outletRows").innerHTML = tableRows.map(row => `<tr data-id="${esc(row.id)}">
-    <td>${esc(row.outlet_name)}</td><td>${esc(row.outlet_type)}</td><td>${esc(row.phone)}</td>
-    <td>${esc(row.region)}</td><td>${esc(row.dealer)}</td>
-    <td>${esc(row.province||"Pending conversion")}</td><td>${esc(row.district||"Pending conversion")}</td>
-    <td>${esc(row.product)}</td>
-    <td>${esc(row.product_type)}</td><td>${esc(row.category)}</td><td>${esc(row.stock_status||"—")}</td>
-    <td title="${esc(row.key_issue)}">${esc(row.key_issue||"—")}</td>
-    <td><span class="score-pill ${row.band}">${row.movement}</span></td><td>${esc(row.report_date)}</td>
-    <td>${state.data.can_edit?`<button class="table-edit" type="button" data-edit-id="${esc(row.id)}">Edit</button>`:"—"}</td>
-  </tr>`).join("");
-  document.querySelectorAll("#outletRows tr").forEach((tr,i) => tr.addEventListener("click", () => showDetail(tableRows[i])));
-  document.querySelectorAll("[data-edit-id]").forEach(button => button.addEventListener("click", event => {
-    event.stopPropagation(); openEditFor(button.dataset.editId);
-  }));
-}
 
 function renderDashboard() {
   const s = state.data.summary;
@@ -219,10 +268,18 @@ $("mapViewBtn").onclick = () => setScreen(false);
 $("dashboardBtn").onclick = () => setScreen(true);
 $("refreshBtn").onclick = () => loadData(true);
 $("applyBtn").onclick = () => { loadData(true); $("filterPanel").classList.remove("open"); };
-$("resetBtn").onclick = () => { selectedOnly=false; ["region","dealer","reportDate","province","district","commune","category","product","movement"].forEach(id=>$(id).value=""); loadData(true); };
+$("resetBtn").onclick = () => {
+  ["region","dealer","reportDate","province","district","commune","category","product","movement"].forEach(id => {
+    [...$(id).options].forEach(option => option.selected = false);
+    rebuildMulti(id);
+  });
+  loadData(true);
+};
 $("openFilters").onclick = () => $("filterPanel").classList.add("open");
 $("closeFilters").onclick = () => $("filterPanel").classList.remove("open");
-$("listToggle").onclick = () => $("listPanel").classList.toggle("collapsed");
+["region","dealer","reportDate","province","district","commune","category","product","movement"]
+  .forEach(id => enhanceMulti(id, id === "category" ? refreshProducts : null));
+document.addEventListener("click", () => document.querySelectorAll(".multi-control.open").forEach(item => item.classList.remove("open")));
 setScreen(location.pathname.includes("dashboard"));
 loadData();
 $("closeEdit").onclick=$("cancelEdit").onclick=()=>$("editDialog").close();
@@ -233,5 +290,5 @@ $("editForm").onsubmit=async event=>{
   const response=await fetch(`/api/map/ratings/${encodeURIComponent(state.selected.id)}?access=${encodeURIComponent(access)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({movement,stock_status:$("editStock").value,key_issue:$("editIssue").value})});
   $("loading").classList.add("hidden");
   if(!response.ok){alert("Update failed. Please reload and try again.");return}
-  $("editDialog").close();selectedOnly=false;await loadData(true);
+  $("editDialog").close();await loadData(true);
 };
