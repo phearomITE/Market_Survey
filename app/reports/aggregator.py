@@ -79,10 +79,14 @@ COMPETITOR_PRODUCTS = [
 
 HORECA_OWN_PRODUCTS = ["CB Pint", "CBL Pint", "CB SUPEEME Pint", "CB Black Pint"]
 HORECA_COMPETITOR_PRODUCTS = [
+    "Angkor Pint",
+    "Tiger Pint",
     "Tiger Crystal Pint",
     "HANUMAN LITE Pint",
     "Vathanac LITE Pint",
+    "ABC Pint",
     "HANUMAN Black Pint",
+    "Dragon Pint",
 ]
 ALL_OWN_PRODUCTS = OWN_PRODUCTS + HORECA_OWN_PRODUCTS
 ALL_COMPETITOR_PRODUCTS = COMPETITOR_PRODUCTS + HORECA_COMPETITOR_PRODUCTS
@@ -141,10 +145,14 @@ PRODUCT_CODES = {
 }
 
 COMPETITOR_CODES = {
+    "Angkor Pint": ["angkor"],
+    "Tiger Pint": ["tiger"],
     "Tiger Crystal Pint": ["tiger_crystal_pint"],
     "HANUMAN LITE Pint": ["hanuman_lite_pint"],
     "Vathanac LITE Pint": ["vathanac_lite_pint"],
+    "ABC Pint": ["abc"],
     "HANUMAN Black Pint": ["hanuman_black_pint"],
+    "Dragon Pint": ["dragon_beer"],
     "GB SNOW ORD": ["gb_snow_ord"],
     "HANUMAN LITE ORD": ["hanuman_lite_ord"],
     "Krud LITE ORD": ["krud_lite_ord"],

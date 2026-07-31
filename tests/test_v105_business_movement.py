@@ -105,6 +105,40 @@ class V105BusinessMovementTests(unittest.TestCase):
             )
         )
 
+    def test_every_gt_and_horeca_comparison_product_is_registered(self):
+        registered = set(self.aggregator.ALL_OWN_PRODUCTS)
+        registered.update(self.aggregator.ALL_COMPETITOR_PRODUCTS)
+        missing = {
+            product
+            for group in self.aggregator.OFFTAKE_COMPARE_GROUPS
+            for product in group
+            if product not in registered
+        }
+        self.assertEqual(missing, set())
+
+    def test_all_horeca_template_products_use_movement_flow(self):
+        expected = {
+            "CB Pint",
+            "Angkor Pint",
+            "Tiger Pint",
+            "CBL Pint",
+            "CB SUPEEME Pint",
+            "Tiger Crystal Pint",
+            "HANUMAN LITE Pint",
+            "Vathanac LITE Pint",
+            "CB Black Pint",
+            "ABC Pint",
+            "HANUMAN Black Pint",
+            "Dragon Pint",
+        }
+        registered = set(self.aggregator.HORECA_OWN_PRODUCTS)
+        registered.update(self.aggregator.HORECA_COMPETITOR_PRODUCTS)
+        self.assertEqual(registered, expected)
+        for product in self.aggregator.HORECA_OWN_PRODUCTS:
+            self.assertIn(product, self.aggregator.PRODUCT_CODES)
+        for product in self.aggregator.HORECA_COMPETITOR_PRODUCTS:
+            self.assertIn(product, self.aggregator.COMPETITOR_CODES)
+
     def test_wide_data_is_loaded_with_one_bulk_query(self):
         source = Path("app/reports/aggregator.py").read_text(encoding="utf-8")
         loader = source[source.index("def load_wide_payloads"):source.index(
