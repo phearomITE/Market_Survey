@@ -1,0 +1,32 @@
+V102 Railway PNG renderer fix
+
+Why the old warning was misleading:
+- LIBREOFFICE_PATH could exist, but conversion could still fail.
+- The old code discarded LibreOffice stdout/stderr.
+- Parallel reports could reuse the same LibreOffice profile.
+- LibreOffice could silently refuse to overwrite an existing PDF.
+
+V102:
+- Prefers /usr/bin/soffice and checks it during Docker build.
+- Uses an isolated writable profile and output directory for every report.
+- Uses the explicit Calc PDF export filter.
+- Installs Khmer OS fonts and km_KH.UTF-8 locale.
+- Sends the real failure reason to Telegram and Railway logs.
+
+Deploy from Git Bash:
+
+cd /d/Bot/Market_Survey_Git
+
+python -m py_compile \
+  app/services/render_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git status
+
+git add Dockerfile app/services/render_service.py app/bot/handlers.py tests/test_v102_png_renderer.py V102_RAILWAY_PNG_RENDERER_FIX.txt
+git commit -m "Fix Railway LibreOffice PNG rendering"
+git push origin main
+
+Important: Railway must rebuild the Docker image. A restart of the old
+deployment is not enough because LibreOffice/fonts are installed at build time.

@@ -6,16 +6,36 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from copy import copy
 from app.core.config import settings
+
+_LAST_RENDER_ERROR = ""
+
+
+def _set_render_error(message: str) -> None:
+    global _LAST_RENDER_ERROR
+    _LAST_RENDER_ERROR = str(message).strip()
+    print(f"⚠️ PNG renderer: {_LAST_RENDER_ERROR}")
+
+
+def get_last_render_error() -> str:
+    return _LAST_RENDER_ERROR or "Unknown LibreOffice conversion error"
 
 
 def _find_soffice() -> str | None:
     """Find LibreOffice/soffice on Windows, macOS, or Linux."""
-    env_path = settings.libreoffice_path or os.getenv("LIBREOFFICE_PATH") or os.getenv("SOFFICE_PATH")
-    if env_path and Path(env_path).exists():
-        return env_path
+    configured = [
+        settings.libreoffice_path,
+        os.getenv("LIBREOFFICE_PATH"),
+        os.getenv("SOFFICE_PATH"),
+    ]
+    for value in configured:
+        if value:
+            path = Path(str(value).strip())
+            if path.is_file() and os.access(path, os.X_OK):
+                return str(path)
 
+    # On Debian/Railway the real command is normally soffice. Prefer it over
+    # the libreoffice wrapper, but support both.
     found = shutil.which("soffice") or shutil.which("libreoffice")
     if found:
         return found
@@ -25,11 +45,13 @@ def _find_soffice() -> str | None:
         r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
         "/Applications/LibreOffice.app/Contents/MacOS/soffice",
         "/usr/bin/soffice",
+        "/usr/bin/soffice",
+        "/usr/lib/libreoffice/program/soffice",
         "/usr/bin/libreoffice",
         "/snap/bin/libreoffice",
     ]
     for p in candidates:
-        if Path(p).exists():
+        if Path(p).is_file() and os.access(p, os.X_OK):
             return p
     return None
 
@@ -38,70 +60,80 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
     """Convert Excel workbook to PDF. Requires LibreOffice locally."""
     xlsx_path = Path(xlsx_path)
     soffice = _find_soffice()
-    if not soffice or not xlsx_path.exists():
+    if not xlsx_path.exists():
+        _set_render_error(f"Excel file does not exist: {xlsx_path.name}")
+        return None
+    if not soffice:
+        _set_render_error(
+            "LibreOffice executable was not found. Rebuild Railway using the included Dockerfile."
+        )
         return None
 
-    # LibreOffice cannot shape Khmer correctly when a Latin-only template font
-    # (usually Calibri) remains on Khmer cells. Apply a Khmer-capable font only
-    # to cells that actually contain Khmer, preserving size, bold, colour and
-    # every other workbook style.
-    try:
-        from openpyxl import load_workbook
-        wb = load_workbook(xlsx_path)
-        changed = False
-        for ws in wb.worksheets:
-            for row in ws.iter_rows():
-                for cell in row:
-                    if isinstance(cell.value, str) and any("\u1780" <= char <= "\u17ff" for char in cell.value):
-                        khmer_font = copy(cell.font)
-                        khmer_font.name = os.getenv("KHMER_REPORT_FONT", "Khmer OS Battambang")
-                        cell.font = khmer_font
-                        changed = True
-        if changed:
-            wb.save(xlsx_path)
-        wb.close()
-    except Exception as exc:
-        print(f"⚠️ Khmer font preparation warning: {exc}")
+    pdf = xlsx_path.with_suffix(".pdf")
+    # Never export directly beside an old PDF. LibreOffice can silently refuse
+    # to overwrite it while still returning exit code 0.
+    with tempfile.TemporaryDirectory(prefix="kb-lo-") as temp_root:
+        temp_path = Path(temp_root)
+        profile_dir = temp_path / "profile"
+        output_dir = temp_path / "output"
+        profile_dir.mkdir()
+        output_dir.mkdir()
 
-    outdir = xlsx_path.parent
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    profile_dir = tempfile.mkdtemp(prefix="kb-libreoffice-")
-    cmd = [
-        soffice,
-        "--headless",
-        "--nologo",
-        "--nofirststartwizard",
-        f"-env:UserInstallation=file://{profile_dir}",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        str(outdir),
-        str(xlsx_path),
-    ]
-    try:
+        cmd = [
+            soffice,
+            f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nofirststartwizard",
+            "--nolockcheck",
+            "--convert-to",
+            "pdf:calc_pdf_Export",
+            "--outdir",
+            str(output_dir),
+            str(xlsx_path.resolve()),
+        ]
         render_env = os.environ.copy()
         render_env.update({
+            "HOME": str(temp_path),
+            "TMPDIR": str(temp_path),
             "LANG": "km_KH.UTF-8",
             "LC_ALL": "km_KH.UTF-8",
             "SAL_USE_VCLPLUGIN": "gen",
         })
-        proc = subprocess.run(
-            cmd,
-            check=False,
-            timeout=180,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=render_env,
-        )
-    except Exception:
-        return None
-    finally:
-        shutil.rmtree(profile_dir, ignore_errors=True)
+        try:
+            proc = subprocess.run(
+                cmd,
+                check=False,
+                timeout=240,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=render_env,
+            )
+        except subprocess.TimeoutExpired:
+            _set_render_error("LibreOffice timed out after 240 seconds")
+            return None
+        except Exception as exc:
+            _set_render_error(f"Could not start {soffice}: {exc}")
+            return None
 
-    pdf = xlsx_path.with_suffix(".pdf")
-    return pdf if pdf.exists() and pdf.stat().st_size > 0 else None
+        generated = output_dir / f"{xlsx_path.stem}.pdf"
+        if proc.returncode != 0 or not generated.exists() or generated.stat().st_size == 0:
+            details = (proc.stderr or proc.stdout or "No PDF file produced").strip()
+            _set_render_error(
+                f"LibreOffice exit={proc.returncode}; command={soffice}; {details[-1200:]}"
+            )
+            return None
+
+        try:
+            shutil.copy2(generated, pdf)
+        except Exception as exc:
+            _set_render_error(f"PDF was created but could not be copied: {exc}")
+            return None
+
+    print(f"✅ LibreOffice PDF created: {pdf.name} ({pdf.stat().st_size} bytes)")
+    return pdf
 
 
 def _crop_white_border(png_path: Path, padding: int = 35) -> None:
@@ -158,7 +190,8 @@ def pdf_first_page_to_png(pdf_path: Path, png_path: Path | None = None) -> Path 
     """
     try:
         import fitz  # PyMuPDF
-    except Exception:
+    except Exception as exc:
+        _set_render_error(f"PyMuPDF PNG conversion failed: {exc}")
         return None
 
     pdf_path = Path(pdf_path)
@@ -192,7 +225,10 @@ def excel_to_png(xlsx_path: Path) -> Path | None:
     pdf = excel_to_pdf(Path(xlsx_path))
     if not pdf:
         return None
-    return pdf_first_page_to_png(pdf, Path(xlsx_path).with_suffix(".png"))
+    png = pdf_first_page_to_png(pdf, Path(xlsx_path).with_suffix(".png"))
+    if png:
+        print(f"✅ PNG preview created: {png.name} ({png.stat().st_size} bytes)")
+    return png
 
 
 
