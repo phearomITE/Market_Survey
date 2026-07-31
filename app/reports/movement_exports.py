@@ -19,6 +19,8 @@ from app.reports.aggregator import (
     HORECA_OWN_PRODUCTS,
     OWN_PRODUCTS,
     aggregate_submissions,
+    is_final_summary_outlet_name,
+    load_wide_payloads,
 )
 
 
@@ -133,6 +135,7 @@ def create_daily_export(
     Movement comes from aggregate_submissions(), exactly like /report.
     """
     rows = list(submissions)
+    wide_map = load_wide_payloads(rows)
     grouped: dict[tuple[str, str], list] = defaultdict(list)
     for submission in rows:
         key = (
@@ -156,7 +159,7 @@ def create_daily_export(
 
     for key in sorted(grouped, key=lambda value: (value[0], value[1])):
         dealer_rows = grouped[key]
-        agg = aggregate_submissions(dealer_rows)
+        agg = aggregate_submissions(dealer_rows, wide_map=wide_map)
         outlet_types = agg.get("outlet_types") or Counter()
         base = [
             agg.get("region") or key[0],
@@ -218,8 +221,19 @@ def create_raw_movement_long_export(
     report_date: date,
     output_path: Path | None = None,
 ) -> Path:
-    """Stream the five-column outlet-product detail export."""
-    rows = list(submissions)
+    """Stream raw product movement with the same business baseline as reports.
+
+    Summary/control outlets are excluded. A blank or zero product movement is
+    exported as 1 so raw data and final /summary, /report and /export results
+    use the same minimum movement rule.
+    """
+    rows = [
+        submission
+        for submission in submissions
+        if not is_final_summary_outlet_name(
+            getattr(submission, "outlet_name", None)
+        )
+    ]
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("Raw_Movement")
     ws.freeze_panes = "A2"
@@ -249,7 +263,7 @@ def create_raw_movement_long_export(
                 getattr(submission, "region", None),
                 getattr(submission, "dealer", None),
                 product,
-                scores.get(product, 0),
+                max(1, int(scores.get(product, 0) or 0)),
             ])
             written += 1
     ws.auto_filter.ref = f"A1:E{written}"

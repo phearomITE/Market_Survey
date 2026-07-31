@@ -19,7 +19,11 @@ def _load_exports_module():
     aggregator.HORECA_COMPETITOR_PRODUCTS = ["HCOMP"]
     aggregator.ALL_OWN_PRODUCTS = ["OWN", "HOWN"]
     aggregator.ALL_COMPETITOR_PRODUCTS = ["COMP", "HCOMP"]
-    aggregator.aggregate_submissions = lambda rows: {
+    aggregator.is_final_summary_outlet_name = (
+        lambda value: str(value or "").replace(" ", "").strip() == "បូកសរុបរួម"
+    )
+    aggregator.load_wide_payloads = lambda rows: {}
+    aggregator.aggregate_submissions = lambda rows, wide_map=None: {
         "region": "R1",
         "dealer": "D1",
         "location_text": "Phnom Penh",
@@ -84,6 +88,39 @@ class V104DailyExportTests(unittest.TestCase):
             first_row = [cell.value for cell in next(ws.iter_rows(max_row=1))]
             self.assertEqual(first_row, self.exports.RAW_HEADERS)
             self.assertEqual(len(first_row), 5)
+            data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+            own_row = next(row for row in data_rows if row[3] == "OWN")
+            self.assertEqual(own_row[4], 7)
+            wb.close()
+
+    def test_raw_export_defaults_blank_zero_to_one_and_skips_summary(self):
+        zero_submission = SimpleNamespace(**vars(self.submission))
+        zero_submission.outlet_name = "Outlet Zero"
+        zero_submission.product_metrics = [
+            SimpleNamespace(product_name="OWN", movement_score=0)
+        ]
+        zero_submission.competitor_metrics = []
+
+        summary_submission = SimpleNamespace(**vars(self.submission))
+        summary_submission.outlet_name = "បូកសរុបរួម"
+        summary_submission.product_metrics = [
+            SimpleNamespace(product_name="OWN", movement_score=10)
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "raw_baseline.xlsx"
+            self.exports.create_raw_movement_long_export(
+                [zero_submission, summary_submission],
+                date(2026, 7, 25),
+                output,
+            )
+            wb = load_workbook(output, read_only=True)
+            rows = list(
+                wb["Raw_Movement"].iter_rows(min_row=2, values_only=True)
+            )
+            self.assertTrue(rows)
+            self.assertTrue(all(row[4] >= 1 for row in rows))
+            self.assertTrue(all(row[4] != 10 for row in rows))
             wb.close()
 
 

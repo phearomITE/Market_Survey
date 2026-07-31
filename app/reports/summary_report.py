@@ -8,7 +8,6 @@ from collections import Counter, defaultdict
 from copy import copy
 from datetime import date, datetime
 from pathlib import Path
-from statistics import mean, median
 from typing import Iterable
 
 from openpyxl import Workbook, load_workbook
@@ -17,7 +16,11 @@ from openpyxl.utils import get_column_letter
 
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
-from app.reports.aggregator import is_final_summary_outlet_name
+from app.reports.aggregator import (
+    aggregate_submissions,
+    is_final_summary_outlet_name,
+    load_wide_payloads,
+)
 
 
 HEADER_FILL = "1F4E78"
@@ -105,43 +108,36 @@ def _normal_round(value: float | None) -> int | None:
     return max(0, min(10, int(value + 0.5)))
 
 
-def _dealer_movement(submissions: Iterable) -> dict:
-    own_scores: list[int] = []
-    competitor_scores: dict[str, list[int]] = defaultdict(list)
+def _dealer_movement(
+    submissions: Iterable,
+    wide_map: dict | None = None,
+) -> dict:
+    submission_rows = list(submissions)
     members: set[int] = set()
 
-    for submission in submissions:
+    for submission in submission_rows:
         member = _safe_int(getattr(submission, "member_no", None))
         if member is not None:
             members.add(member)
 
-        own = _metric_map(submission, "product_metrics")
-        own_score = _score(own.get("CB LITE NCP"))
-        if own_score is not None:
-            own_scores.append(own_score)
-
-        competitors = _metric_map(submission, "competitor_metrics")
-        for product in SUMMARY_COMPETITORS:
-            value = _score(competitors.get(_product_key(product)))
-            if value is not None:
-                competitor_scores[product].append(value)
-
-    own_adjusted = _adjusted_score(own_scores)
+    agg = aggregate_submissions(submission_rows, wide_map=wide_map)
+    own_data = (agg.get("products") or {}).get("CB LITE NCP") or {}
+    own_display = own_data.get("mov")
     ranked_competitors = [
-        (product, adjusted)
-        for product, values in competitor_scores.items()
-        if (adjusted := _adjusted_score(values)) is not None
+        (product, (agg.get("competitors") or {}).get(product, {}).get("mov"))
+        for product in SUMMARY_COMPETITORS
+        if (agg.get("competitors") or {}).get(product, {}).get("mov") is not None
     ]
     ranked_competitors.sort(key=lambda item: (-item[1], item[0].casefold()))
-    leader_name, leader_adjusted = ranked_competitors[0] if ranked_competitors else (None, None)
+    leader_name, leader_display = ranked_competitors[0] if ranked_competitors else (None, None)
 
     return {
         "member_count": len(members) or None,
-        "own_adjusted": own_adjusted,
-        "own_display": _normal_round(own_adjusted),
+        "own_adjusted": own_display,
+        "own_display": own_display,
         "competitor": leader_name,
-        "competitor_adjusted": leader_adjusted,
-        "competitor_display": _normal_round(leader_adjusted),
+        "competitor_adjusted": leader_display,
+        "competitor_display": leader_display,
     }
 
 
@@ -205,8 +201,9 @@ def _create_gt_template_report(
         if dealer:
             grouped[dealer].append(submission)
 
+    wide_map = load_wide_payloads(submission_rows)
     movements = {
-        dealer: _dealer_movement(dealer_rows)
+        dealer: _dealer_movement(dealer_rows, wide_map=wide_map)
         for dealer, dealer_rows in grouped.items()
     }
 

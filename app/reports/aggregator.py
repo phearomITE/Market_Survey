@@ -94,6 +94,9 @@ RING_PRODUCT_ALIASES = {
 }
 
 OFFTAKE_COMPARE_GROUPS = [
+    ["CB Pint", "Angkor Pint", "Tiger Pint"],
+    ["CBL Pint", "CB SUPEEME Pint", "Tiger Crystal Pint", "HANUMAN LITE Pint", "Vathanac LITE Pint"],
+    ["CB Black Pint", "ABC Pint", "HANUMAN Black Pint", "Dragon Pint"],
     ["CB LITE ORD", "GB SNOW ORD", "HANUMAN LITE ORD", "Krud LITE ORD"],
     ["CBC 4.4 NCP", "CB Original NCP", "GB Original NCP", "Krud NCP"],
     ["CB LITE NCP", "GB SNOW NCP", "Hanuman LITE NCP", "Krud LITE NCP", "Greet LITE NCP"],
@@ -384,6 +387,46 @@ def final_offtake_movement(values: list[Any]) -> int | None:
     rounded_score = round_half_up(avg)
     return max(0, min(10, rounded_score))
 
+
+def coverage_movement_stats(values: list[Any], total_outlets: int) -> dict[str, Any]:
+    """Calculate coverage-weighted movement before comparison normalization.
+
+    Effective movement = adjusted rating points / all genuine visited outlets.
+    Per the business rule, a blank or zero product movement contributes the
+    minimum rating 1. The summary/control outlet is removed before this
+    function is called, so it never affects either the numerator or denominator.
+    """
+    nums = [to_float(value) for value in values]
+    nums = [max(1.0, min(10.0, value)) for value in nums if value is not None]
+    denominator = max(0, int(total_outlets or 0))
+    if denominator <= 0:
+        return {
+            "mov": None,
+            "_mov_avg": None,
+            "_mov_effective": None,
+            "_movement_count": 0,
+            "_movement_observed_count": 0,
+            "_movement_points": 0.0,
+            "_movement_values": nums,
+        }
+
+    # Every outlet must contribute at least movement 1 for every product.
+    # Values beyond the outlet count are ignored defensively.
+    observed = nums[:denominator]
+    missing_count = max(0, denominator - len(observed))
+    points = sum(observed) + missing_count
+    effective = points / denominator
+    base_rating = max(1, min(10, round_half_up(effective)))
+    return {
+        "mov": base_rating,
+        "_mov_avg": effective,
+        "_mov_effective": effective,
+        "_movement_count": denominator,
+        "_movement_observed_count": len(observed),
+        "_movement_points": points,
+        "_movement_values": observed,
+    }
+
 def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any]] | None:
     """Return (bucket_name, product_data) for own or competitor product."""
     products = result.get("products") or {}
@@ -416,26 +459,11 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
 
 
 def _apply_offtake_comparison_goal(result: dict) -> None:
-    """Normalize movement scores inside every comparison row.
+    """Normalize each comparison row using coverage-weighted movement.
 
-    Business rule:
-    1) Calculate each product's raw average and KB rounded movement first.
-    2) Find the product with the largest raw average in the comparison row.
-    3) Raise that winner to 10.
-    4) Add the same increase amount to every other product with real movement.
-    5) Remove duplicate visible ratings by ranking products by raw average.
-       The row therefore contains only one movement 10 and no duplicate
-       positive movement scores.
-
-    Examples:
-      Rounded 7, 5, 4, 3, 2 -> increase 3 -> final 10, 8, 7, 6, 5.
-
-      Average 7.75, 8.20, 8.90
-      Rounded 8, 8, 9 -> increase 1 -> preliminary 9, 9, 10.
-      Raw-average ranking removes the duplicate -> final 8, 9, 10.
-
-    Missing values stay blank. A real zero stays zero and is not promoted,
-    because zero means no movement rather than a scored competing product.
+    Final = round_half_up(product effective / row-best effective * 10).
+    Exactly one observed product receives goal 10; other observed products are
+    restricted to 1-9. Products with no observations stay blank.
     """
     for group in OFFTAKE_COMPARE_GROUPS:
         items: list[dict[str, Any]] = []
@@ -451,29 +479,17 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
                 continue
             seen_ids.add(id(pdata))
 
-            rounded = to_int(pdata.get("mov"))
-            avg = to_float(pdata.get("_mov_avg"))
-
-            if rounded is None:
+            effective = to_float(pdata.get("_mov_effective"))
+            count = to_int(pdata.get("_movement_count")) or 0
+            avg = to_float(pdata.get("_mov_avg")) or 0.0
+            if count <= 0 or effective is None:
                 pdata["mov"] = None
                 continue
-
-            rounded = max(0, min(10, rounded))
-            pdata["mov"] = rounded
-
-            # Do not invent movement for products submitted as zero/no sale.
-            if rounded <= 0:
-                continue
-
-            # Current aggregation always stores _mov_avg. The fallback keeps
-            # legacy rows usable if only their rounded movement is available.
-            if avg is None:
-                avg = float(rounded)
-
             items.append({
                 "data": pdata,
                 "product": product,
-                "rounded": rounded,
+                "effective": max(0.0, effective),
+                "count": count,
                 "avg": avg,
                 "order": order,
             })
@@ -481,30 +497,27 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
         if not items:
             continue
 
-        # Winner is selected by raw average, not only by rounded movement.
+        # Coverage-weighted effective score is primary. Coverage count and
+        # average are deterministic tie-breakers.
         winner = max(
             items,
-            key=lambda item: (item["avg"], item["rounded"], -item["order"]),
+            key=lambda item: (
+                item["effective"], item["count"], item["avg"], -item["order"]
+            ),
         )
-        increase = max(0, 10 - winner["rounded"])
+        best = winner["effective"]
+        if best <= 0:
+            for item in items:
+                item["data"]["mov"] = 1
+            continue
 
         for item in items:
-            item["shifted"] = min(10, item["rounded"] + increase)
-
-        # Highest raw average receives the highest final movement. When two
-        # preliminary values duplicate, lower-ranked products step down by one
-        # until every positive score in the row is unique.
-        ranked = sorted(
-            items,
-            key=lambda item: (-item["avg"], -item["rounded"], item["order"]),
-        )
-
-        previous_score = 11
-        for item in ranked:
-            final_score = min(item["shifted"], previous_score - 1)
-            final_score = max(1, min(10, final_score))
+            if item is winner:
+                final_score = 10
+            else:
+                proportional = round_half_up((item["effective"] / best) * 10)
+                final_score = max(1, min(9, proportional))
             item["data"]["mov"] = final_score
-            previous_score = final_score
 
 def _clean_location_piece(text: Any) -> str:
     """Clean one user-entered location phrase without destroying meaning."""
@@ -1167,7 +1180,7 @@ def _metric_or_payload_available(submission: Any, metric: Any, product: str) -> 
 
 
 
-def _wide_payloads_by_submission(submissions: list[Any]) -> dict[str, dict[str, Any]]:
+def load_wide_payloads(submissions: list[Any]) -> dict[str, dict[str, Any]]:
     """Read normalized/wide Kobo rows for report fallback.
 
     The production schema removed the raw JSONB payload from kobo_submissions,
@@ -1184,19 +1197,28 @@ def _wide_payloads_by_submission(submissions: list[Any]) -> dict[str, dict[str, 
     out: dict[str, dict[str, Any]] = {}
     try:
         with SessionLocal() as db:
-            for sid in ids:
-                row = db.execute(
-                    text("SELECT * FROM public.kobo_submissions_wide WHERE submission_id = :sid"),
-                    {"sid": sid},
-                ).mappings().first()
-                if row:
-                    out[sid] = dict(row)
+            rows = db.execute(
+                text(
+                    "SELECT * FROM public.kobo_submissions_wide "
+                    "WHERE submission_id = ANY(:ids)"
+                ),
+                {"ids": ids},
+            ).mappings().all()
+            for row in rows:
+                payload = dict(row)
+                sid = str(payload.get("submission_id") or "").strip()
+                if sid:
+                    out[sid] = payload
     except Exception as exc:
         # Report generation must continue even if the wide fallback is not
         # available, for example during unit tests or before the wide table is
         # created.
         print(f"⚠️ Wide Kobo fallback unavailable: {exc}")
     return out
+
+
+# Backward-compatible private name for older imports/tests.
+_wide_payloads_by_submission = load_wide_payloads
 
 
 def _wide_payload_for_submission(submission: Any, wide_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -1270,7 +1292,10 @@ def _available_from_wide_or_metric(
 
     return _metric_or_payload_available(submission, metric, product)
 
-def aggregate_submissions(submissions: list) -> dict:
+def aggregate_submissions(
+    submissions: list,
+    wide_map: dict[str, dict[str, Any]] | None = None,
+) -> dict:
     all_submissions = list(submissions or [])
 
     # A row whose Outlet Name is a summary marker is a control/summary row,
@@ -1304,7 +1329,8 @@ def aggregate_submissions(submissions: list) -> dict:
     product_maps = [_metric_by_product(list(getattr(s, "product_metrics", []) or [])) for s in submissions]
     competitor_maps = [_metric_by_product(list(getattr(s, "competitor_metrics", []) or [])) for s in submissions]
     ring_maps = [_metric_by_product(list(getattr(s, "ring_pull_metrics", []) or [])) for s in submissions]
-    wide_map = _wide_payloads_by_submission(submissions)
+    if wide_map is None:
+        wide_map = load_wide_payloads(submissions)
 
     for product in ALL_OWN_PRODUCTS:
         metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
@@ -1325,8 +1351,7 @@ def aggregate_submissions(submissions: list) -> dict:
                 _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
             ]),
-            "mov": final_offtake_movement(movement_values),
-            "_mov_avg": movement_average(movement_values),
+            **coverage_movement_stats(movement_values, len(submissions)),
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1365,9 +1390,7 @@ def aggregate_submissions(submissions: list) -> dict:
             )
         ]
         cdata: dict[str, Any] = {
-            "mov": final_offtake_movement(movement_values),
-            "_mov_avg": movement_average(movement_values),
-            "_movement_values": movement_values,
+            **coverage_movement_stats(movement_values, len(submissions)),
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1418,9 +1441,7 @@ def aggregate_submissions(submissions: list) -> dict:
                 )
             ]
 
-        gb["_movement_values"] = gb_values
-        gb["_mov_avg"] = movement_average(gb_values)
-        gb["mov"] = final_offtake_movement(gb_values)
+        gb.update(coverage_movement_stats(gb_values, len(submissions)))
 
         # Re-point every known GB Original alias to the exact same final dict.
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
