@@ -14,6 +14,7 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
+    generate_market_export,
     generate_raw_movement_export,
     generate_movement_multi_export,
     parse_multi_report_command_args,
@@ -37,6 +38,7 @@ Commands:
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
+/export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /map
 /dashboard
@@ -46,8 +48,9 @@ Commands:
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/raw_movement = export normalized Date/Region/Dealer/Product/Movement Rate rows.
-/export movement_multi = export the five requested Beer NCP columns for multiple dates.
+/raw_movement = export all product movement columns for one date.
+/export YYYY-MM-DD = export Summary_Data + Location_Outlet sheets.
+/export movement_multi = export Beer product movement for multiple dates.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -315,7 +318,6 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 Generating {report_type} Region/Dealer summary for {rdate}..."
     )
     try:
-        await _maybe_sync_before_report(update.effective_message)
         path, text = await asyncio.to_thread(generate_region_dealer_summary, report_type, rdate)
         await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
         with path.open("rb") as f:
@@ -350,9 +352,27 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = [str(value).strip() for value in context.args if str(value).strip()]
+    if len(args) == 1:
+        report_date = args[0]
+        wait = await update.effective_message.reply_text(
+            f"📦 Generating two-sheet market survey export for {report_date}..."
+        )
+        try:
+            path, text = await asyncio.to_thread(generate_market_export, report_date)
+            await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
+            with path.open("rb") as file_handle:
+                await update.effective_message.reply_document(
+                    document=InputFile(file_handle, filename=path.name)
+                )
+        except Exception as exc:
+            await wait.edit_text(f"❌ Export failed: {exc}")
+        return
+
     if len(args) < 2 or args[0].lower() != "movement_multi":
         await update.effective_message.reply_text(
-            "Usage: /export movement_multi 2026-07-04 2026-07-18 2026-07-25"
+            "Usage:\n"
+            "/export 2026-07-25\n"
+            "/export movement_multi 2026-07-04 2026-07-18 2026-07-25"
         )
         return
     report_dates = args[1:]
