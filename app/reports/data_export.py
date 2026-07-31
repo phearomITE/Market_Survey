@@ -15,7 +15,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from app.core.config import BASE_DIR, settings
 from app.reports.aggregator import (
     OFFTAKE_COMPARE_GROUPS,
-    build_bulk_dealer_aggregates,
+    aggregate_submissions,
     combine_location_visit,
 )
 from app.reports.member_mode import most_frequent_member
@@ -31,6 +31,15 @@ SUMMARY_MARKERS = {
 SUMMARY_SHEET = "Summary_Data"
 LOCATION_SHEET = "Location_Outlet"
 DATA_EXPORT_TEMPLATE = BASE_DIR / "templates" / "Template_Data_Survey.xlsx"
+
+
+def _dealer_aggregates(submissions: list[Any]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[Any]] = defaultdict(list)
+    for submission in submissions:
+        dealer = _clean(getattr(submission, "dealer", None)).upper()
+        if dealer:
+            grouped[dealer].append(submission)
+    return {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items()}
 
 # These are the expected headers in the user's approved template. The exporter
 # reads the workbook's real row-1 headers at runtime and does not replace them.
@@ -382,7 +391,7 @@ def _write_summary_data(
         groups[key].append(submission)
 
     if dealer_aggregates is None:
-        dealer_aggregates, _cache_hit = build_bulk_dealer_aggregates(list(submissions))
+        dealer_aggregates = _dealer_aggregates(list(submissions))
 
     output_rows: list[list[Any]] = []
     for (region, dealer), rows in sorted(groups.items(), key=_group_sort_key):
@@ -554,7 +563,7 @@ def create_data_export(
 
     submission_list = list(submissions or [])
     if dealer_aggregates is None:
-        dealer_aggregates, _cache_hit = build_bulk_dealer_aggregates(submission_list)
+        dealer_aggregates = _dealer_aggregates(submission_list)
 
     dealer_groups, summary_rows = _write_summary_data(
         summary_ws,

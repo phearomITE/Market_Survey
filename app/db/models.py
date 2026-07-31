@@ -47,10 +47,6 @@ class KoboSubmission(Base):
     gps_text: Mapped[str | None] = mapped_column(Text)
     gps_latitude: Mapped[float | None] = mapped_column(Float)
     gps_longitude: Mapped[float | None] = mapped_column(Float)
-    province: Mapped[str | None] = mapped_column(String(120), index=True)
-    district: Mapped[str | None] = mapped_column(String(120), index=True)
-    commune: Mapped[str | None] = mapped_column(String(120), index=True)
-    village: Mapped[str | None] = mapped_column(String(180))
 
     key_issue_text: Mapped[str | None] = mapped_column(Text)
     suggestion_text: Mapped[str | None] = mapped_column(Text)

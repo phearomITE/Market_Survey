@@ -1,0 +1,16 @@
+V90 export commands and speed fix
+
+Commands restored:
+  /raw_movement 2026-07-25
+  /export 2026-07-25
+  /export movement_multi 2026-07-04 2026-07-18 2026-07-25
+
+Performance:
+  Generated files are cached by command, selected date(s), row count and latest
+  database row ID. A repeated command reuses the workbook until data changes.
+
+Deploy:
+  python -m py_compile app/bot/run_bot.py app/bot/handlers.py app/services/report_service.py
+  git add app templates tests V90_EXPORT_COMMANDS_SPEED_FIX.txt
+  git commit -m "Restore export commands and speed up reports"
+  git push origin main

@@ -15,8 +15,25 @@ from app.reports.excel_report import create_single_report, create_all_dealer_rep
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
+from app.reports.data_export import create_data_export
+from app.reports.raw_movement_export import create_raw_movement_export
+from app.reports.movement_multi_export import (
+    build_movement_rows,
+    create_movement_multi_workbook,
+    parse_movement_multi_dates,
+)
 
 ReportType = Literal["GT", "HORECA"]
+_generated_cache: dict[tuple, tuple] = {}
+
+
+def _snapshot_key(kind: str, submissions: list[KoboSubmission], *parts: object) -> tuple:
+    return (
+        kind,
+        *parts,
+        len(submissions),
+        max((int(getattr(item, "id", 0) or 0) for item in submissions), default=0),
+    )
 
 CHANNEL_SPECIALIST_OUTLET_TYPES = {
     "Local Eat",
@@ -349,13 +366,77 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
     submissions = get_submissions(None, d, report_type=report_type)
     if settings.auto_sync_before_report or not submissions:
         submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=report_type)
+    cache_key = _snapshot_key("summary", submissions, report_type, d.isoformat())
+    cached = _generated_cache.get(cache_key)
+    if cached and cached[0].exists():
+        return cached
     rows = build_summary_rows(submissions)
     path = create_summary_report(rows, d, report_type=report_type)
     submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
     total_submissions = sum(r.get("total_submissions", 0) for r in rows)
     total_outlets = sum(r.get("total_outlets", 0) for r in rows)
-    return (
+    result = (
         path,
         f"Generated {report_type} summary for {d}: {submitted_dealers}/65 dealers submitted, "
         f"{total_submissions} submissions, {total_outlets} outlets"
     )
+    _generated_cache[cache_key] = result
+    return result
+
+
+def generate_data_export(report_date_str: str):
+    d = parse_report_date(report_date_str)
+    submissions = get_submissions(None, d, report_type=None)
+    if not submissions:
+        return None, f"No submissions found for {d}."
+    key = _snapshot_key("export", submissions, d.isoformat())
+    cached = _generated_cache.get(key)
+    if cached and cached[0].exists():
+        return cached
+    path, stats = create_data_export(submissions, d)
+    result = (
+        path,
+        f"Generated data export for {d}: {stats['location_rows']} outlets and "
+        f"{stats['summary_rows']} product rows.",
+    )
+    _generated_cache[key] = result
+    return result
+
+
+def generate_raw_movement_export(report_date_str: str):
+    d = parse_report_date(report_date_str)
+    submissions = get_submissions(None, d, report_type=None)
+    if not submissions:
+        return None, f"No submissions found for {d}."
+    key = _snapshot_key("raw_movement", submissions, d.isoformat())
+    cached = _generated_cache.get(key)
+    if cached and cached[0].exists():
+        return cached
+    path, row_count = create_raw_movement_export(submissions, d)
+    result = (path, f"Generated raw movement for {d}: {row_count} product ratings.")
+    _generated_cache[key] = result
+    return result
+
+
+def generate_movement_multi_export(date_values: list[str] | tuple[str, ...]):
+    report_dates = parse_movement_multi_dates(date_values)
+    submissions: list[KoboSubmission] = []
+    for report_date in report_dates:
+        submissions.extend(get_submissions(None, report_date, report_type=None))
+    if not submissions:
+        return None, "No submissions found for the selected dates."
+    key = _snapshot_key(
+        "movement_multi",
+        submissions,
+        *(item.isoformat() for item in report_dates),
+    )
+    cached = _generated_cache.get(key)
+    if cached and cached[0].exists():
+        return cached
+    path = create_movement_multi_workbook(submissions, report_dates)
+    result = (
+        path,
+        f"Generated movement_multi with {len(build_movement_rows(submissions))} outlet rows.",
+    )
+    _generated_cache[key] = result
+    return result

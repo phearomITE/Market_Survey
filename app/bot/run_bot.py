@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import threading
 from datetime import datetime
 from urllib.parse import urlsplit
 
-from telegram.error import Conflict
 from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
     dashboard_cmd,
+    export_cmd,
     debug_kobo_cmd,
     help_cmd,
     map_cmd,
+    raw_movement_cmd,
     report_cmd,
     report_multi_cmd,
     report_today_cmd,
@@ -29,35 +28,6 @@ from app.kobo.sync import sync_kobo
 
 _auto_sync_task: asyncio.Task | None = None
 _last_auto_sync: dict | None = None
-_web_server_thread: threading.Thread | None = None
-
-
-def _start_web_server() -> None:
-    """Run FastAPI map/dashboard beside the polling bot in one Railway service."""
-    global _web_server_thread
-    if _web_server_thread and _web_server_thread.is_alive():
-        return
-
-    port = int(os.getenv("PORT", "8080"))
-
-    def serve() -> None:
-        import uvicorn
-
-        uvicorn.run(
-            "app.main:app",
-            host="0.0.0.0",
-            port=port,
-            log_level="info",
-            access_log=False,
-        )
-
-    _web_server_thread = threading.Thread(
-        target=serve,
-        name="movement-map-web",
-        daemon=True,
-    )
-    _web_server_thread.start()
-    print(f"🌐 Movement map and dashboard starting on PORT={port}")
 
 
 async def _auto_sync_loop() -> None:
@@ -139,18 +109,6 @@ async def _post_shutdown(app: Application) -> None:
         _auto_sync_task = None
 
 
-async def _telegram_error_handler(update: object, context) -> None:
-    """Stop cleanly when another process is polling the same Telegram bot."""
-    if isinstance(context.error, Conflict):
-        print(
-            "❌ TELEGRAM POLLING CONFLICT: this bot token is already running "
-            "in another process. Stopping this duplicate instance cleanly."
-        )
-        context.application.stop_running()
-        return
-    print(f"⚠️ Telegram handler error: {context.error!r}")
-
-
 def _safe_database_target() -> str:
     """Return a safe database target without exposing credentials."""
     try:
@@ -184,7 +142,6 @@ def _build_application() -> Application:
 
     # Let handlers read the latest Kobo synchronization status.
     app.bot_data["get_last_auto_sync"] = lambda: _last_auto_sync
-    app.add_error_handler(_telegram_error_handler)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
@@ -196,6 +153,8 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
+    app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
+    app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
     app.add_handler(CommandHandler("dashboard", dashboard_cmd))
 
@@ -216,7 +175,6 @@ def main() -> None:
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
-    _start_web_server()
 
     app = _build_application()
 

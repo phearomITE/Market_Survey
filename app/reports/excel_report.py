@@ -160,10 +160,12 @@ def _metric_mov_score(metrics: dict | None) -> float:
 
 
 def _final_movement_from_metrics(metrics: dict | None):
-    """Return the absolute final movement calculated by the aggregator.
+    """Return the final movement calculated by the aggregator.
 
-    Excel trusts the approved 70% mean + 30% median result and never promotes
-    a comparison winner to 10.
+    The comparison-row rule is applied in ``aggregator.py`` after raw averages
+    are calculated. Excel must trust that final ``mov`` value and must not
+    independently promote rounded 8/9 values to 10, otherwise the comparison
+    ranking and the one-10-per-row rule would be overwritten.
     """
     if not isinstance(metrics, dict):
         return None
@@ -740,9 +742,10 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws["A1"] = ""
     ws["B1"] = ""
     report_date_time = f"{rdate_txt} {datetime.now().strftime('%H:%M:%S')}"
-    # Keep the HORECA-specific worksheet layout, but do not print the former
-    # internal "CHANNEL SPECIALIST" label in the customer-facing report.
-    ws["A3"] = f"Dealer : {dealer}                              Report Date: {report_date_time}"
+    if _is_channel_specialist_report(agg):
+        ws["A3"] = f"Dealer : {dealer}    CHANNEL SPECIALIST                         Report Date: {report_date_time}"
+    else:
+        ws["A3"] = f"Dealer : {dealer}                              Report Date: {report_date_time}"
     ws["A3"].font = ws["A3"].font.copy(bold=True)
     ws["A4"] = f"Group : {agg.get('group_no') or 2}"
     member_no = agg.get("member_no") or (max(1, min(10, total // 3 or 1)) if total else 0)
@@ -813,8 +816,9 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     _force_rewrite_competitor_blocks(ws, agg)
     _force_specific_competitor_value(ws, agg, "GB Original NCP")
 
-    # Production guard for GB Original: rewrite the calculated absolute score
-    # so a copied template cannot retain a stale value.
+    # Hard production guard for GB Original. If aggregator contains any GB Original
+    # alias with final movement 10, force the Excel movement cell to that value.
+    # This prevents copied template cells from keeping a stale value like 2.
     gb_metrics = _lookup_competitor_metrics(agg, "GB Original NCP")
     if gb_metrics:
         gb_mov = _final_movement_from_metrics(gb_metrics)
@@ -822,7 +826,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
             for cc in [8, 13, 18, 23]:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
-                    print("✅ WRITE GB Original to Excel:", gb_mov, "cell", ws.cell(rr, cc + 1).coordinate)
+                    print("✅ FORCE WRITE GB Original to Excel:", gb_mov, "cell", ws.cell(rr, cc + 1).coordinate)
 
     # Section 4: Ring Pull fixed products.
     ring_pull_start = 44 if _is_channel_specialist_report(agg) else RING_PULL_START_ROW

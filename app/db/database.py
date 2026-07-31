@@ -44,22 +44,11 @@ def _ensure_light_migrations() -> None:
             ("gps_text", "TEXT"),
             ("gps_latitude", "DOUBLE PRECISION"),
             ("gps_longitude", "DOUBLE PRECISION"),
-            ("province", "VARCHAR(120)"),
-            ("district", "VARCHAR(120)"),
-            ("commune", "VARCHAR(120)"),
-            ("village", "VARCHAR(180)"),
             ("updated_at", "TIMESTAMP"),
             ("source_hash", "VARCHAR(64)"),
             ("report_type", "VARCHAR(20)"),
         ]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_submissions ADD COLUMN IF NOT EXISTS {col} {ddl}")
-
-        for column in ("province", "district", "commune"):
-            _safe_exec(
-                conn,
-                f"CREATE INDEX IF NOT EXISTS ix_kobo_submissions_{column} "
-                f"ON kobo_submissions ({column})",
-            )
 
         _safe_exec(conn, """
             UPDATE kobo_submissions

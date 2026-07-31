@@ -14,6 +14,9 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
+    generate_data_export,
+    generate_raw_movement_export,
+    generate_movement_multi_export,
     parse_multi_report_command_args,
     parse_report_command_args,
 )
@@ -34,6 +37,9 @@ Commands:
 /report_today 2026-06-06
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
+/raw_movement 2026-07-25
+/export 2026-07-25
+/export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /map
 /dashboard
 /help
@@ -97,31 +103,7 @@ async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
-    reply_markup = None
-    try:
-        reply_markup = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "🗺 Open Movement Map",
-                        url=_viewer_url("map"),
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "📊 Open Movement Dashboard",
-                        url=_viewer_url("dashboard"),
-                    )
-                ],
-            ]
-        )
-    except ValueError:
-        # Keep /start available even before Railway map variables are configured.
-        pass
-    await update.effective_message.reply_text(
-        HELP_TEXT,
-        reply_markup=reply_markup,
-    )
+    await update.effective_message.reply_text(HELP_TEXT)
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -340,3 +322,57 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
     except Exception as e:
         await wait.edit_text(f"❌ Summary failed: {e}")
+
+
+async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.effective_message.reply_text("Usage: /raw_movement 2026-07-25")
+        return
+    rdate = context.args[0].strip()
+    wait = await update.effective_message.reply_text(f"📦 Generating raw movement for {rdate}...")
+    try:
+        path, text = await asyncio.to_thread(generate_raw_movement_export, rdate)
+        if not path:
+            await wait.edit_text(f"⚠️ {text}")
+            return
+        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
+        with path.open("rb") as file_obj:
+            await update.effective_message.reply_document(
+                document=InputFile(file_obj, filename=path.name)
+            )
+    except Exception as exc:
+        await wait.edit_text(f"❌ Raw movement failed: {exc}")
+
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = [str(value).strip() for value in context.args if str(value).strip()]
+    if not args:
+        await update.effective_message.reply_text(
+            "Usage:\n/export 2026-07-25\n"
+            "/export movement_multi 2026-07-04 2026-07-18 2026-07-25"
+        )
+        return
+    is_multi = args[0].casefold() == "movement_multi"
+    wait = await update.effective_message.reply_text(
+        "📦 Generating movement_multi Excel..." if is_multi
+        else f"📦 Generating market survey export for {args[0]}..."
+    )
+    try:
+        if is_multi:
+            path, text = await asyncio.to_thread(generate_movement_multi_export, args[1:])
+        elif len(args) == 1:
+            path, text = await asyncio.to_thread(generate_data_export, args[0])
+        else:
+            raise ValueError("Invalid command. Use /export 2026-07-25.")
+        if not path:
+            await wait.edit_text(f"⚠️ {text}")
+            return
+        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
+        with path.open("rb") as file_obj:
+            await update.effective_message.reply_document(
+                document=InputFile(file_obj, filename=path.name)
+            )
+    except (ValueError, FileNotFoundError) as exc:
+        await wait.edit_text(f"❌ {exc}")
+    except Exception as exc:
+        await wait.edit_text(f"❌ Export failed: {exc}")
