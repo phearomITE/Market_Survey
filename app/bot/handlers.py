@@ -15,6 +15,7 @@ from app.services.report_service import (
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
     generate_raw_movement_export,
+    generate_daily_data_export,
     generate_movement_multi_export,
     parse_multi_report_command_args,
     parse_report_command_args,
@@ -37,6 +38,7 @@ Commands:
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
+/export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /map
 /dashboard
@@ -350,9 +352,29 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = [str(value).strip() for value in context.args if str(value).strip()]
+    if len(args) == 1:
+        report_date = args[0]
+        wait = await update.effective_message.reply_text(
+            f"📦 Generating two-sheet market survey export for {report_date}..."
+        )
+        try:
+            path, text = await asyncio.to_thread(
+                generate_daily_data_export,
+                report_date,
+            )
+            await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
+            with path.open("rb") as file_handle:
+                await update.effective_message.reply_document(
+                    document=InputFile(file_handle, filename=path.name)
+                )
+        except Exception as exc:
+            await wait.edit_text(f"❌ Daily export failed: {exc}")
+        return
+
     if len(args) < 2 or args[0].lower() != "movement_multi":
         await update.effective_message.reply_text(
-            "Usage: /export movement_multi 2026-07-04 2026-07-18 2026-07-25"
+            "Usage:\n/export 2026-07-25\n"
+            "/export movement_multi 2026-07-04 2026-07-18 2026-07-25"
         )
         return
     report_dates = args[1:]

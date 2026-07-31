@@ -15,7 +15,11 @@ from app.reports.excel_report import create_single_report, create_all_dealer_rep
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
-from app.reports.movement_exports import create_movement_export
+from app.reports.movement_exports import (
+    create_daily_export,
+    create_movement_export,
+    create_raw_movement_long_export,
+)
 
 ReportType = Literal["GT", "HORECA"]
 
@@ -375,8 +379,20 @@ def generate_raw_movement_export(report_date_str: str):
         submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
-    path = create_movement_export(submissions, [d], beer_only=False)
+    path = create_raw_movement_long_export(submissions, d)
     return path, f"Generated raw movement for {d}: {len(submissions)} outlet submissions"
+
+
+def generate_daily_data_export(report_date_str: str):
+    """Create the requested Summary_Data + Location_Outlet workbook."""
+    d = parse_report_date(report_date_str)
+    submissions = get_submissions(None, d, report_type=None)
+    if not submissions:
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
+    if not submissions:
+        raise ValueError(f"No submissions found for {d}.")
+    path = create_daily_export(submissions, d)
+    return path, f"Generated two-sheet market survey export for {d}: {len(submissions)} outlet submissions"
 
 
 def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ...]):
