@@ -10,7 +10,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
-        libreoffice-common \
         fonts-noto-core \
         fonts-noto-extra \
         fonts-khmeros \
@@ -33,7 +32,7 @@ COPY . .
 RUN mkdir -p /app/exports \
     && chmod -R 775 /app/exports \
     && test -x /usr/bin/soffice \
-    && /usr/bin/soffice --version \
+    && SAL_USE_VCLPLUGIN=svp /usr/bin/soffice --headless --version \
     && fc-match "Khmer OS Battambang"
 
-CMD ["python", "-m", "app.bot.run_bot"]
+CMD ["python", "-m", "app.launcher"]

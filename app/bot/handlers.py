@@ -19,7 +19,7 @@ from app.services.report_service import (
     parse_multi_report_command_args,
     parse_report_command_args,
 )
-from app.services.render_service import excel_to_png, excel_to_pdf, get_last_render_error
+from app.services.render_service import excel_to_png, excel_to_pdf
 
 HELP_TEXT = """
 ✅ KB Market Survey Bot
@@ -188,9 +188,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         else:
             await update.effective_message.reply_text(
-                "⚠️ PNG preview not created.\n"
-                f"Reason: {get_last_render_error()}\n"
-                "Sending Excel only. Check Railway deployment logs for the full PNG renderer message."
+                "⚠️ PNG preview not created. Install LibreOffice or set LIBREOFFICE_PATH/SOFFICE_PATH. Sending Excel only."
             )
 
         with path.open("rb") as f:
