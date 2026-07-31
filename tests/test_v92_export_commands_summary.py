@@ -3,7 +3,10 @@ from types import SimpleNamespace
 
 from openpyxl import load_workbook
 
-from app.reports.movement_exports import create_movement_export
+from app.reports.movement_exports import (
+    RAW_MOVEMENT_HEADERS,
+    create_raw_movement_export,
+)
 from app.reports.summary_report import create_summary_report
 
 
@@ -11,7 +14,7 @@ def _metric(name: str, score: int | None):
     return SimpleNamespace(product_name=name, movement_score=score)
 
 
-def test_movement_export_writes_every_product_and_preserves_zero(tmp_path):
+def test_raw_movement_export_writes_product_rows_and_preserves_zero(tmp_path):
     row = SimpleNamespace(
         report_date=date(2026, 7, 25),
         region="R1",
@@ -27,18 +30,15 @@ def test_movement_export_writes_every_product_and_preserves_zero(tmp_path):
         ],
         competitor_metrics=[_metric("GB SNOW NCP", 8)],
     )
-    output = create_movement_export(
+    output = create_raw_movement_export(
         [row],
-        [date(2026, 7, 25)],
-        beer_only=False,
+        date(2026, 7, 25),
         output_path=tmp_path / "raw.xlsx",
     )
     ws = load_workbook(output, data_only=True).active
     headers = [cell.value for cell in ws[1]]
-    assert "CB LITE NCP" in headers
-    assert "CBC 4.4 NCP" in headers
-    assert "GB SNOW NCP" in headers
-    values = {headers[index]: ws.cell(2, index + 1).value for index in range(len(headers))}
+    assert headers == RAW_MOVEMENT_HEADERS
+    values = {row[3]: row[4] for row in ws.iter_rows(min_row=2, values_only=True)}
     assert values["CB LITE NCP"] == 10
     assert values["CBC 4.4 NCP"] == 0
     assert values["GB SNOW NCP"] == 8

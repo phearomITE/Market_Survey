@@ -14,7 +14,6 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
-    generate_gt_submission_summary,
     generate_raw_movement_export,
     generate_movement_multi_export,
     parse_multi_report_command_args,
@@ -47,8 +46,8 @@ Commands:
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/raw_movement = export all product movement columns for one date.
-/export movement_multi = export Beer product movement for multiple dates.
+/raw_movement = export normalized Date/Region/Dealer/Product/Movement Rate rows.
+/export movement_multi = export the five requested Beer NCP columns for multiple dates.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -317,19 +316,7 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        if report_type == "GT":
-            # GT is deliberately isolated from the legacy movement comparison
-            # summary. It always creates the approved one-sheet submission file.
-            path, text = await asyncio.to_thread(
-                generate_gt_submission_summary,
-                rdate,
-            )
-        else:
-            path, text = await asyncio.to_thread(
-                generate_region_dealer_summary,
-                report_type,
-                rdate,
-            )
+        path, text = await asyncio.to_thread(generate_region_dealer_summary, report_type, rdate)
         await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))

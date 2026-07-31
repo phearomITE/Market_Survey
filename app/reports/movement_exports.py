@@ -9,25 +9,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.core.config import settings
-from app.reports.aggregator import ALL_COMPETITOR_PRODUCTS, ALL_OWN_PRODUCTS
-
-
-BEER_PRODUCTS = [
-    "CB LITE ORD",
-    "GB SNOW ORD",
-    "HANUMAN LITE ORD",
-    "Krud LITE ORD",
-    "CBC 4.4 NCP",
-    "CB Original NCP",
-    "GB Original NCP",
-    "Krud NCP",
+MOVEMENT_MULTI_PRODUCTS = [
     "CB LITE NCP",
     "GB SNOW NCP",
     "Hanuman LITE NCP",
     "Krud LITE NCP",
     "Greet LITE NCP",
-    "CB BLACK NCP",
-    "Hanuman Black NCP",
 ]
 
 BASE_HEADERS = [
@@ -46,31 +33,23 @@ def _clean(value) -> str:
     return str(value or "").strip()
 
 
+def _product_key(value) -> str:
+    return " ".join(_clean(value).casefold().split())
+
+
+def _all_metrics(submission):
+    yield from list(getattr(submission, "product_metrics", None) or [])
+    yield from list(getattr(submission, "competitor_metrics", None) or [])
+
+
 def _metric_scores(submission) -> dict[str, int]:
     scores: dict[str, int] = {}
-    for metric in list(getattr(submission, "product_metrics", None) or []):
+    for metric in _all_metrics(submission):
         value = getattr(metric, "movement_score", None)
-        if value is not None:
-            scores[_clean(getattr(metric, "product_name", None))] = int(value)
-    for metric in list(getattr(submission, "competitor_metrics", None) or []):
-        value = getattr(metric, "movement_score", None)
-        if value is not None:
-            scores[_clean(getattr(metric, "product_name", None))] = int(value)
+        product = _product_key(getattr(metric, "product_name", None))
+        if product and value is not None:
+            scores[product] = int(value)
     return scores
-
-
-def _ordered_products(submissions: Iterable, beer_only: bool) -> list[str]:
-    rows = list(submissions)
-    present = {
-        product
-        for submission in rows
-        for product in _metric_scores(submission)
-        if product
-    }
-    preferred = BEER_PRODUCTS if beer_only else list(dict.fromkeys(ALL_OWN_PRODUCTS + ALL_COMPETITOR_PRODUCTS))
-    ordered = [product for product in preferred if product in present]
-    ordered.extend(sorted(present.difference(ordered), key=str.casefold))
-    return ordered
 
 
 def _style_sheet(ws, max_column: int) -> None:
@@ -89,17 +68,17 @@ def _style_sheet(ws, max_column: int) -> None:
     ws.row_dimensions[1].height = 25
 
 
-def create_movement_export(
+def create_movement_multi_export(
     submissions: Iterable,
     report_dates: list[date],
     *,
-    beer_only: bool,
     output_path: Path | None = None,
 ) -> Path:
-    """Create a safe, table-free movement workbook.
+    """Create the fixed five-product Beer movement workbook.
 
-    One row represents one outlet submission and each product has its own
-    movement column. Blank movement remains blank; a genuine zero remains 0.
+    One row represents one outlet submission. The schema is intentionally
+    fixed so Excel and downstream users always receive the same 13 columns.
+    Blank movement remains blank; a genuine user-selected zero remains 0.
     """
     rows = sorted(
         list(submissions),
@@ -110,12 +89,11 @@ def create_movement_export(
             _clean(getattr(item, "outlet_name", None)),
         ),
     )
-    products = _ordered_products(rows, beer_only=beer_only)
-    headers = BASE_HEADERS + products
+    headers = BASE_HEADERS + MOVEMENT_MULTI_PRODUCTS
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Movement"
+    ws.title = "Detail_Movement"
     ws.append(headers)
 
     for submission in rows:
@@ -130,7 +108,7 @@ def create_movement_export(
                 getattr(submission, "outlet_name", None),
                 getattr(submission, "outlet_type", None),
                 getattr(submission, "phone_number", None),
-                *[scores.get(product) for product in products],
+                *[scores.get(_product_key(product)) for product in MOVEMENT_MULTI_PRODUCTS],
             ]
         )
 
@@ -141,8 +119,98 @@ def create_movement_export(
     settings.export_path.mkdir(parents=True, exist_ok=True)
     if output_path is None:
         joined_dates = "_".join(str(item) for item in report_dates)
-        prefix = "Detail_Movement_Beer" if beer_only else "Raw_Movement_GENERAL"
-        output_path = settings.export_path / f"{prefix}_{joined_dates}.xlsx"
+        output_path = settings.export_path / f"Detail_Movement_Beer_{joined_dates}.xlsx"
     wb.save(output_path)
     return output_path
 
+
+RAW_MOVEMENT_HEADERS = [
+    "Date",
+    "Region",
+    "Dealer",
+    "Product",
+    "Movement Rate",
+]
+
+
+def create_raw_movement_export(
+    submissions: Iterable,
+    report_date: date,
+    *,
+    output_path: Path | None = None,
+) -> Path:
+    """Create normalized product-level movement rows for one date.
+
+    Blank/unanswered scores are excluded. Genuine user-selected zeroes are
+    included, so the export remains a faithful raw movement dataset.
+    """
+    output_rows: list[list] = []
+    for submission in submissions:
+        for metric in _all_metrics(submission):
+            product = _clean(getattr(metric, "product_name", None))
+            score = getattr(metric, "movement_score", None)
+            if not product or score is None:
+                continue
+            output_rows.append(
+                [
+                    getattr(submission, "report_date", None),
+                    getattr(submission, "region", None),
+                    getattr(submission, "dealer", None),
+                    product,
+                    int(score),
+                ]
+            )
+
+    output_rows.sort(
+        key=lambda row: (
+            row[0] or date.min,
+            _clean(row[1]).casefold(),
+            _clean(row[2]).casefold(),
+            _clean(row[3]).casefold(),
+        )
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Raw_Movement"
+    ws.append(RAW_MOVEMENT_HEADERS)
+    for row in output_rows:
+        ws.append(row)
+
+    for cell in ws["A"][1:]:
+        cell.number_format = "yyyy-mm-dd"
+    _style_sheet(ws, len(RAW_MOVEMENT_HEADERS))
+    ws.column_dimensions["D"].width = 28
+    ws.column_dimensions["E"].width = 16
+
+    settings.export_path.mkdir(parents=True, exist_ok=True)
+    if output_path is None:
+        output_path = settings.export_path / f"Raw_Movement_GENERAL_{report_date}.xlsx"
+    wb.save(output_path)
+    return output_path
+
+
+def create_movement_export(
+    submissions: Iterable,
+    report_dates: list[date],
+    *,
+    beer_only: bool,
+    output_path: Path | None = None,
+) -> Path:
+    """Backward-compatible wrapper for older callers.
+
+    New code should call one of the two explicit exporters above.
+    """
+    if beer_only:
+        return create_movement_multi_export(
+            submissions,
+            report_dates,
+            output_path=output_path,
+        )
+    if len(report_dates) != 1:
+        raise ValueError("Raw movement export requires exactly one report date.")
+    return create_raw_movement_export(
+        submissions,
+        report_dates[0],
+        output_path=output_path,
+    )

@@ -15,8 +15,10 @@ from app.reports.excel_report import create_single_report, create_all_dealer_rep
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
-from app.reports.gt_submission_summary import create_gt_submission_summary
-from app.reports.movement_exports import create_movement_export
+from app.reports.movement_exports import (
+    create_movement_multi_export,
+    create_raw_movement_export,
+)
 
 ReportType = Literal["GT", "HORECA"]
 
@@ -363,34 +365,6 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
     )
 
 
-def generate_gt_submission_summary(report_date_str: str):
-    """Generate only the approved simple GT submission summary workbook."""
-    d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type="GT")
-    if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(
-            None,
-            d,
-            submissions,
-            report_type="GT",
-        )
-    rows = build_summary_rows(submissions)
-    path = create_gt_submission_summary(rows, d)
-    submitted_dealers = sum(
-        1 for row in rows if int(row.get("total_submissions", 0) or 0) > 0
-    )
-    total_submissions = sum(
-        int(row.get("total_submissions", 0) or 0) for row in rows
-    )
-    total_outlets = sum(int(row.get("total_outlets", 0) or 0) for row in rows)
-    return (
-        path,
-        f"Generated simple GT summary for {d}: "
-        f"{submitted_dealers}/{len(rows)} dealers submitted, "
-        f"{total_submissions} submissions, {total_outlets} outlets",
-    )
-
-
 def generate_raw_movement_export(report_date_str: str):
     """Export every submitted product movement for one report date."""
     d = parse_report_date(report_date_str)
@@ -399,8 +373,8 @@ def generate_raw_movement_export(report_date_str: str):
         submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
-    path = create_movement_export(submissions, [d], beer_only=False)
-    return path, f"Generated raw movement for {d}: {len(submissions)} outlet submissions"
+    path = create_raw_movement_export(submissions, d)
+    return path, f"Generated raw movement rows for {d} from {len(submissions)} outlet submissions"
 
 
 def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ...]):
@@ -415,7 +389,7 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
         submissions.extend(get_submissions(None, report_date, report_type=None))
     if not submissions:
         raise ValueError("No submissions found for the requested report dates.")
-    path = create_movement_export(submissions, dates, beer_only=True)
+    path = create_movement_multi_export(submissions, dates)
     return (
         path,
         f"Generated Beer movement export for {len(dates)} date(s): "

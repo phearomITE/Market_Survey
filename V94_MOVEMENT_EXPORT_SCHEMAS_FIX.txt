@@ -1,0 +1,48 @@
+KB Market Survey V94 - Movement Export Schemas Fix
+==================================================
+
+Changes
+-------
+1. /export movement_multi DATE [DATE ...]
+   Produces exactly:
+   Date, Region, Dealer, Latitude, Longitude, Outlet Name, Outlet Type,
+   Phone Number Outlet, CB LITE NCP, GB SNOW NCP, Hanuman LITE NCP,
+   Krud LITE NCP, Greet LITE NCP
+
+2. /raw_movement DATE
+   Produces exactly:
+   Date, Region, Dealer, Product, Movement Rate
+
+3. Blank movement answers are excluded from raw movement rows.
+4. Genuine user-selected zero scores are preserved.
+5. Workbooks do not use Excel tables, avoiding table-repair warnings.
+
+Apply in Git Bash
+-----------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V94_MOVEMENT_EXPORT_SCHEMAS_FIX.zip \
+  -d .
+
+python -m py_compile \
+  app/reports/movement_exports.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git add \
+  app/reports/movement_exports.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  tests/test_v92_export_commands_summary.py \
+  tests/test_v94_movement_export_schemas.py \
+  V94_MOVEMENT_EXPORT_SCHEMAS_FIX.txt
+
+git commit -m "Fix movement export workbook schemas"
+git push origin main
+
+Test after Railway is Active
+----------------------------
+/export movement_multi 2026-07-04 2026-07-18 2026-07-25
+/raw_movement 2026-07-25
