@@ -1,0 +1,71 @@
+V109 - KOBO SUBMISSION OUTLET COUNT + FINAL MOVEMENT
+====================================================
+
+Exact outlet rule
+-----------------
+Total Submissions = every Kobo submission for the dealer/date.
+Summary Rows = submissions whose Outlet Name is exactly បូកសរុបរួម.
+Total Outlets = Total Submissions - Summary Rows.
+
+One Kobo submission equals one outlet visit. Duplicate Outlet Names are not
+deduplicated. For example, 4 submissions with 1 summary row = 3 Total Outlets.
+
+Final movement denominator
+--------------------------
+Every GT and HORECA product now uses the calculated Total Outlets above.
+Blank or zero Movement Rate contributes movement 1.
+
+Effective Movement = Adjusted Movement Points / Total Outlets
+Final Movement = ROUND_HALF_UP(Product Effective / Group Best Effective * 10)
+
+One product per comparison row receives 10. Other products receive 1-9.
+
+Applied commands
+----------------
+/summary GT DATE
+/report DEALER GT DATE
+/report DEALER HORECA DATE
+/export DATE
+/raw_movement DATE
+
+Git Bash deployment
+-------------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V109_KOBO_OUTLET_FINAL_MOVEMENT_PATCH.zip \
+  -d .
+
+python -m py_compile \
+  app/reports/aggregator.py \
+  app/reports/movement_exports.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/launcher.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/main.py \
+  app/web/router.py
+
+python -m unittest \
+  tests.test_v104_daily_exports \
+  tests.test_v105_business_movement -v
+
+git status
+
+git add \
+  app/reports/aggregator.py \
+  app/reports/movement_exports.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  tests/test_v104_daily_exports.py \
+  tests/test_v105_business_movement.py \
+  V109_KOBO_SUBMISSION_OUTLET_MOVEMENT.txt
+
+git commit -m "Count each Kobo submission as one outlet visit"
+git push origin main
+
+Expected:
+Ran 12 tests
+OK

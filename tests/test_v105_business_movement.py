@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import ModuleType
+from types import SimpleNamespace
 import importlib.util
 import sys
 import unittest
@@ -94,6 +95,40 @@ class V105BusinessMovementTests(unittest.TestCase):
         self.assertEqual(stats["_movement_points"], 9)
         self.assertEqual(stats["_mov_effective"], 1.8)
         self.assertEqual(stats["mov"], 2)
+
+    def test_total_outlets_equals_submissions_minus_summary_rows(self):
+        def submission(index, outlet_name):
+            return SimpleNamespace(
+                id=index,
+                submission_id="",
+                dealer="D1",
+                region="R1",
+                report_date=None,
+                group_no=1,
+                member_no=1,
+                location_text="Phnom Penh",
+                outlet_name=outlet_name,
+                outlet_type="Drink Shop",
+                product_metrics=[],
+                competitor_metrics=[],
+                ring_pull_metrics=[],
+                key_issue_text="",
+                suggestion_text="",
+            )
+
+        result = self.aggregator.aggregate_submissions(
+            [
+                submission(1, "Outlet A"),
+                submission(2, "Outlet A"),
+                submission(3, "Outlet B"),
+                submission(4, "បូកសរុបរួម"),
+            ],
+            wide_map={},
+        )
+        self.assertEqual(result["total_submissions"], 4)
+        self.assertEqual(result["summary_control_count"], 1)
+        self.assertEqual(result["total_outlets"], 3)
+        self.assertEqual(result["products"]["CAMBODIA ED"]["_movement_points"], 3)
 
     def test_combined_summary_outlet_marker_is_excluded(self):
         self.assertTrue(

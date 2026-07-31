@@ -326,8 +326,8 @@ def _create_gt_template_report(
 def build_summary_rows(submissions: Iterable) -> list[dict]:
     """Return one row for every configured dealer, including zero-submit dealers.
 
-    Total Submissions = number of real outlet rows (summary-marker rows excluded).
-    Total Outlets = distinct outlet_name count when available, otherwise row count.
+    Total Submissions = every submitted record.
+    Total Outlets = Total Submissions minus exact summary-marker records.
     Status = No Submit / Partial / OK.
     """
     grouped: dict[str, list] = defaultdict(list)
@@ -344,14 +344,9 @@ def build_summary_rows(submissions: Iterable) -> list[dict]:
                 s for s in dealer_rows
                 if not is_final_summary_outlet_name(getattr(s, "outlet_name", None))
             ]
-            total_submissions = len(outlet_rows)
-
-            outlet_names = {
-                _clean(getattr(s, "outlet_name", "")).lower()
-                for s in outlet_rows
-                if _clean(getattr(s, "outlet_name", ""))
-            }
-            total_outlets = len(outlet_names) if outlet_names else total_submissions
+            total_submissions = len(dealer_rows)
+            summary_control_count = total_submissions - len(outlet_rows)
+            total_outlets = max(0, total_submissions - summary_control_count)
 
             targets = [_safe_int(getattr(s, "total_outlet_visit_target", None)) for s in outlet_rows]
             targets = [x for x in targets if x is not None]

@@ -1309,7 +1309,16 @@ def aggregate_submissions(
     # A row whose Outlet Name is a summary marker is a control/summary row,
     # not a real outlet visit. Exclude it from outlet counts, availability,
     # movement, freshness, Ring Pull and every product calculation.
-    data_submissions = [s for s in all_submissions if not _is_summary_submission(s)]
+    total_submissions = len(all_submissions)
+    summary_control_count = sum(
+        1 for submission in all_submissions if _is_summary_submission(submission)
+    )
+    total_outlets = max(0, total_submissions - summary_control_count)
+    data_submissions = [
+        submission
+        for submission in all_submissions
+        if not _is_summary_submission(submission)
+    ]
     header_submissions = data_submissions or all_submissions
     first_submission = header_submissions[0] if header_submissions else None
 
@@ -1318,7 +1327,9 @@ def aggregate_submissions(
         "dealer": getattr(first_submission, "dealer", "") if first_submission else "",
         "region": getattr(first_submission, "region", "") if first_submission else "",
         "report_date": getattr(first_submission, "report_date", None) if first_submission else None,
-        "total_outlets": len(data_submissions),
+        "total_submissions": total_submissions,
+        "summary_control_count": summary_control_count,
+        "total_outlets": total_outlets,
         "outlet_types": outlet_types,
         "group_no": to_int(mode([s.group_no for s in header_submissions])) or 2,
         "member_no": to_int(mode([s.member_no for s in header_submissions])),
@@ -1359,7 +1370,7 @@ def aggregate_submissions(
                 _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
             ]),
-            **coverage_movement_stats(movement_values, len(submissions)),
+            **coverage_movement_stats(movement_values, total_outlets),
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1398,7 +1409,7 @@ def aggregate_submissions(
             )
         ]
         cdata: dict[str, Any] = {
-            **coverage_movement_stats(movement_values, len(submissions)),
+            **coverage_movement_stats(movement_values, total_outlets),
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1449,7 +1460,7 @@ def aggregate_submissions(
                 )
             ]
 
-        gb.update(coverage_movement_stats(gb_values, len(submissions)))
+        gb.update(coverage_movement_stats(gb_values, total_outlets))
 
         # Re-point every known GB Original alias to the exact same final dict.
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
