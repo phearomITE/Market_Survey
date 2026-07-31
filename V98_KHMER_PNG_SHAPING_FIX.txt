@@ -1,0 +1,47 @@
+KB Market Survey V98 - Khmer PNG Shaping Fix
+================================================
+
+Problem
+-------
+Khmer text is correct in Microsoft Excel, but some letters/combining marks are
+split in the PNG preview. For example, "គ្រប់" can render as separated glyphs.
+
+Cause
+-----
+Several Khmer cells still use Calibri in the workbook template. Microsoft Excel
+on Windows silently substitutes a Khmer-capable font. LibreOffice on Railway
+can choose a different fallback during Excel -> PDF -> PNG rendering.
+
+Fix
+---
+All report cells containing Khmer Unicode are now assigned "Noto Sans Khmer"
+after the report is filled. Existing font size, bold, italic, color, alignment,
+borders and number formats remain unchanged.
+
+The Docker image already installs fonts-noto-core and fonts-noto-extra, so no
+new Railway variable is required.
+
+Apply
+-----
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V98_KHMER_PNG_SHAPING_FIX.zip \
+  -d .
+
+python -m py_compile app/reports/excel_report.py
+python -m pytest tests/test_v98_khmer_png_font.py -q
+
+git add \
+  app/reports/excel_report.py \
+  tests/test_v98_khmer_png_font.py \
+  V98_KHMER_PNG_SHAPING_FIX.txt
+
+git commit -m "Fix Khmer shaping in report PNG"
+git push origin main
+
+After Railway deploys, regenerate the report:
+
+/report CHK6 2026-07-25
+
+Existing PNG files are not rewritten; the report must be generated again.

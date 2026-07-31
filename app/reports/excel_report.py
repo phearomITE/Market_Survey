@@ -60,6 +60,30 @@ SUMMARY_MAX_ROW_HEIGHT = 140
 SUMMARY_FONT_NAME = "Noto Sans Khmer"
 SUMMARY_FONT_SIZE = 17
 
+
+def _contains_khmer(value: object) -> bool:
+    """Return True when a cell value contains a Khmer Unicode character."""
+    return isinstance(value, str) and any("\u1780" <= char <= "\u17ff" for char in value)
+
+
+def _apply_khmer_safe_fonts(ws: Worksheet) -> None:
+    """Force a shaping-capable font on every Khmer cell in the report.
+
+    Excel on Windows silently substitutes a Khmer font when a cell says
+    ``Calibri``. LibreOffice in the Linux/Railway container does not always
+    make the same substitution, which can split clusters such as ``គ្រប់`` in
+    the PDF/PNG preview. Preserve all existing font properties and change only
+    the font family (and remove the Calibri theme scheme).
+    """
+    for row in ws.iter_rows():
+        for cell in row:
+            if not _contains_khmer(cell.value):
+                continue
+            khmer_font = copy(cell.font)
+            khmer_font.name = SUMMARY_FONT_NAME
+            khmer_font.scheme = None
+            cell.font = khmer_font
+
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
     "CBC LITE ORD": "CB LITE ORD",
@@ -858,6 +882,11 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_area = "A1:AA48"
+
+    # Run last so Khmer values written anywhere in the template—including
+    # Location of Visit, Stock and summary text—render with correct cluster
+    # shaping in Railway's LibreOffice PDF/PNG conversion.
+    _apply_khmer_safe_fonts(ws)
 
 
 
