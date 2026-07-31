@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     template_path: str = "templates/template_by_dealer.xlsx"
     horeca_template_path: str = "templates/template_horeca_products.xlsx"
-    movement_multi_template_path: str = "templates/detail_movement_beer.xlsx"
+    gt_summary_template_path: str = "templates/template_gt_summary.xlsx"
     export_dir: str = "exports"
     auto_sync_before_report: bool = False
     auto_sync_enabled: bool = True
@@ -68,8 +68,8 @@ class Settings(BaseSettings):
         return p if p.is_absolute() else BASE_DIR / p
 
     @property
-    def movement_multi_template_file(self) -> Path:
-        p = Path(self.movement_multi_template_path)
+    def gt_summary_template_file(self) -> Path:
+        p = Path(self.gt_summary_template_path)
         return p if p.is_absolute() else BASE_DIR / p
 
     @property
