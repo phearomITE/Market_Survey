@@ -10,21 +10,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
-        libreoffice-l10n-km \
-        fonts-khmeros \
         fonts-noto-core \
         fonts-noto-extra \
         fontconfig \
-        locales \
         ca-certificates \
-    && sed -i 's/^# *km_KH.UTF-8 UTF-8/km_KH.UTF-8 UTF-8/' /etc/locale.gen \
-    && locale-gen \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/*
-
-ENV LANG=km_KH.UTF-8 \
-    LC_ALL=km_KH.UTF-8 \
-    PNG_KHMER_FONT_NAME="Khmer OS"
 
 WORKDIR /app
 
@@ -37,4 +28,4 @@ COPY . .
 RUN mkdir -p /app/exports \
     && chmod -R 775 /app/exports
 
-CMD ["python", "-m", "app.bot.run_bot"]
+CMD ["python", "-m", "app.launcher"]

@@ -1,0 +1,29 @@
+V100 Railway Telegram Event Loop Fix
+=====================================
+
+Problem
+-------
+Telegram was launched in the `telegram-bot` thread with
+Application.run_polling(). python-telegram-bot 21.9 attempted to obtain an
+implicit event loop in that thread and failed with:
+
+  There is no current event loop in thread 'telegram-bot'.
+  RuntimeWarning: coroutine 'Updater.start_polling' was never awaited
+
+Fix
+---
+- Added app/launcher.py.
+- Uvicorn stays in the main thread and binds to Railway's PORT.
+- Telegram runs in its own daemon thread through asyncio.run().
+- Replaced run_polling() with the explicit async lifecycle:
+  initialize -> start -> updater.start_polling.
+- Added /health endpoint.
+- Telegram failure remains isolated from the web map service.
+
+Deploy
+------
+python -m py_compile app/launcher.py app/bot/run_bot.py app/main.py app/web/router.py
+pytest -q tests/test_v100_threaded_telegram_lifecycle.py
+git add Dockerfile railway.json app tests V100_RAILWAY_TELEGRAM_EVENT_LOOP_FIX.txt
+git commit -m "Fix Telegram event loop on Railway"
+git push origin main

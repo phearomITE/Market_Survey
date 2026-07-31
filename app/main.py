@@ -11,13 +11,13 @@ app.include_router(web_router)
 def startup():
     init_db()
 
+@app.get('/health')
+def health():
+    return {'status': 'healthy'}
+
 @app.get('/')
 def root():
     return {'status': 'ok', 'app': 'KB Market Survey'}
-
-@app.get('/health')
-def health():
-    return {'status': 'ok'}
 
 @app.post('/sync_kobo')
 def api_sync_kobo():
