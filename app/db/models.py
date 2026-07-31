@@ -44,6 +44,10 @@ class KoboSubmission(Base):
     phone_number: Mapped[str | None] = mapped_column(String(80))
 
     location_text: Mapped[str | None] = mapped_column(Text)
+    province: Mapped[str | None] = mapped_column(String(120), index=True)
+    district: Mapped[str | None] = mapped_column(String(120), index=True)
+    commune: Mapped[str | None] = mapped_column(String(120), index=True)
+    village: Mapped[str | None] = mapped_column(String(180))
     gps_text: Mapped[str | None] = mapped_column(Text)
     gps_latitude: Mapped[float | None] = mapped_column(Float)
     gps_longitude: Mapped[float | None] = mapped_column(Float)

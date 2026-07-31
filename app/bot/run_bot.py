@@ -161,12 +161,8 @@ def _build_application() -> Application:
     return app
 
 
-async def run_bot_async() -> None:
-    """Run Telegram using an explicit asyncio lifecycle.
-
-    This works safely inside the dedicated ``telegram-bot`` thread and avoids
-    the convenience polling runner, which expects an implicit current loop.
-    """
+def main() -> None:
+    """Initialize the database, web server, and Telegram bot."""
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is missing")
 
@@ -179,43 +175,20 @@ async def run_bot_async() -> None:
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
+
     app = _build_application()
-    updater = app.updater
-    if updater is None:
-        raise RuntimeError("Telegram updater is not available")
 
     print("✅ KB Market Survey Bot running...")
 
-    initialized = False
-    post_initialized = False
+    # Python 3.12 with uvloop does not automatically create an event loop.
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
 
     try:
-        await app.initialize()
-        initialized = True
-
-        if app.post_init is not None:
-            await app.post_init(app)
-            post_initialized = True
-
-        await app.start()
-        await updater.start_polling()
-
-        # Stay alive until the process exits or this task is cancelled.
-        await asyncio.Event().wait()
+        app.run_polling(close_loop=False)
     finally:
-        if updater.running:
-            await updater.stop()
-        if app.running:
-            await app.stop()
-        if post_initialized and app.post_shutdown is not None:
-            await app.post_shutdown(app)
-        if initialized:
-            await app.shutdown()
-
-
-def main() -> None:
-    """Standalone Telegram entry point for local use."""
-    asyncio.run(run_bot_async())
+        if not event_loop.is_closed():
+            event_loop.close()
 
 
 if __name__ == "__main__":

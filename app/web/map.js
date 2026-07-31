@@ -4,6 +4,10 @@ const state = { data: null, markers: [], areas: [], selected: null, multi: {} };
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const isPhone = matchMedia("(max-width: 900px)").matches;
+const salesStatusKhmer = value => ({
+  no_sale:"អត់មានលក់", sale:"មានលក់", fast_sale:"លក់ដាច់",
+  "អត់មានលក់":"អត់មានលក់", "មានលក់":"មានលក់", "លក់ដាច់":"លក់ដាច់"
+}[String(value||"").trim()] || value || "—");
 
 const map = L.map("map", {
   zoomControl: false,
@@ -40,7 +44,11 @@ async function loadData(preserveOptions=false) {
   $("loading").classList.remove("hidden");
   try {
     const response = await fetch(`/api/map/data?${params()}`);
-    if (!response.ok) throw new Error(response.status === 401 ? "Invalid or expired map link." : "Unable to load Kobo movement data.");
+    if (!response.ok) {
+      let detail = "";
+      try { detail = (await response.json()).detail || ""; } catch (_) {}
+      throw new Error(response.status === 401 ? "Invalid or expired map link." : (detail || `Unable to load Kobo movement data (${response.status}).`));
+    }
     state.data = await response.json();
     if (!preserveOptions) populateOptions(state.data.options);
     renderAll();
@@ -223,6 +231,7 @@ function showDetail(row) {
       <span>Product</span><b>${esc(row.product)}</b><span>Product Type</span><b>${esc(row.product_type)}</b>
       <span>Location</span><b>${esc([row.province,row.district,row.commune,row.village].filter(Boolean).join(" · ")||"Pending GPS conversion")}</b>
       <span>Category</span><b>${esc(row.category)}</b><span>Stock</span><b>${esc(row.stock_status||"—")}</b>
+      <span>ស្ថានភាពលក់</span><b>${esc(salesStatusKhmer(row.sales_status))}</b>
     </div>
     ${row.key_issue ? `<div class="issue"><b>KEY ISSUE</b><p>${esc(row.key_issue)}</p></div>` : ""}
     <div class="rating"><span>Movement Rating</span><b>${row.movement} / 10</b></div>
@@ -247,7 +256,7 @@ window.closeDetail = () => $("detailCard").classList.add("hidden");
 window.openEdit = () => {
   const row=state.selected;if(!row)return;
   $("editTitle").textContent=`${row.outlet_name} · ${row.product}`;
-  $("editMovement").value=row.movement;$("editStock").value=row.stock_status||"";$("editIssue").value=row.key_issue||"";
+  $("editMovement").value=row.movement;$("editStock").value=row.stock_status||"";$("editSalesStatus").value=row.sales_status||"";$("editIssue").value=row.key_issue||"";
   $("editDialog").showModal();
 };
 window.selectProductRating=id=>{
@@ -259,7 +268,7 @@ window.selectProductRating=id=>{
 
 function renderDashboard() {
   const s = state.data.summary;
-  const cards = [["Total Outlets",s.outlets],["Product Ratings",s.ratings],["Own Product Ratings",s.own_products],["Competitor Ratings",s.competitor_products],["Own Wins (10)",s.own_wins],["Competitor Wins (10)",s.competitor_wins],["Very Low (1–4)",s.very_low],["Very Strong (9–10)",s.very_strong],["With Key Issue",s.key_issues]];
+  const cards = [["Total Outlets",s.outlets],["Product Ratings",s.ratings],["Own Product Ratings",s.own_products],["Competitor Ratings",s.competitor_products],["Own Wins (10)",s.own_wins],["Competitor Wins (10)",s.competitor_wins],["Very Low (0–4)",s.very_low],["Very Strong (9–10)",s.very_strong],["With Key Issue",s.key_issues]];
   $("kpiGrid").innerHTML = cards.map(c => `<article class="kpi"><span>${c[0]}</span><b>${c[1]}</b></article>`).join("");
   renderBars("regionChart",state.data.charts.regions);
   renderBars("dealerChart",state.data.charts.dealers);
@@ -301,7 +310,7 @@ $("editForm").onsubmit=async event=>{
   event.preventDefault();const movement=Number($("editMovement").value);
   if(!Number.isInteger(movement)||movement<0||movement>10){alert("Movement must be a whole number from 0 to 10.");return}
   $("loading").classList.remove("hidden");
-  const response=await fetch(`/api/map/ratings/${encodeURIComponent(state.selected.id)}?access=${encodeURIComponent(access)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({movement,stock_status:$("editStock").value,key_issue:$("editIssue").value})});
+  const response=await fetch(`/api/map/ratings/${encodeURIComponent(state.selected.id)}?access=${encodeURIComponent(access)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({movement,stock_status:$("editStock").value,sales_status:$("editSalesStatus").value,key_issue:$("editIssue").value})});
   $("loading").classList.add("hidden");
   if(!response.ok){alert("Update failed. Please reload and try again.");return}
   $("editDialog").close();await loadData(true);

@@ -61,6 +61,22 @@ ALIASES = {
         "1. Report / Outlet Visit Information / Location of Visit Text",
         "1. OUTLET INFORMATION / Location of Visit Text", "1. OUTLET INFORMATION/Location of Visit Text",
     ],
+    "province": [
+        "province", "Province", "province_capital", "Province / Capital",
+        "outlet_info/province", "1. OUTLET INFORMATION / Province",
+    ],
+    "district": [
+        "district", "District", "district_khan", "District / Khan",
+        "outlet_info/district", "1. OUTLET INFORMATION / District",
+    ],
+    "commune": [
+        "commune", "Commune", "commune_sangkat", "Commune / Sangkat",
+        "outlet_info/commune", "1. OUTLET INFORMATION / Commune",
+    ],
+    "village": [
+        "village", "Village", "outlet_info/village",
+        "1. OUTLET INFORMATION / Village",
+    ],
     "gps_text": [
         "gps_location", "GPS Location = Location of Visit", "GPS Location / Location of Visit",
         "1. OUTLET INFORMATION / GPS Location = Location of Visit",
@@ -275,6 +291,10 @@ def yes_value(value: Any) -> bool:
     s = str(value).strip().lower()
     return s in {"1", "yes", "y", "true", "new", "ថ្មី", "មាន", "មានលក់", "លក់ដាច់", "sale", "fast_sale"}
 
+def clean_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
 
 def normalize_submission(row: dict) -> dict:
     flat = flatten_dict(row)
@@ -308,6 +328,10 @@ def normalize_submission(row: dict) -> dict:
         "gps_text": str(get_any(row, ALIASES["gps_text"], "") or "") or None,
         "gps_latitude": to_float(get_any(row, ALIASES["gps_latitude"])),
         "gps_longitude": to_float(get_any(row, ALIASES["gps_longitude"])),
+        "province": clean_text(get_any(row, ALIASES["province"])),
+        "district": clean_text(get_any(row, ALIASES["district"])),
+        "commune": clean_text(get_any(row, ALIASES["commune"])),
+        "village": clean_text(get_any(row, ALIASES["village"])),
         "key_issue_text": get_any(row, ALIASES["key_issue_text"]),
         "suggestion_text": get_any(row, ALIASES["suggestion_text"]),
         "_flat": flat,  # transient only; sync.py converts it to SQL metric rows, not DB JSON.

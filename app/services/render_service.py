@@ -4,7 +4,9 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
+import tempfile
 import zipfile
+from copy import copy
 from app.core.config import settings
 
 
@@ -39,14 +41,38 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
     if not soffice or not xlsx_path.exists():
         return None
 
+    # LibreOffice cannot shape Khmer correctly when a Latin-only template font
+    # (usually Calibri) remains on Khmer cells. Apply a Khmer-capable font only
+    # to cells that actually contain Khmer, preserving size, bold, colour and
+    # every other workbook style.
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(xlsx_path)
+        changed = False
+        for ws in wb.worksheets:
+            for row in ws.iter_rows():
+                for cell in row:
+                    if isinstance(cell.value, str) and any("\u1780" <= char <= "\u17ff" for char in cell.value):
+                        khmer_font = copy(cell.font)
+                        khmer_font.name = os.getenv("KHMER_REPORT_FONT", "Khmer OS Battambang")
+                        cell.font = khmer_font
+                        changed = True
+        if changed:
+            wb.save(xlsx_path)
+        wb.close()
+    except Exception as exc:
+        print(f"⚠️ Khmer font preparation warning: {exc}")
+
     outdir = xlsx_path.parent
     outdir.mkdir(parents=True, exist_ok=True)
 
+    profile_dir = tempfile.mkdtemp(prefix="kb-libreoffice-")
     cmd = [
         soffice,
         "--headless",
         "--nologo",
         "--nofirststartwizard",
+        f"-env:UserInstallation=file://{profile_dir}",
         "--convert-to",
         "pdf",
         "--outdir",
@@ -54,6 +80,12 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
         str(xlsx_path),
     ]
     try:
+        render_env = os.environ.copy()
+        render_env.update({
+            "LANG": "km_KH.UTF-8",
+            "LC_ALL": "km_KH.UTF-8",
+            "SAL_USE_VCLPLUGIN": "gen",
+        })
         proc = subprocess.run(
             cmd,
             check=False,
@@ -61,9 +93,12 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=render_env,
         )
     except Exception:
         return None
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
 
     pdf = xlsx_path.with_suffix(".pdf")
     return pdf if pdf.exists() and pdf.stat().st_size > 0 else None

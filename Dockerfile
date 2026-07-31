@@ -12,8 +12,12 @@ RUN apt-get update \
         libreoffice-core \
         fonts-noto-core \
         fonts-noto-extra \
+        fonts-khmeros \
+        locales \
         fontconfig \
         ca-certificates \
+    && sed -i 's/^# *km_KH.UTF-8 UTF-8/km_KH.UTF-8 UTF-8/' /etc/locale.gen \
+    && locale-gen \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/*
 

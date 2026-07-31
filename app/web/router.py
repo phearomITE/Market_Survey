@@ -21,13 +21,6 @@ from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, OWN_PRODUCTS
 router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent
 OWN_PRODUCT_SET = set(OWN_PRODUCTS)
-APPROVED_REPORT_DATES = (
-    date(2026, 7, 4),
-    date(2026, 7, 18),
-    date(2026, 7, 25),
-)
-
-
 PRODUCT_CATEGORIES = {
     "CB LITE ORD": "Beer",
     "CBC 4.4 NCP": "Beer",
@@ -113,7 +106,8 @@ def _score_band(score: int) -> str:
 
 
 def _metric_row(submission: KoboSubmission, metric: Any, product_type: str) -> dict[str, Any] | None:
-    if metric.movement_score is None or int(metric.movement_score) <= 0:
+    # Zero is a real business result ("អត់មានលក់"), not a blank rating.
+    if metric.movement_score is None:
         return None
     score = max(0, min(10, int(metric.movement_score)))
     product = metric.product_name
@@ -132,10 +126,10 @@ def _metric_row(submission: KoboSubmission, metric: Any, product_type: str) -> d
         "latitude": submission.gps_latitude,
         "longitude": submission.gps_longitude,
         "location": submission.location_text or "",
-        "province": submission.province or "",
-        "district": submission.district or "",
-        "commune": submission.commune or "",
-        "village": submission.village or "",
+        "province": getattr(submission, "province", None) or "",
+        "district": getattr(submission, "district", None) or "",
+        "commune": getattr(submission, "commune", None) or "",
+        "village": getattr(submission, "village", None) or "",
         "product": product,
         "product_type": product_type,
         "category": PRODUCT_CATEGORIES.get(product, "Competitor" if product_type == "Competitor" else "Other"),
@@ -171,7 +165,6 @@ def map_data(
         .where(
             KoboSubmission.gps_latitude.is_not(None),
             KoboSubmission.gps_longitude.is_not(None),
-            KoboSubmission.report_date.in_(APPROVED_REPORT_DATES),
         )
         .order_by(KoboSubmission.report_date.desc(), KoboSubmission.id.desc())
     )
@@ -348,6 +341,7 @@ def outlet_product_ratings(
 class RatingEdit(BaseModel):
     movement: int = Field(ge=0, le=10)
     stock_status: str = Field(default="", max_length=80)
+    sales_status: str = Field(default="", max_length=80)
     key_issue: str = Field(default="", max_length=5000)
 
 
@@ -365,6 +359,10 @@ def edit_rating(row_id: str, payload: RatingEdit, access: str = Depends(_authori
         raise HTTPException(status_code=404, detail="Rating not found")
     metric.movement_score = payload.movement
     metric.stock_status = payload.stock_status.strip() or None
+    allowed_sales_statuses = {"", "no_sale", "sale", "fast_sale", "អត់មានលក់", "មានលក់", "លក់ដាច់"}
+    if payload.sales_status.strip() not in allowed_sales_statuses:
+        raise HTTPException(status_code=422, detail="Invalid sales status")
+    metric.status = payload.sales_status.strip() or None
     submission.key_issue_text = payload.key_issue.strip() or None
     db.commit()
     return {"status": "updated"}
