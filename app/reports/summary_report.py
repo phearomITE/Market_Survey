@@ -39,20 +39,6 @@ SUMMARY_HEADERS = [
     "Product Competitor",
     "Movement Lead",
 ]
-DETAIL_HEADERS = [
-    "Date",
-    "Region",
-    "Dealer",
-    "Outlet Name",
-    "Phone Number Outlet",
-    "Outlet Type",
-    "Stock Status",
-    "Freshness Date",
-    "0 to 8",
-    "Product Competitor",
-    "Movement Lead",
-    "Link Map",
-]
 SUMMARY_COMPETITORS = ("GB SNOW NCP", "Hanuman LITE NCP", "Greet LITE NCP")
 
 
@@ -203,10 +189,14 @@ def _create_gt_template_report(
         )
 
     wb = load_workbook(template)
-    if "Summary" not in wb.sheetnames or "Detail" not in wb.sheetnames:
-        raise ValueError("GT summary template must contain Summary and Detail sheets.")
+    if "Summary" not in wb.sheetnames:
+        raise ValueError("GT summary template must contain a Summary sheet.")
     ws = wb["Summary"]
-    detail_ws = wb["Detail"]
+    # GT management summary must contain only one worksheet. Removing Detail
+    # immediately also avoids building thousands of unnecessary detail rows.
+    for sheet in list(wb.worksheets):
+        if sheet.title != "Summary":
+            wb.remove(sheet)
 
     submission_rows = list(submissions)
     grouped: dict[str, list] = defaultdict(list)
@@ -328,72 +318,9 @@ def _create_gt_template_report(
             )
         current_row += 1
 
-    # Replace the template's old Detail data while retaining the exact header,
-    # widths, freeze panes, colors and row style.
-    detail_style_row = 2 if detail_ws.max_row >= 2 else 1
-    style_cells = [copy(detail_ws.cell(detail_style_row, column)._style) for column in range(1, 13)]
-    style_heights = detail_ws.row_dimensions[detail_style_row].height
-    if detail_ws.max_row > 1:
-        detail_ws.delete_rows(2, detail_ws.max_row - 1)
-    for column, value in enumerate(DETAIL_HEADERS, start=1):
-        detail_ws.cell(1, column).value = value
-
-    detail_row_number = 2
-    for submission in sorted(
-        submission_rows,
-        key=lambda item: (
-            _clean(getattr(item, "region", "")),
-            _clean(getattr(item, "dealer", "")),
-            _clean(getattr(item, "outlet_name", "")),
-        ),
-    ):
-        own_metrics = _metric_map(submission, "product_metrics")
-        competitor_metrics = _metric_map(submission, "competitor_metrics")
-        own_metric = own_metrics.get("CB LITE NCP")
-        own_score = _score(own_metric)
-        ranked = [
-            (product, value)
-            for product in SUMMARY_COMPETITORS
-            if (value := _score(competitor_metrics.get(_product_key(product)))) is not None
-        ]
-        ranked.sort(key=lambda item: (-item[1], item[0].casefold()))
-        competitor_name, competitor_score = ranked[0] if ranked else (None, None)
-        latitude = getattr(submission, "gps_latitude", None)
-        longitude = getattr(submission, "gps_longitude", None)
-        map_url = (
-            f"https://www.google.com/maps?q={latitude},{longitude}"
-            if latitude is not None and longitude is not None
-            else None
-        )
-        values = [
-            getattr(submission, "report_date", None),
-            getattr(submission, "region", None),
-            getattr(submission, "dealer", None),
-            getattr(submission, "outlet_name", None),
-            getattr(submission, "phone_number", None),
-            getattr(submission, "outlet_type", None),
-            getattr(own_metric, "stock_status", None) if own_metric else None,
-            getattr(own_metric, "bbe_date", None) if own_metric else None,
-            own_score,
-            competitor_name,
-            competitor_score,
-            "Open Map" if map_url else None,
-        ]
-        for column, value in enumerate(values, start=1):
-            cell = detail_ws.cell(detail_row_number, column)
-            cell.value = value
-            cell._style = copy(style_cells[column - 1])
-        if map_url:
-            detail_ws.cell(detail_row_number, 12).hyperlink = map_url
-            detail_ws.cell(detail_row_number, 12).style = "Hyperlink"
-        detail_ws.row_dimensions[detail_row_number].height = style_heights
-        detail_row_number += 1
-
-    # Keep Excel table ranges valid after replacing old template rows.
+    # Keep the Summary table range valid after replacing old template rows.
     for table in ws.tables.values():
         table.ref = f"A1:K{max(current_row - 1, 8)}"
-    for table in detail_ws.tables.values():
-        table.ref = f"A1:L{max(detail_row_number - 1, 1)}"
 
     wb.save(output_path)
     return output_path

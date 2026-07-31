@@ -93,7 +93,7 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
         submissions=[submission],
     )
     workbook = load_workbook(output, data_only=True)
-    assert workbook.sheetnames == ["Summary", "Detail"]
+    assert workbook.sheetnames == ["Summary"]
     ws = workbook["Summary"]
     assert ws["A1"].value == "KB Market Survey - GT Region & Dealer Submission Summary"
     assert [ws.cell(8, column).value for column in range(1, 12)] == [
@@ -117,23 +117,3 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
     assert ws["J9"].value == "GB SNOW NCP"
     assert ws["K9"].value == 9
     assert ws["A1"].fill.fgColor.rgb.endswith("1F4E78")
-
-    detail = workbook["Detail"]
-    assert [detail.cell(1, column).value for column in range(1, 13)] == [
-        "Date",
-        "Region",
-        "Dealer",
-        "Outlet Name",
-        "Phone Number Outlet",
-        "Outlet Type",
-        "Stock Status",
-        "Freshness Date",
-        "0 to 8",
-        "Product Competitor",
-        "Movement Lead",
-        "Link Map",
-    ]
-    assert detail["D2"].value == "Template Test Outlet"
-    assert detail["I2"].value == 8
-    assert detail["J2"].value == "GB SNOW NCP"
-    assert detail["K2"].value == 9
