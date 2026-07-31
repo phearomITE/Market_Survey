@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     template_path: str = "templates/template_by_dealer.xlsx"
     horeca_template_path: str = "templates/template_horeca_products.xlsx"
+    gt_summary_template_path: str = "templates/template_summary_gt.xlsx"
     export_dir: str = "exports"
     auto_sync_before_report: bool = False
     auto_sync_enabled: bool = True
@@ -64,6 +65,11 @@ class Settings(BaseSettings):
     @property
     def horeca_template_file(self) -> Path:
         p = Path(self.horeca_template_path)
+        return p if p.is_absolute() else BASE_DIR / p
+
+    @property
+    def gt_summary_template_file(self) -> Path:
+        p = Path(self.gt_summary_template_path)
         return p if p.is_absolute() else BASE_DIR / p
 
     @property
