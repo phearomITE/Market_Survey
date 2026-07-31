@@ -16,7 +16,6 @@ from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
 from app.reports.movement_exports import create_movement_export
-from app.reports.market_export import create_market_export
 
 ReportType = Literal["GT", "HORECA"]
 
@@ -349,9 +348,7 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
     submissions = get_submissions(None, d, report_type=report_type)
-    # Report commands read the already auto-synced PostgreSQL data first.
-    # A Kobo network sync is only a fallback when the requested date is absent.
-    if not submissions:
+    if settings.auto_sync_before_report or not submissions:
         submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=report_type)
     rows = build_summary_rows(submissions)
     path = create_summary_report(
@@ -368,18 +365,6 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
         f"Generated {report_type} summary for {d}: {submitted_dealers}/65 dealers submitted, "
         f"{total_submissions} submissions, {total_outlets} outlets"
     )
-
-
-def generate_market_export(report_date_str: str):
-    """Create the requested two-sheet market survey workbook."""
-    d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=None)
-    if not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
-    if not submissions:
-        raise ValueError(f"No submissions found for {d}.")
-    path = create_market_export(submissions, d)
-    return path, f"Generated market survey export for {d}: {len(submissions)} outlet submissions"
 
 
 def generate_raw_movement_export(report_date_str: str):

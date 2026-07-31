@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import os
+import threading
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
+import uvicorn
 
 from app.bot.handlers import (
     dashboard_cmd,
@@ -161,13 +164,29 @@ def _build_application() -> Application:
     return app
 
 
-def main() -> None:
-    """Initialize the database, web server, and Telegram bot."""
-    if not settings.telegram_bot_token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is missing")
+def _run_telegram_bot() -> None:
+    """Run Telegram polling in its own thread and event loop.
 
-    if not settings.kobo_token or not settings.kobo_asset_uid:
-        raise RuntimeError("KOBO_TOKEN or KOBO_ASSET_UID is missing")
+    Uvicorn must remain the Railway container's main process so the public
+    /map and /dashboard URLs continue responding even if Telegram polling is
+    stopped by a duplicate-bot conflict or another transient Telegram error.
+    """
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
+
+    try:
+        app = _build_application()
+        print("✅ KB Market Survey Bot running...")
+        app.run_polling(close_loop=False, stop_signals=None)
+    except Exception as exc:
+        print(f"❌ Telegram bot stopped; web map remains available: {exc}")
+    finally:
+        if not event_loop.is_closed():
+            event_loop.close()
+
+
+def main() -> None:
+    """Run the Railway web service and Telegram bot together."""
 
     print(f"🚀 Environment: {settings.app_env}")
     print(f"🗄️ Database target: {_safe_database_target()}")
@@ -176,19 +195,26 @@ def main() -> None:
 
     init_db()
 
-    app = _build_application()
+    if settings.telegram_bot_token:
+        bot_thread = threading.Thread(
+            target=_run_telegram_bot,
+            name="telegram-bot",
+            daemon=True,
+        )
+        bot_thread.start()
+    else:
+        print("⚠️ TELEGRAM_BOT_TOKEN is missing; starting map/dashboard only.")
 
-    print("✅ KB Market Survey Bot running...")
-
-    # Python 3.12 with uvloop does not automatically create an event loop.
-    event_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(event_loop)
-
-    try:
-        app.run_polling(close_loop=False)
-    finally:
-        if not event_loop.is_closed():
-            event_loop.close()
+    port = int(os.getenv("PORT", "8080"))
+    print(f"🌐 Movement map and dashboard listening on PORT={port}")
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
 
 
 if __name__ == "__main__":

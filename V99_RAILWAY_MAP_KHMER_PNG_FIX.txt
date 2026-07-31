@@ -1,0 +1,66 @@
+KB Market Survey V99 — Railway Map/Dashboard + Khmer PNG Fix
+================================================================
+
+What this fixes
+---------------
+1. Railway now keeps FastAPI/Uvicorn as the main service on Railway's PORT.
+2. Telegram polling runs in a background thread, so a Telegram conflict cannot
+   take the public map/dashboard web server offline.
+3. /health is available for Railway health checks.
+4. PNG generation creates a temporary render-only workbook and applies the
+   Khmer OS font to every Khmer cell before LibreOffice exports the PDF.
+5. The original downloadable Excel workbook is not modified.
+6. The Docker image installs Khmer OS fonts, Khmer LibreOffice localization,
+   and the km_KH.UTF-8 locale.
+
+Apply
+-----
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V99_RAILWAY_MAP_KHMER_PNG_FIX.zip \
+  -d .
+
+Validate
+--------
+python -m py_compile \
+  app/bot/run_bot.py \
+  app/services/render_service.py \
+  app/main.py \
+  app/web/router.py
+
+Commit and deploy
+-----------------
+git add \
+  Dockerfile \
+  app/bot/run_bot.py \
+  app/services/render_service.py \
+  app/main.py \
+  tests/test_v99_web_and_khmer_render.py \
+  V99_RAILWAY_MAP_KHMER_PNG_FIX.txt
+
+git commit -m "Fix Railway map service and Khmer PNG rendering"
+git push origin main
+
+Railway checks after deployment
+-------------------------------
+1. Deploy log must contain:
+   Movement map and dashboard listening on PORT=...
+   Uvicorn running on http://0.0.0.0:...
+
+2. Open:
+   https://YOUR-RAILWAY-DOMAIN/health
+
+   Expected:
+   {"status":"ok"}
+
+3. Open the existing protected map and dashboard links.
+
+4. Generate a new report PNG. Old PNG files are not changed. The new PNG
+   should render Khmer words such as "គ្រប់" as one correctly shaped word.
+
+Optional Railway variable
+-------------------------
+PNG_KHMER_FONT_NAME=Khmer OS
+
+This is already the default and normally does not need to be added.

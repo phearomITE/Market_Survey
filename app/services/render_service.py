@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from copy import copy
 from pathlib import Path
 import os
 import shutil
 import subprocess
+import tempfile
 import zipfile
 from app.core.config import settings
 
@@ -32,8 +34,41 @@ def _find_soffice() -> str | None:
     return None
 
 
+def _contains_khmer(value: object) -> bool:
+    return isinstance(value, str) and any("\u1780" <= char <= "\u17ff" for char in value)
+
+
+def _create_khmer_safe_render_copy(source: Path, destination: Path) -> int:
+    """Save a rendering-only workbook with a font that shapes Khmer correctly.
+
+    The user's generated Excel file is not changed. LibreOffice receives this
+    temporary copy, preventing fallback fonts from separating Khmer coeng
+    sequences such as the letters in "គ្រប់".
+    """
+    from openpyxl import load_workbook
+
+    font_name = os.getenv("PNG_KHMER_FONT_NAME", "Khmer OS").strip() or "Khmer OS"
+    workbook = load_workbook(source)
+    changed = 0
+
+    for worksheet in workbook.worksheets:
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if not _contains_khmer(cell.value):
+                    continue
+                rendered_font = copy(cell.font)
+                rendered_font.name = font_name
+                rendered_font.scheme = None
+                cell.font = rendered_font
+                changed += 1
+
+    workbook.save(destination)
+    workbook.close()
+    return changed
+
+
 def excel_to_pdf(xlsx_path: Path) -> Path | None:
-    """Convert Excel workbook to PDF. Requires LibreOffice locally."""
+    """Convert Excel workbook to PDF using a Khmer-safe temporary render copy."""
     xlsx_path = Path(xlsx_path)
     soffice = _find_soffice()
     if not soffice or not xlsx_path.exists():
@@ -41,32 +76,55 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
 
     outdir = xlsx_path.parent
     outdir.mkdir(parents=True, exist_ok=True)
+    final_pdf = xlsx_path.with_suffix(".pdf")
 
-    cmd = [
-        soffice,
-        "--headless",
-        "--nologo",
-        "--nofirststartwizard",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        str(outdir),
-        str(xlsx_path),
-    ]
     try:
-        proc = subprocess.run(
-            cmd,
-            check=False,
-            timeout=180,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    except Exception:
+        with tempfile.TemporaryDirectory(prefix="kb-khmer-render-") as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            render_xlsx = temp_dir / xlsx_path.name
+
+            try:
+                changed = _create_khmer_safe_render_copy(xlsx_path, render_xlsx)
+                print(f"🔤 Khmer-safe PNG render copy: {changed} cells")
+            except Exception as exc:
+                print(f"⚠️ Khmer render-copy preparation failed; using original workbook: {exc}")
+                shutil.copy2(xlsx_path, render_xlsx)
+
+            cmd = [
+                soffice,
+                "--headless",
+                "--nologo",
+                "--nofirststartwizard",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(temp_dir),
+                str(render_xlsx),
+            ]
+            proc = subprocess.run(
+                cmd,
+                check=False,
+                timeout=180,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={
+                    **os.environ,
+                    "LANG": os.getenv("LANG", "km_KH.UTF-8"),
+                    "LC_ALL": os.getenv("LC_ALL", "km_KH.UTF-8"),
+                },
+            )
+            rendered_pdf = render_xlsx.with_suffix(".pdf")
+            if proc.returncode != 0 or not rendered_pdf.exists():
+                print(f"⚠️ LibreOffice PDF conversion failed: {proc.stderr.strip()}")
+                return None
+
+            shutil.copy2(rendered_pdf, final_pdf)
+    except Exception as exc:
+        print(f"⚠️ Excel-to-PDF conversion failed: {exc}")
         return None
 
-    pdf = xlsx_path.with_suffix(".pdf")
-    return pdf if pdf.exists() and pdf.stat().st_size > 0 else None
+    return final_pdf if final_pdf.exists() and final_pdf.stat().st_size > 0 else None
 
 
 def _crop_white_border(png_path: Path, padding: int = 35) -> None:

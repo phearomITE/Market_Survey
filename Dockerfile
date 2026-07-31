@@ -4,23 +4,27 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive \
-    HOME=/tmp \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    KHMER_PDF_FONT="Noto Sans Khmer" \
-    LIBREOFFICE_UNO_PYTHON=/usr/bin/python3
+    HOME=/tmp
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
-        python3-uno \
+        libreoffice-l10n-km \
+        fonts-khmeros \
         fonts-noto-core \
         fonts-noto-extra \
         fontconfig \
+        locales \
         ca-certificates \
+    && sed -i 's/^# *km_KH.UTF-8 UTF-8/km_KH.UTF-8 UTF-8/' /etc/locale.gen \
+    && locale-gen \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/*
+
+ENV LANG=km_KH.UTF-8 \
+    LC_ALL=km_KH.UTF-8 \
+    PNG_KHMER_FONT_NAME="Khmer OS"
 
 WORKDIR /app
 
