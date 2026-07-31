@@ -1,0 +1,27 @@
+KB Market Survey V92
+
+Fixed Telegram commands:
+
+1. /raw_movement 2026-07-25
+   Exports all available own and competitor product movement columns.
+   Blank answers stay blank and genuine user-selected zeroes remain 0.
+
+2. /export movement_multi 2026-07-04 2026-07-18 2026-07-25
+   Exports one Beer movement workbook for all requested dates.
+   Product columns are created from every Beer product found in the data.
+
+3. /summary GT 2026-07-25
+   Produces the simple one-sheet GT Region & Dealer Submission Summary:
+   KPI block, dealer rows, and region total rows only.
+   Movement comparison columns and the Detail sheet are not included.
+
+Validation:
+
+python -m py_compile \
+  app/reports/movement_exports.py \
+  app/reports/summary_report.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+python -m pytest -q
