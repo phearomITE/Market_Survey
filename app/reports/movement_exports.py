@@ -59,7 +59,9 @@ SUMMARY_HEADERS = [
     "Coffe,Bakery", "Canteen", "Sport Club", "Motor Shop", "Product",
     "WS", "DS", "WM", "TL", "LE", "CB", "MS", "Movement",
 ]
-RAW_HEADERS = ["Date", "Region", "Dealer", "Product", "Movement Rate"]
+RAW_HEADERS = [
+    "Date", "Region", "Dealer", "Outlet Type", "Product", "Movement Rate"
+]
 HORECA_OUTLET_TYPES = {
     "Local Eat", "Coffee,Bakery", "Canteen", "Sport Club", "Motor Shop", "Local Drink",
 }
@@ -221,7 +223,7 @@ def create_raw_movement_long_export(
     report_date: date,
     output_path: Path | None = None,
 ) -> Path:
-    """Stream submitted raw product movement values.
+    """Stream submitted GT and HORECA raw product movement values.
 
     Summary/control outlets are excluded, but raw zero remains zero. The
     minimum movement 1 rule belongs only to final report calculations and must
@@ -237,7 +239,9 @@ def create_raw_movement_long_export(
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("Raw_Movement")
     ws.freeze_panes = "A2"
-    for column, width in {"A": 13, "B": 10, "C": 12, "D": 28, "E": 16}.items():
+    for column, width in {
+        "A": 13, "B": 10, "C": 12, "D": 20, "E": 28, "F": 16
+    }.items():
         ws.column_dimensions[column].width = width
 
     header_fill = PatternFill("solid", fgColor="1F4E78")
@@ -262,11 +266,12 @@ def create_raw_movement_long_export(
                 getattr(submission, "report_date", None),
                 getattr(submission, "region", None),
                 getattr(submission, "dealer", None),
+                getattr(submission, "outlet_type", None),
                 product,
                 int(scores.get(product, 0) or 0),
             ])
             written += 1
-    ws.auto_filter.ref = f"A1:E{written}"
+    ws.auto_filter.ref = f"A1:F{written}"
 
     settings.export_path.mkdir(parents=True, exist_ok=True)
     output_path = output_path or settings.export_path / f"Raw_Movement_GENERAL_{report_date}.xlsx"

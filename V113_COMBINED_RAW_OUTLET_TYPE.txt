@@ -1,0 +1,59 @@
+KB Market Survey V113 - Combined Raw Movement with Outlet Type
+
+Changes
+1. Restores one command: /raw_movement YYYY-MM-DD
+2. Removes /raw_movement_GT and /raw_movement_HORECA command handlers.
+3. The combined raw export contains both GT and HORECA submissions.
+4. Raw_Movement columns are exactly:
+   Date, Region, Dealer, Outlet Type, Product, Movement Rate
+5. Submitted movement zero remains zero in raw movement.
+6. Summary/control outlet name បូកសរុបរួម remains excluded.
+7. /summary GT and /summary HORECA remain available and unchanged.
+
+Git Bash deployment
+
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V113_COMBINED_RAW_OUTLET_TYPE_PATCH.zip \
+  -d .
+
+python -m py_compile \
+  app/reports/aggregator.py \
+  app/reports/movement_exports.py \
+  app/reports/summary_report.py \
+  app/reports/excel_report.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/main.py \
+  app/web/router.py
+
+python -m unittest \
+  tests.test_v104_daily_exports \
+  tests.test_v105_business_movement -v
+
+git status
+
+git add \
+  app/reports/aggregator.py \
+  app/reports/movement_exports.py \
+  app/reports/summary_report.py \
+  app/reports/excel_report.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  templates/template_general.xlsx \
+  templates/template_gt_summary.xlsx \
+  tests/test_v104_daily_exports.py \
+  tests/test_v105_business_movement.py \
+  V113_COMBINED_RAW_OUTLET_TYPE.txt
+
+git commit -m "Restore combined raw movement with outlet type"
+
+git push origin main
+
+Telegram tests
+/raw_movement 2026-07-25
+/summary GT 2026-07-25
+/summary HORECA 2026-07-25

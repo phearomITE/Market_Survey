@@ -79,7 +79,7 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertEqual(summary[-1], 10)
             wb.close()
 
-    def test_raw_export_has_five_columns(self):
+    def test_raw_export_has_six_columns_including_outlet_type(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "raw.xlsx"
             self.exports.create_raw_movement_long_export([self.submission], date(2026, 7, 25), output)
@@ -87,10 +87,11 @@ class V104DailyExportTests(unittest.TestCase):
             ws = wb["Raw_Movement"]
             first_row = [cell.value for cell in next(ws.iter_rows(max_row=1))]
             self.assertEqual(first_row, self.exports.RAW_HEADERS)
-            self.assertEqual(len(first_row), 5)
+            self.assertEqual(len(first_row), 6)
             data_rows = list(ws.iter_rows(min_row=2, values_only=True))
-            own_row = next(row for row in data_rows if row[3] == "OWN")
-            self.assertEqual(own_row[4], 7)
+            own_row = next(row for row in data_rows if row[4] == "OWN")
+            self.assertEqual(own_row[3], "Drink Shop")
+            self.assertEqual(own_row[5], 7)
             wb.close()
 
     def test_raw_export_preserves_zero_and_skips_summary(self):
@@ -119,8 +120,8 @@ class V104DailyExportTests(unittest.TestCase):
                 wb["Raw_Movement"].iter_rows(min_row=2, values_only=True)
             )
             self.assertTrue(rows)
-            self.assertTrue(all(row[4] == 0 for row in rows))
-            self.assertTrue(all(row[4] != 10 for row in rows))
+            self.assertTrue(all(row[5] == 0 for row in rows))
+            self.assertTrue(all(row[5] != 10 for row in rows))
             wb.close()
 
     def test_horeca_raw_export_contains_only_horeca_product_set(self):
@@ -141,12 +142,18 @@ class V104DailyExportTests(unittest.TestCase):
             )
             wb = load_workbook(output, read_only=True)
             products = {
-                row[3]
+                row[4]
                 for row in wb["Raw_Movement"].iter_rows(
                     min_row=2, values_only=True
                 )
             }
             self.assertEqual(products, {"HOWN", "HCOMP"})
+            self.assertTrue(all(
+                row[3] == "Local Eat"
+                for row in wb["Raw_Movement"].iter_rows(
+                    min_row=2, values_only=True
+                )
+            ))
             wb.close()
 
 
