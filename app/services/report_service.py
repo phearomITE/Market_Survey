@@ -371,16 +371,24 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
     )
 
 
-def generate_raw_movement_export(report_date_str: str):
-    """Export every submitted product movement for one report date."""
+def generate_raw_movement_export(report_date_str: str, report_type: ReportType | str):
+    """Export raw movement for exactly one GT or HORECA report type."""
+    report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=None)
+    submissions = get_submissions(None, d, report_type=report_type)
     if not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
+        submissions = _sync_and_retry_if_empty(
+            None, d, submissions, report_type=report_type
+        )
     if not submissions:
-        raise ValueError(f"No submissions found for {d}.")
-    path = create_raw_movement_long_export(submissions, d)
-    return path, f"Generated raw movement for {d}: {len(submissions)} outlet submissions"
+        raise ValueError(f"No {report_type} submissions found for {d}.")
+    output_path = settings.export_path / f"Raw_Movement_{report_type}_{d}.xlsx"
+    path = create_raw_movement_long_export(submissions, d, output_path)
+    return (
+        path,
+        f"Generated {report_type} raw movement for {d}: "
+        f"{len(submissions)} outlet submissions",
+    )
 
 
 def generate_daily_data_export(report_date_str: str):

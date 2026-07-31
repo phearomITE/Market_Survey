@@ -123,6 +123,32 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertTrue(all(row[4] != 10 for row in rows))
             wb.close()
 
+    def test_horeca_raw_export_contains_only_horeca_product_set(self):
+        horeca = SimpleNamespace(**vars(self.submission))
+        horeca.report_type = "HORECA"
+        horeca.outlet_type = "Local Eat"
+        horeca.product_metrics = [
+            SimpleNamespace(product_name="HOWN", movement_score=4)
+        ]
+        horeca.competitor_metrics = [
+            SimpleNamespace(product_name="HCOMP", movement_score=6)
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "raw_horeca.xlsx"
+            self.exports.create_raw_movement_long_export(
+                [horeca], date(2026, 7, 25), output
+            )
+            wb = load_workbook(output, read_only=True)
+            products = {
+                row[3]
+                for row in wb["Raw_Movement"].iter_rows(
+                    min_row=2, values_only=True
+                )
+            }
+            self.assertEqual(products, {"HOWN", "HCOMP"})
+            wb.close()
+
 
 if __name__ == "__main__":
     unittest.main()

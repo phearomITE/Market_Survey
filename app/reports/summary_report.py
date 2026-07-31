@@ -43,6 +43,20 @@ SUMMARY_HEADERS = [
     "Movement Lead",
 ]
 SUMMARY_COMPETITORS = ("GB SNOW NCP", "Hanuman LITE NCP", "Greet LITE NCP")
+SUMMARY_MOVEMENT_CONFIG = {
+    "GT": {
+        "own": "CB LITE NCP",
+        "competitors": SUMMARY_COMPETITORS,
+    },
+    "HORECA": {
+        "own": "CBL Pint",
+        "competitors": (
+            "Tiger Crystal Pint",
+            "HANUMAN LITE Pint",
+            "Vathanac LITE Pint",
+        ),
+    },
+}
 
 
 def _clean(value) -> str:
@@ -110,6 +124,7 @@ def _normal_round(value: float | None) -> int | None:
 
 def _dealer_movement(
     submissions: Iterable,
+    report_type: str = "GT",
     wide_map: dict | None = None,
 ) -> dict:
     submission_rows = list(submissions)
@@ -121,11 +136,14 @@ def _dealer_movement(
             members.add(member)
 
     agg = aggregate_submissions(submission_rows, wide_map=wide_map)
-    own_data = (agg.get("products") or {}).get("CB LITE NCP") or {}
+    config = SUMMARY_MOVEMENT_CONFIG.get(
+        str(report_type or "GT").upper(), SUMMARY_MOVEMENT_CONFIG["GT"]
+    )
+    own_data = (agg.get("products") or {}).get(config["own"]) or {}
     own_display = own_data.get("mov")
     ranked_competitors = [
         (product, (agg.get("competitors") or {}).get(product, {}).get("mov"))
-        for product in SUMMARY_COMPETITORS
+        for product in config["competitors"]
         if (agg.get("competitors") or {}).get(product, {}).get("mov") == 10
     ]
     ranked_competitors.sort(key=lambda item: (-item[1], item[0].casefold()))
@@ -176,7 +194,12 @@ def _create_gt_template_report(
     submissions: Iterable,
     report_date: date,
     output_path: Path,
+    report_type: str = "GT",
 ) -> Path:
+    report_type = str(report_type or "GT").upper()
+    config = SUMMARY_MOVEMENT_CONFIG.get(
+        report_type, SUMMARY_MOVEMENT_CONFIG["GT"]
+    )
     template = settings.gt_summary_template_file
     if not template.exists():
         raise FileNotFoundError(
@@ -206,7 +229,9 @@ def _create_gt_template_report(
     # that transfer was the main reason /summary could wait several minutes.
     wide_map = {}
     movements = {
-        dealer: _dealer_movement(dealer_rows, wide_map=wide_map)
+        dealer: _dealer_movement(
+            dealer_rows, report_type=report_type, wide_map=wide_map
+        )
         for dealer, dealer_rows in grouped.items()
     }
 
@@ -215,7 +240,9 @@ def _create_gt_template_report(
     total_submissions = sum(row["total_submissions"] for row in rows)
     total_outlets = sum(row["total_outlets"] for row in rows)
 
-    ws["A1"] = "KB Market Survey - GT Region & Dealer Submission Summary"
+    ws["A1"] = (
+        f"KB Market Survey - {report_type} Region & Dealer Submission Summary"
+    )
     ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
     ws["A4"] = "Total Regions"
     ws["B4"] = "Total Dealers"
@@ -225,9 +252,9 @@ def _create_gt_template_report(
     ws["F4"] = "<5"
     ws["G4"] = "5 to 8"
     ws["H4"] = "9 to 10"
-    ws["I4"] = "GB SNOW NCP"
-    ws["J4"] = "Hanuman LITE NCP"
-    ws["K4"] = "Greet LITE NCP"
+    ws["I4"] = config["competitors"][0]
+    ws["J4"] = config["competitors"][1]
+    ws["K4"] = config["competitors"][2]
 
     own_display_scores = [
         movement["own_display"]
@@ -247,10 +274,10 @@ def _create_gt_template_report(
     ws["F5"] = sum(score < 5 for score in own_display_scores)
     ws["G5"] = sum(5 <= score <= 8 for score in own_display_scores)
     ws["H5"] = sum(score >= 9 for score in own_display_scores)
-    ws["I5"] = competitor_counts["GB SNOW NCP"]
-    ws["J5"] = competitor_counts["Hanuman LITE NCP"]
-    ws["K5"] = competitor_counts["Greet LITE NCP"]
-    ws["G7"] = "Movement CB LITE NCP compared with competitors"
+    ws["I5"] = competitor_counts[config["competitors"][0]]
+    ws["J5"] = competitor_counts[config["competitors"][1]]
+    ws["K5"] = competitor_counts[config["competitors"][2]]
+    ws["G7"] = f"Movement {config['own']} compared with competitors"
 
     for column, value in enumerate(SUMMARY_HEADERS, start=1):
         ws.cell(8, column).value = value
@@ -435,12 +462,13 @@ def create_summary_report(
     report_type = str(report_type or "GT").upper()
     output_path = output_path or settings.export_path / f"Market_Survey_Summary_{report_type}_{report_date}.xlsx"
 
-    if report_type == "GT":
+    if report_type in {"GT", "HORECA"}:
         return _create_gt_template_report(
             rows,
             list(submissions or []),
             report_date,
             output_path,
+            report_type=report_type,
         )
 
     wb = Workbook()

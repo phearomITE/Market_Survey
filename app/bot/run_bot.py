@@ -15,7 +15,8 @@ from app.bot.handlers import (
     report_cmd,
     report_multi_cmd,
     report_today_cmd,
-    raw_movement_cmd,
+    raw_movement_gt_cmd,
+    raw_movement_horeca_cmd,
     start,
     status_cmd,
     summary_cmd,
@@ -153,7 +154,8 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
-    app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
+    app.add_handler(CommandHandler("raw_movement_gt", raw_movement_gt_cmd))
+    app.add_handler(CommandHandler("raw_movement_horeca", raw_movement_horeca_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
     app.add_handler(CommandHandler("dashboard", dashboard_cmd))

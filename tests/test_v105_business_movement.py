@@ -161,6 +161,20 @@ class V105BusinessMovementTests(unittest.TestCase):
         source = Path("app/reports/summary_report.py").read_text(encoding="utf-8")
         self.assertIn('.get("mov") == 10', source)
 
+    def test_horeca_summary_uses_horeca_movement_group(self):
+        source = Path("app/reports/summary_report.py").read_text(encoding="utf-8")
+        self.assertIn('"own": "CBL Pint"', source)
+        self.assertIn('"Tiger Crystal Pint"', source)
+        self.assertIn('"HANUMAN LITE Pint"', source)
+        self.assertIn('"Vathanac LITE Pint"', source)
+        self.assertIn('report_type in {"GT", "HORECA"}', source)
+
+    def test_new_raw_commands_are_registered(self):
+        source = Path("app/bot/run_bot.py").read_text(encoding="utf-8")
+        self.assertIn('CommandHandler("raw_movement_gt"', source)
+        self.assertIn('CommandHandler("raw_movement_horeca"', source)
+        self.assertNotIn('CommandHandler("raw_movement",', source)
+
     def test_all_horeca_template_products_use_movement_flow(self):
         expected = {
             "CB Pint",

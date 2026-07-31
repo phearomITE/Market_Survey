@@ -37,7 +37,8 @@ Commands:
 /report_today 2026-06-06
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
-/raw_movement 2026-07-25
+/raw_movement_GT 2026-07-25
+/raw_movement_HORECA 2026-07-25
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /map
@@ -48,7 +49,8 @@ Commands:
 /report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
-/raw_movement = export all product movement columns for one date.
+/raw_movement_GT = export raw GT product movement for one date.
+/raw_movement_HORECA = export raw HORECA product movement for one date.
 /export movement_multi = export Beer product movement for multiple dates.
 
 Logic:
@@ -326,20 +328,25 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(f"❌ Summary failed: {e}")
 
 
-async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _raw_movement_by_type(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    report_type: str,
+):
     if len(context.args) != 1:
         await update.effective_message.reply_text(
-            "Usage: /raw_movement 2026-07-25"
+            f"Usage: /raw_movement_{report_type} 2026-07-25"
         )
         return
     report_date = context.args[0].strip()
     wait = await update.effective_message.reply_text(
-        f"📦 Generating raw movement for {report_date}..."
+        f"📦 Generating {report_type} raw movement for {report_date}..."
     )
     try:
         path, text = await asyncio.to_thread(
             generate_raw_movement_export,
             report_date,
+            report_type,
         )
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
         with path.open("rb") as file_handle:
@@ -348,6 +355,14 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Raw movement export failed: {exc}")
+
+
+async def raw_movement_gt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _raw_movement_by_type(update, context, "GT")
+
+
+async def raw_movement_horeca_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _raw_movement_by_type(update, context, "HORECA")
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
