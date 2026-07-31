@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from dataclasses import dataclass, field
+from pathlib import Path
+from threading import Lock
+from time import perf_counter
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -10,30 +14,18 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import sync_kobo
-from app.reports.aggregator import aggregate_submissions
+from app.reports.aggregator import (
+    aggregate_submissions,
+    build_bulk_dealer_aggregates,
+    bulk_snapshot_signature,
+)
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
 from app.reports.data_export import create_data_export
-from app.reports.raw_movement_export import create_raw_movement_export
-from app.reports.movement_multi_export import (
-    build_movement_rows,
-    create_movement_multi_workbook,
-    parse_movement_multi_dates,
-)
 
 ReportType = Literal["GT", "HORECA"]
-_generated_cache: dict[tuple, tuple] = {}
-
-
-def _snapshot_key(kind: str, submissions: list[KoboSubmission], *parts: object) -> tuple:
-    return (
-        kind,
-        *parts,
-        len(submissions),
-        max((int(getattr(item, "id", 0) or 0) for item in submissions), default=0),
-    )
 
 CHANNEL_SPECIALIST_OUTLET_TYPES = {
     "Local Eat",
@@ -43,6 +35,36 @@ CHANNEL_SPECIALIST_OUTLET_TYPES = {
     "Motor Shop",
     "Local Drink",
 }
+
+
+@dataclass(slots=True)
+class BulkSubmissionRow:
+    """Small row used by summary/export without loading thousands of metrics."""
+
+    id: int
+    submission_id: str
+    submission_time: Any
+    report_date: Any
+    region: Any
+    dealer: Any
+    group_no: Any
+    member_no: Any
+    total_outlet_visit_target: Any
+    outlet_name: Any
+    outlet_type: Any
+    phone_number: Any
+    location_text: Any
+    gps_text: Any
+    gps_latitude: Any
+    gps_longitude: Any
+    updated_at: Any
+    product_metrics: tuple[Any, ...] = field(default_factory=tuple)
+    competitor_metrics: tuple[Any, ...] = field(default_factory=tuple)
+    ring_pull_metrics: tuple[Any, ...] = field(default_factory=tuple)
+
+
+_BULK_FILE_CACHE: dict[tuple[str, str, tuple[Any, ...]], tuple[Path, str]] = {}
+_BULK_FILE_CACHE_LOCK = Lock()
 
 
 def normalize_report_type(value: str | None) -> ReportType:
@@ -173,6 +195,67 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
     if report_type:
         rows = _filter_by_report_type(rows, report_type)
     return rows
+
+
+def get_bulk_submissions(report_date: date, report_type: ReportType | None = None) -> list[BulkSubmissionRow]:
+    """Fetch only the columns needed by bulk commands in one SQL query."""
+    init_db()
+    with SessionLocal() as db:
+        stmt = (
+            select(
+                KoboSubmission.id,
+                KoboSubmission.submission_id,
+                KoboSubmission.submission_time,
+                KoboSubmission.report_date,
+                KoboSubmission.region,
+                KoboSubmission.dealer,
+                KoboSubmission.group_no,
+                KoboSubmission.member_no,
+                KoboSubmission.total_outlet_visit_target,
+                KoboSubmission.outlet_name,
+                KoboSubmission.outlet_type,
+                KoboSubmission.phone_number,
+                KoboSubmission.location_text,
+                KoboSubmission.gps_text,
+                KoboSubmission.gps_latitude,
+                KoboSubmission.gps_longitude,
+                KoboSubmission.updated_at,
+            )
+            .where(KoboSubmission.report_date == report_date)
+            .order_by(KoboSubmission.id)
+        )
+        rows = [BulkSubmissionRow(*row) for row in db.execute(stmt).all()]
+    return _filter_by_report_type(rows, report_type) if report_type else rows
+
+
+def _bulk_rows_with_empty_retry(d: date, report_type: ReportType | None = None):
+    rows = get_bulk_submissions(d, report_type=report_type)
+    if rows:
+        return rows, ""
+    warning = ""
+    try:
+        sync_kobo(
+            dealer=None,
+            report_date=d,
+            wait_if_running=True,
+            timeout_seconds=settings.report_sync_wait_seconds,
+        )
+    except Exception as exc:
+        warning = f" Sync warning: {exc}"
+    return get_bulk_submissions(d, report_type=report_type), warning
+
+
+def _cached_bulk_file(kind: str, report_type: str, signature: tuple[Any, ...]):
+    with _BULK_FILE_CACHE_LOCK:
+        entry = _BULK_FILE_CACHE.get((kind, report_type, signature))
+        return entry if entry and entry[0].exists() else None
+
+
+def _store_bulk_file(kind: str, report_type: str, signature: tuple[Any, ...], path: Path, message: str):
+    with _BULK_FILE_CACHE_LOCK:
+        _BULK_FILE_CACHE[(kind, report_type, signature)] = (path, message)
+        while len(_BULK_FILE_CACHE) > 8:
+            _BULK_FILE_CACHE.pop(next(iter(_BULK_FILE_CACHE)))
 
 
 def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, report_type: ReportType | None = None) -> list:
@@ -361,82 +444,50 @@ def generate_multi_dealer_reports(
 
 
 def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_date_str: str | None = None):
+    started = perf_counter()
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=report_type)
-    if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=report_type)
-    cache_key = _snapshot_key("summary", submissions, report_type, d.isoformat())
-    cached = _generated_cache.get(cache_key)
-    if cached and cached[0].exists():
-        return cached
+    submissions, sync_warning = _bulk_rows_with_empty_retry(d, report_type=report_type)
+    if not submissions:
+        return None, f"No {report_type} submissions found for {d}.{sync_warning}"
+    signature = bulk_snapshot_signature(submissions)
+    cached = _cached_bulk_file("summary", report_type, signature)
+    if cached:
+        return cached[0], cached[1] + " (cached)"
     rows = build_summary_rows(submissions)
     path = create_summary_report(rows, d, report_type=report_type)
     submitted_dealers = sum(1 for r in rows if r.get("total_submissions", 0) > 0)
     total_submissions = sum(r.get("total_submissions", 0) for r in rows)
     total_outlets = sum(r.get("total_outlets", 0) for r in rows)
-    result = (
-        path,
+    elapsed = perf_counter() - started
+    message = (
         f"Generated {report_type} summary for {d}: {submitted_dealers}/65 dealers submitted, "
-        f"{total_submissions} submissions, {total_outlets} outlets"
+        f"{total_submissions} submissions, {total_outlets} outlets in {elapsed:.1f}s.{sync_warning}"
     )
-    _generated_cache[cache_key] = result
-    return result
+    _store_bulk_file("summary", report_type, signature, path, message)
+    return path, message
 
 
-def generate_data_export(report_date_str: str):
+def generate_data_export(report_date_str: str | None = None):
+    """Create /export using one lightweight DB snapshot and one wide-table load."""
+    started = perf_counter()
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=None)
+    submissions, sync_warning = _bulk_rows_with_empty_retry(d)
     if not submissions:
-        return None, f"No submissions found for {d}."
-    key = _snapshot_key("export", submissions, d.isoformat())
-    cached = _generated_cache.get(key)
-    if cached and cached[0].exists():
-        return cached
-    path, stats = create_data_export(submissions, d)
-    result = (
-        path,
-        f"Generated data export for {d}: {stats['location_rows']} outlets and "
-        f"{stats['summary_rows']} product rows.",
+        return None, f"No submissions found for {d}.{sync_warning}"
+
+    signature = bulk_snapshot_signature(submissions)
+    cached = _cached_bulk_file("export", "ALL", signature)
+    if cached:
+        return cached[0], cached[1] + " (cached)"
+
+    dealer_aggregates, cache_hit = build_bulk_dealer_aggregates(submissions)
+    path, stats = create_data_export(submissions, d, dealer_aggregates=dealer_aggregates)
+    elapsed = perf_counter() - started
+    message = (
+        f"Generated data export for {d}: {stats['location_rows']} outlet locations, "
+        f"{stats['dealer_groups']} dealer groups, {stats['summary_rows']} product rows "
+        f"in {elapsed:.1f}s (analytics cache {'hit' if cache_hit else 'miss'}).{sync_warning}"
     )
-    _generated_cache[key] = result
-    return result
-
-
-def generate_raw_movement_export(report_date_str: str):
-    d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=None)
-    if not submissions:
-        return None, f"No submissions found for {d}."
-    key = _snapshot_key("raw_movement", submissions, d.isoformat())
-    cached = _generated_cache.get(key)
-    if cached and cached[0].exists():
-        return cached
-    path, row_count = create_raw_movement_export(submissions, d)
-    result = (path, f"Generated raw movement for {d}: {row_count} product ratings.")
-    _generated_cache[key] = result
-    return result
-
-
-def generate_movement_multi_export(date_values: list[str] | tuple[str, ...]):
-    report_dates = parse_movement_multi_dates(date_values)
-    submissions: list[KoboSubmission] = []
-    for report_date in report_dates:
-        submissions.extend(get_submissions(None, report_date, report_type=None))
-    if not submissions:
-        return None, "No submissions found for the selected dates."
-    key = _snapshot_key(
-        "movement_multi",
-        submissions,
-        *(item.isoformat() for item in report_dates),
-    )
-    cached = _generated_cache.get(key)
-    if cached and cached[0].exists():
-        return cached
-    path = create_movement_multi_workbook(submissions, report_dates)
-    result = (
-        path,
-        f"Generated movement_multi with {len(build_movement_rows(submissions))} outlet rows.",
-    )
-    _generated_cache[key] = result
-    return result
+    _store_bulk_file("export", "ALL", signature, path, message)
+    return path, message

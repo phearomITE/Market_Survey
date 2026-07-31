@@ -1,0 +1,46 @@
+KB Market Survey V91 - Fast GT Summary and Export
+
+Changes
+1. /summary GT YYYY-MM-DD creates the approved one-sheet Region/Dealer summary.
+2. /summary no longer runs a full Kobo sync before generating when the date is already in PostgreSQL.
+3. /export YYYY-MM-DD is registered again.
+4. /export loads the Kobo wide table once, calculates all dealers in one pass, and caches unchanged results.
+5. Repeating the same command for an unchanged date reuses the generated workbook.
+
+Deploy from Git Bash
+
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V91_FAST_SUMMARY_EXPORT_FIX.zip \
+  -d .
+
+python -m py_compile \
+  app/services/report_service.py \
+  app/reports/aggregator.py \
+  app/reports/data_export.py \
+  app/reports/summary_report.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git add \
+  app/services/report_service.py \
+  app/reports/aggregator.py \
+  app/reports/data_export.py \
+  app/reports/member_mode.py \
+  app/reports/summary_report.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  templates/Template_Data_Survey.xlsx \
+  tests/test_v91_fast_gt_summary_export.py \
+  V91_FAST_SUMMARY_EXPORT_DEPLOYMENT.txt
+
+git commit -m "Speed up GT summary and data export"
+git push origin main
+
+After Railway is Active, test:
+
+/summary GT 2026-07-25
+/export 2026-07-25
+
+Run /sync_kobo first only when you require a brand-new Kobo refresh immediately.
