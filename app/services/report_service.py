@@ -15,6 +15,7 @@ from app.reports.excel_report import create_single_report, create_all_dealer_rep
 from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
+from app.reports.gt_submission_summary import create_gt_submission_summary
 from app.reports.movement_exports import create_movement_export
 
 ReportType = Literal["GT", "HORECA"]
@@ -359,6 +360,34 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
         path,
         f"Generated {report_type} summary for {d}: {submitted_dealers}/65 dealers submitted, "
         f"{total_submissions} submissions, {total_outlets} outlets"
+    )
+
+
+def generate_gt_submission_summary(report_date_str: str):
+    """Generate only the approved simple GT submission summary workbook."""
+    d = parse_report_date(report_date_str)
+    submissions = get_submissions(None, d, report_type="GT")
+    if settings.auto_sync_before_report or not submissions:
+        submissions = _sync_and_retry_if_empty(
+            None,
+            d,
+            submissions,
+            report_type="GT",
+        )
+    rows = build_summary_rows(submissions)
+    path = create_gt_submission_summary(rows, d)
+    submitted_dealers = sum(
+        1 for row in rows if int(row.get("total_submissions", 0) or 0) > 0
+    )
+    total_submissions = sum(
+        int(row.get("total_submissions", 0) or 0) for row in rows
+    )
+    total_outlets = sum(int(row.get("total_outlets", 0) or 0) for row in rows)
+    return (
+        path,
+        f"Generated simple GT summary for {d}: "
+        f"{submitted_dealers}/{len(rows)} dealers submitted, "
+        f"{total_submissions} submissions, {total_outlets} outlets",
     )
 
 

@@ -14,6 +14,7 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
+    generate_gt_submission_summary,
     generate_raw_movement_export,
     generate_movement_multi_export,
     parse_multi_report_command_args,
@@ -316,7 +317,19 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, text = await asyncio.to_thread(generate_region_dealer_summary, report_type, rdate)
+        if report_type == "GT":
+            # GT is deliberately isolated from the legacy movement comparison
+            # summary. It always creates the approved one-sheet submission file.
+            path, text = await asyncio.to_thread(
+                generate_gt_submission_summary,
+                rdate,
+            )
+        else:
+            path, text = await asyncio.to_thread(
+                generate_region_dealer_summary,
+                report_type,
+                rdate,
+            )
         await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
