@@ -26,6 +26,7 @@ OWN_PRODUCTS = [
     "IZE PET 300ml Flavour",
     "IZE COLA PET 1.5L All SKUs",
     "EXPREZ Melon",
+    "EXPREZ Can 330ml",
     "Wurkz Ice",
     "CAMBODIA Sport 300mL",
     "CAMBODIA Sport 500mL",
@@ -137,6 +138,7 @@ PRODUCT_CODES = {
     "IZE PET 300ml Flavour": ["ize_pet_300_flavour", "ize_pet_300", "ize_pet_300_all", "ize_pet_300ml"],
     "IZE COLA PET 1.5L All SKUs": ["ize_cola_pet_1500", "ize_cola_pet_15_all", "ize_cola_1500"],
     "EXPREZ Melon": ["exprez_melon", "exprez_cucumber", "exprez"],
+    "EXPREZ Can 330ml": ["exprez_can_330"],
     "Wurkz Ice": ["wurkz_ice"],
     "CAMBODIA Sport 300mL": ["cambodia_sport_300"],
     "CAMBODIA Sport 500mL": ["cambodia_sport_500"],
@@ -443,7 +445,11 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     # These two are own-product freshness rows but appear in competitor
     # columns in the movement table, so comparison promotion must update the
     # competitor bucket that Excel actually reads.
-    if product in {"CB Original NCP", "CAMBODIA Sport 300ml"} and product in competitors:
+    if product in {
+        "CB Original NCP",
+        "CAMBODIA Sport 300ml",
+        "EXPREZ Can 330ml",
+    } and product in competitors:
         return "competitors", competitors[product]
     if product in products:
         return "products", products[product]

@@ -221,11 +221,11 @@ def create_raw_movement_long_export(
     report_date: date,
     output_path: Path | None = None,
 ) -> Path:
-    """Stream raw product movement with the same business baseline as reports.
+    """Stream submitted raw product movement values.
 
-    Summary/control outlets are excluded. A blank or zero product movement is
-    exported as 1 so raw data and final /summary, /report and /export results
-    use the same minimum movement rule.
+    Summary/control outlets are excluded, but raw zero remains zero. The
+    minimum movement 1 rule belongs only to final report calculations and must
+    never rewrite the submitted raw export.
     """
     rows = [
         submission
@@ -263,7 +263,7 @@ def create_raw_movement_long_export(
                 getattr(submission, "region", None),
                 getattr(submission, "dealer", None),
                 product,
-                max(1, int(scores.get(product, 0) or 0)),
+                int(scores.get(product, 0) or 0),
             ])
             written += 1
     ws.auto_filter.ref = f"A1:E{written}"

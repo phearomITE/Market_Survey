@@ -93,7 +93,7 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertEqual(own_row[4], 7)
             wb.close()
 
-    def test_raw_export_defaults_blank_zero_to_one_and_skips_summary(self):
+    def test_raw_export_preserves_zero_and_skips_summary(self):
         zero_submission = SimpleNamespace(**vars(self.submission))
         zero_submission.outlet_name = "Outlet Zero"
         zero_submission.product_metrics = [
@@ -119,7 +119,7 @@ class V104DailyExportTests(unittest.TestCase):
                 wb["Raw_Movement"].iter_rows(min_row=2, values_only=True)
             )
             self.assertTrue(rows)
-            self.assertTrue(all(row[4] >= 1 for row in rows))
+            self.assertTrue(all(row[4] == 0 for row in rows))
             self.assertTrue(all(row[4] != 10 for row in rows))
             wb.close()
 

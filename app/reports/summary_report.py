@@ -201,7 +201,10 @@ def _create_gt_template_report(
         if dealer:
             grouped[dealer].append(submission)
 
-    wide_map = load_wide_payloads(submission_rows)
+    # Summary needs only the normalized metric relationships already fetched
+    # with submissions. Avoid SELECT * from the very wide Kobo table here;
+    # that transfer was the main reason /summary could wait several minutes.
+    wide_map = {}
     movements = {
         dealer: _dealer_movement(dealer_rows, wide_map=wide_map)
         for dealer, dealer_rows in grouped.items()

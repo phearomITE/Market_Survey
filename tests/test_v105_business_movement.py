@@ -151,6 +151,12 @@ class V105BusinessMovementTests(unittest.TestCase):
         }
         self.assertEqual(missing, set())
 
+    def test_exprez_can_is_available_in_freshness_and_comparison(self):
+        self.assertIn("EXPREZ Can 330ml", self.aggregator.OWN_PRODUCTS)
+        self.assertIn("EXPREZ Can 330ml", self.aggregator.COMPETITOR_PRODUCTS)
+        self.assertIn("EXPREZ Can 330ml", self.aggregator.PRODUCT_CODES)
+        self.assertIn("EXPREZ Can 330ml", self.aggregator.COMPETITOR_CODES)
+
     def test_all_horeca_template_products_use_movement_flow(self):
         expected = {
             "CB Pint",

@@ -7,6 +7,7 @@ from pathlib import Path
 from copy import copy
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.worksheet.worksheet import Worksheet
@@ -79,6 +80,7 @@ PRODUCT_NAME_MAP = {
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
     "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
+    "EXPREZ Can 330ml": "EXPREZ Can 330ml",
     "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL",
     "CAMBODIA Sport 300mL": "CAMBODIA Sport 300mL",
@@ -102,6 +104,43 @@ PRODUCT_NAME_MAP = {
 
 def _clean(v) -> str:
     return " ".join(str(v or "").split()).strip()
+
+
+def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
+    """Resolve old, new GT, and HORECA template row coordinates safely."""
+    if _is_channel_specialist_report(agg):
+        return {
+            "freshness_end": 24,
+            "movement_header": 26,
+            "movement_start": 27,
+            "movement_end": 41,
+            "ring_start": 44,
+            "issue_start": 44,
+            "print_end": 48,
+        }
+
+    # Updated template: EXPREZ Can 330ml was inserted as freshness product 14,
+    # shifting every later section down by one row.
+    if _clean(ws.cell(25, 2).value).casefold() == "cambodia water 1500ml":
+        return {
+            "freshness_end": 25,
+            "movement_header": 27,
+            "movement_start": 28,
+            "movement_end": 43,
+            "ring_start": 46,
+            "issue_start": 46,
+            "print_end": 49,
+        }
+
+    return {
+        "freshness_end": FRESHNESS_END_ROW,
+        "movement_header": MOVEMENT_HEADER_ROW,
+        "movement_start": MOVEMENT_START_ROW,
+        "movement_end": MOVEMENT_END_ROW,
+        "ring_start": RING_PULL_START_ROW,
+        "issue_start": ISSUE_START_ROW,
+        "print_end": 48,
+    }
 
 
 def _product_key(name: str) -> str:
@@ -352,8 +391,8 @@ def _force_rewrite_competitor_blocks(ws: Worksheet, agg: dict) -> None:
     such as GB Original = 2. The final pass scans the product-name cells and
     rewrites the metric cells from the aggregated result dictionary.
     """
-    movement_end = 41 if str(ws["A42"].value or "").strip() == "Ring Pull In Outlets" else MOVEMENT_END_ROW
-    for row in range(MOVEMENT_START_ROW, movement_end + 1):
+    layout = _layout_rows(ws, agg)
+    for row in range(layout["movement_start"], layout["movement_end"] + 1):
         for product_col in [8, 13, 18, 23]:
             product_label = ws.cell(row, product_col).value
             if not product_label:
@@ -382,8 +421,8 @@ def _force_specific_competitor_value(ws: Worksheet, agg: dict, product_name: str
         return
 
     target = _norm_lookup_key(product_name)
-    movement_end = 41 if str(ws["A42"].value or "").strip() == "Ring Pull In Outlets" else MOVEMENT_END_ROW
-    for row in range(MOVEMENT_START_ROW, movement_end + 1):
+    layout = _layout_rows(ws, agg)
+    for row in range(layout["movement_start"], layout["movement_end"] + 1):
         for col in range(1, 28):
             label = ws.cell(row, col).value
             if _norm_lookup_key(label) == target:
@@ -502,7 +541,9 @@ def _set_outlet_type_headers(ws: Worksheet, agg: dict) -> None:
     """
     # Clear all possible outlet/new-purchase/volume header cells first.
     for col in [8, 12, 16, 20, 23, 26, 27]:
-        ws.cell(6, col).value = ""
+        cell = ws.cell(6, col)
+        if not isinstance(cell, MergedCell):
+            cell.value = ""
 
     outlet_types = agg.get("outlet_types") or {}
     for label, col in _outlet_cols_for_report(agg).items():
@@ -519,7 +560,7 @@ def _set_outlet_type_headers(ws: Worksheet, agg: dict) -> None:
 
 
 
-def _set_movement_headers(ws: Worksheet) -> None:
+def _set_movement_headers(ws: Worksheet, header_row: int = MOVEMENT_HEADER_ROW) -> None:
     """Restore Product Movement VS Competitor column titles.
 
     Some uploaded templates or previous report logic can lose the blue header
@@ -562,9 +603,9 @@ def _set_movement_headers(ws: Worksheet) -> None:
     thin = Side(style="thin", color="000000")
     header_border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    ws.row_dimensions[MOVEMENT_HEADER_ROW].height = 18
+    ws.row_dimensions[header_row].height = 18
     for col, title in headers.items():
-        cell = ws.cell(MOVEMENT_HEADER_ROW, col)
+        cell = ws.cell(header_row, col)
         cell.value = title
         cell.fill = header_fill
         cell.font = header_font
@@ -737,6 +778,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
 
     _add_report_logo(ws)
     _prepare_channel_specialist_layout(ws, agg)
+    layout = _layout_rows(ws, agg)
     # New template layout: Dealer and Report Date are on the same row/cell.
     # Example: "Dealer : CA1                              Report Date: 02/07/2026 14:55:10"
     ws["A1"] = ""
@@ -764,7 +806,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     new_purchase_col = _new_purchase_col_for_report(agg)
     volume_col = _volume_col_for_report(agg)
 
-    for row in range(FRESHNESS_START_ROW, FRESHNESS_END_ROW + 1):
+    for row in range(FRESHNESS_START_ROW, layout["freshness_end"] + 1):
         product_name = _product_key(ws.cell(row, 2).value)
         pdata = (agg.get("products") or {}).get(product_name, {})
         ws.cell(row, 3).value = _blank_if_none(pdata.get("bbe"))
@@ -772,7 +814,9 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
 
         # Clear all possible count/output columns first so copied template data cannot remain.
         for col in [8, 12, 16, 20, 23, 26, 27]:
-            ws.cell(row, col).value = ""
+            cell = ws.cell(row, col)
+            if not isinstance(cell, MergedCell):
+                cell.value = ""
 
         for label, col in outlet_cols.items():
             ws.cell(row, col).value = int(counts.get(label, 0) or 0)
@@ -784,10 +828,10 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
 
     # Section 2/3: product movement vs competitors.
     # Always restore the header row first. Product data starts on row 26.
-    _set_movement_headers(ws)
+    _set_movement_headers(ws, layout["movement_header"])
 
-    movement_end = 41 if _is_channel_specialist_report(agg) else MOVEMENT_END_ROW
-    for row in range(MOVEMENT_START_ROW, movement_end + 1):
+    movement_end = layout["movement_end"]
+    for row in range(layout["movement_start"], movement_end + 1):
         # Own products: Product, Mov, Stock, Buy In, Sell Out, Ring Pull = B:G
         own_name = _product_key(ws.cell(row, 2).value)
         own = (agg.get("products") or {}).get(own_name, {})
@@ -822,14 +866,14 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     gb_metrics = _lookup_competitor_metrics(agg, "GB Original NCP")
     if gb_metrics:
         gb_mov = _final_movement_from_metrics(gb_metrics)
-        for rr in range(MOVEMENT_START_ROW, movement_end + 1):
+        for rr in range(layout["movement_start"], movement_end + 1):
             for cc in [8, 13, 18, 23]:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
                     print("✅ FORCE WRITE GB Original to Excel:", gb_mov, "cell", ws.cell(rr, cc + 1).coordinate)
 
     # Section 4: Ring Pull fixed products.
-    ring_pull_start = 44 if _is_channel_specialist_report(agg) else RING_PULL_START_ROW
+    ring_pull_start = layout["ring_start"]
     for i, product in enumerate(RING_PRODUCTS, start=ring_pull_start):
         rp = (agg.get("ring_pull") or {}).get(product, {})
         ws.cell(i, 2).value = product
@@ -845,7 +889,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
         suggestions.append("")
 
     for i in range(4):
-        issue_start = 44 if _is_channel_specialist_report(agg) else ISSUE_START_ROW
+        issue_start = layout["issue_start"]
         row = issue_start + i
         issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
         suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
@@ -857,7 +901,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.print_area = "A1:AA48"
+    ws.print_area = f"A1:AA{layout['print_end']}"
 
 
 
