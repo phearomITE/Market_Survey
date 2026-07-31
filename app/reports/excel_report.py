@@ -534,6 +534,39 @@ def _prepare_channel_specialist_layout(ws: Worksheet, agg: dict) -> None:
     ws.column_dimensions["Z"].width = max(ws.column_dimensions["Z"].width or 10, 20)
     ws.column_dimensions["AA"].width = max(ws.column_dimensions["AA"].width or 10, 14)
 
+
+def _normalize_exprez_freshness_rows(ws: Worksheet, agg: dict) -> None:
+    """Repair the two inserted EXPREZ GT rows to match the table format.
+
+    The uploaded template inserted rows 19-20 without the merged ranges used
+    by every other freshness row. Values were therefore written into narrow
+    individual cells and appeared misaligned. Reapply the neighboring row's
+    style and standard merges while preserving product number/name.
+    """
+    if _is_channel_specialist_report(agg):
+        return
+
+    expected = {19: "EXPREZ Melon", 20: "EXPREZ Can 330ml"}
+    merge_columns = ((3, 7), (8, 11), (12, 15), (16, 19), (20, 22), (23, 25), (26, 27))
+    source_row = 18
+
+    for row, product in expected.items():
+        if _product_key(ws.cell(row, 2).value) != product:
+            continue
+
+        number_value = ws.cell(row, 1).value
+        product_value = ws.cell(row, 2).value
+        for col in range(1, 28):
+            _copy_cell_style(ws.cell(source_row, col), ws.cell(row, col))
+        ws.row_dimensions[row].height = ws.row_dimensions[source_row].height
+        ws.cell(row, 1).value = number_value
+        ws.cell(row, 2).value = product_value
+
+        for start_col, end_col in merge_columns:
+            target = f"{ws.cell(row, start_col).coordinate}:{ws.cell(row, end_col).coordinate}"
+            if not any(str(existing) == target for existing in ws.merged_cells.ranges):
+                ws.merge_cells(target)
+
 def _set_outlet_type_headers(ws: Worksheet, agg: dict) -> None:
     """Write the correct header row for General Trade or Channel Specialist.
 
@@ -778,6 +811,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
 
     _add_report_logo(ws)
     _prepare_channel_specialist_layout(ws, agg)
+    _normalize_exprez_freshness_rows(ws, agg)
     layout = _layout_rows(ws, agg)
     # New template layout: Dealer and Report Date are on the same row/cell.
     # Example: "Dealer : CA1                              Report Date: 02/07/2026 14:55:10"

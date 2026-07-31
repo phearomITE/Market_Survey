@@ -126,7 +126,7 @@ def _dealer_movement(
     ranked_competitors = [
         (product, (agg.get("competitors") or {}).get(product, {}).get("mov"))
         for product in SUMMARY_COMPETITORS
-        if (agg.get("competitors") or {}).get(product, {}).get("mov") is not None
+        if (agg.get("competitors") or {}).get(product, {}).get("mov") == 10
     ]
     ranked_competitors.sort(key=lambda item: (-item[1], item[0].casefold()))
     leader_name, leader_display = ranked_competitors[0] if ranked_competitors else (None, None)
