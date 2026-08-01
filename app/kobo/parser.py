@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date
+import re
 from typing import Any
 
 
@@ -60,22 +61,6 @@ ALIASES = {
         "report_info/location_text", "outlet_info/location_of_visit_text", "Location of Visit",
         "1. Report / Outlet Visit Information / Location of Visit Text",
         "1. OUTLET INFORMATION / Location of Visit Text", "1. OUTLET INFORMATION/Location of Visit Text",
-    ],
-    "province": [
-        "province", "Province", "province_capital", "Province / Capital",
-        "outlet_info/province", "1. OUTLET INFORMATION / Province",
-    ],
-    "district": [
-        "district", "District", "district_khan", "District / Khan",
-        "outlet_info/district", "1. OUTLET INFORMATION / District",
-    ],
-    "commune": [
-        "commune", "Commune", "commune_sangkat", "Commune / Sangkat",
-        "outlet_info/commune", "1. OUTLET INFORMATION / Commune",
-    ],
-    "village": [
-        "village", "Village", "outlet_info/village",
-        "1. OUTLET INFORMATION / Village",
     ],
     "gps_text": [
         "gps_location", "GPS Location = Location of Visit", "GPS Location / Location of Visit",
@@ -169,7 +154,9 @@ def flatten_dict(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
 
 
 def _key_norm(key: str) -> str:
-    return str(key).strip().lower().replace(" ", "_")
+    value = str(key or "").strip().lower()
+    value = re.sub(r"[^0-9a-z\u1780-\u17ff]+", "_", value)
+    return re.sub(r"_+", "_", value).strip("_")
 
 
 def _last_part(key: str) -> str:
@@ -188,11 +175,23 @@ def get_any(row: dict, keys: list[str], default=None):
         if real_key and flat.get(real_key) not in (None, ""):
             return flat.get(real_key)
 
-    last_map = {_last_part(k): k for k in flat.keys()}
-    for k in keys:
-        real_key = last_map.get(_last_part(k))
-        if real_key and flat.get(real_key) not in (None, ""):
-            return flat.get(real_key)
+    # Do not collapse matching suffixes into a dictionary: Kobo can export
+    # duplicate leaf names from different groups, and a blank duplicate must
+    # never overwrite a populated Region or Dealer value.
+    wanted_last_parts = {_last_part(k) for k in keys}
+    for real_key, value in flat.items():
+        if _last_part(real_key) in wanted_last_parts and value not in (None, ""):
+            return value
+
+    # Final fallback for Kobo variants such as dealer_0, region_code, or
+    # translated labels whose group prefix changed after redeployment.
+    compact_aliases = {_key_norm(k).replace("_", "") for k in keys}
+    for real_key, value in flat.items():
+        if value in (None, ""):
+            continue
+        leaf = _last_part(real_key).replace("_", "")
+        if any(leaf == alias or leaf.startswith(alias) for alias in compact_aliases):
+            return value
     return default
 
 
@@ -291,10 +290,6 @@ def yes_value(value: Any) -> bool:
     s = str(value).strip().lower()
     return s in {"1", "yes", "y", "true", "new", "ថ្មី", "មាន", "មានលក់", "លក់ដាច់", "sale", "fast_sale"}
 
-def clean_text(value: Any) -> str | None:
-    text = str(value or "").strip()
-    return text or None
-
 
 def normalize_submission(row: dict) -> dict:
     flat = flatten_dict(row)
@@ -328,10 +323,6 @@ def normalize_submission(row: dict) -> dict:
         "gps_text": str(get_any(row, ALIASES["gps_text"], "") or "") or None,
         "gps_latitude": to_float(get_any(row, ALIASES["gps_latitude"])),
         "gps_longitude": to_float(get_any(row, ALIASES["gps_longitude"])),
-        "province": clean_text(get_any(row, ALIASES["province"])),
-        "district": clean_text(get_any(row, ALIASES["district"])),
-        "commune": clean_text(get_any(row, ALIASES["commune"])),
-        "village": clean_text(get_any(row, ALIASES["village"])),
         "key_issue_text": get_any(row, ALIASES["key_issue_text"]),
         "suggestion_text": get_any(row, ALIASES["suggestion_text"]),
         "_flat": flat,  # transient only; sync.py converts it to SQL metric rows, not DB JSON.

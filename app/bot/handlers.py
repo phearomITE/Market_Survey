@@ -19,6 +19,7 @@ from app.services.report_service import (
     parse_report_command_args,
 )
 from app.services.submission_alert_service import format_submission_alert, local_today
+from app.services.render_service import excel_to_png
 
 HELP_TEXT = """
 ✅ KB Market Survey Bot
@@ -42,7 +43,7 @@ Commands:
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /help
 
-/report = generate one dealer Excel report from current Kobo data.
+/report = send one dealer Excel immediately, then its PNG preview.
 /report_multi = generate one Excel workbook with selected dealer sheets.
 /report_today = generate one Excel workbook with 65 dealer sheets.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
@@ -134,7 +135,24 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
-        await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}. Excel sent.")
+        await wait.edit_text(
+            f"✅ Excel sent for {dealer} {report_label} {rdate}.\n"
+            "🖼 Creating PNG preview..."
+        )
+        png_path = await asyncio.to_thread(excel_to_png, path)
+        if png_path and png_path.exists():
+            with png_path.open("rb") as png_file:
+                await update.effective_message.reply_document(
+                    document=InputFile(png_file, filename=png_path.name),
+                    caption=f"🖼 {dealer} {report_label} {rdate} report preview",
+                )
+            await wait.edit_text(
+                f"✅ Completed {dealer} {report_label} {rdate}. Excel and PNG sent."
+            )
+        else:
+            await wait.edit_text(
+                f"⚠️ Excel sent for {dealer} {report_label} {rdate}, but PNG rendering failed."
+            )
     except Exception as e:
         await wait.edit_text(f"❌ Report failed: {e}")
 

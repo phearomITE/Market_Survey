@@ -78,3 +78,4 @@ def format_submission_alert(
             f"✅ Dealer ទាំងអស់បាន Submit ចាប់ពី {threshold} Report ឡើងទៅ។"
         )
     return "\n".join(lines)
+

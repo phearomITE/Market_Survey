@@ -88,3 +88,4 @@ class KoboClient:
             page_count += 1
         print(f"✅ Kobo date fetch finished: rows={len(rows)} pages={page_count}")
         return rows
+

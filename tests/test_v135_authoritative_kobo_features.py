@@ -58,13 +58,19 @@ class V135AuthoritativeKoboFeaturesTests(unittest.TestCase):
         self.assertIn("fetch_report_submissions_fast", alert)
         self.assertIn('CommandHandler("alert_submit", alert_submit_cmd)', run_bot)
 
-    def test_excel_only_mode_removes_map_dashboard_and_png_wait(self):
+    def test_excel_is_sent_before_single_report_png_and_map_is_removed(self):
         handlers = _source("app/bot/handlers.py")
         run_bot = _source("app/bot/run_bot.py")
         self.assertNotIn('CommandHandler("map"', run_bot)
         self.assertNotIn('CommandHandler("dashboard"', run_bot)
-        self.assertNotIn("excel_to_png", handlers)
-        self.assertNotIn("Creating PNG preview", handlers)
+        report_body = _function_source("app/bot/handlers.py", "report_cmd")
+        self.assertIn("excel_to_png", report_body)
+        self.assertLess(
+            report_body.index("reply_document"),
+            report_body.index("excel_to_png"),
+        )
+        self.assertNotIn("excel_to_png", _function_source("app/bot/handlers.py", "report_multi_cmd"))
+        self.assertNotIn("excel_to_png", _function_source("app/bot/handlers.py", "report_today_cmd"))
 
     def test_daily_export_does_not_reload_stale_wide_table(self):
         body = _function_source(

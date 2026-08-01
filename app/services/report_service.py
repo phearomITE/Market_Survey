@@ -380,3 +380,4 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
         f"Generated Beer movement export for {len(dates)} date(s): "
         f"{len(submissions)} outlet submissions",
     )
+

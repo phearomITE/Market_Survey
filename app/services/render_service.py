@@ -1,47 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from copy import copy
 import os
 import shutil
 import subprocess
+import tempfile
 import zipfile
 from app.core.config import settings
-
-
-def _contains_khmer(value) -> bool:
-    return isinstance(value, str) and any("\u1780" <= char <= "\u17ff" for char in value)
-
-
-def _khmer_render_copy(xlsx_path: Path) -> Path:
-    """Make a render-only workbook using a Khmer shaping-capable font.
-
-    The original Excel file is never modified. LibreOffice otherwise replaces
-    Arial/Calibri with a Latin fallback and can separate Khmer combining marks.
-    """
-    try:
-        from openpyxl import load_workbook
-
-        workbook = load_workbook(xlsx_path)
-        changed = False
-        for sheet in workbook.worksheets:
-            for row in sheet.iter_rows():
-                for cell in row:
-                    if _contains_khmer(cell.value):
-                        font = copy(cell.font)
-                        font.name = "Noto Sans Khmer"
-                        cell.font = font
-                        changed = True
-        if not changed:
-            workbook.close()
-            return xlsx_path
-        output = xlsx_path.with_name(f"{xlsx_path.stem}_khmer_render.xlsx")
-        workbook.save(output)
-        workbook.close()
-        return output
-    except Exception as exc:
-        print(f"⚠️ Khmer render font preparation failed: {exc}")
-        return xlsx_path
 
 
 def _find_soffice() -> str | None:
@@ -75,35 +40,48 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
     if not soffice or not xlsx_path.exists():
         return None
 
-    render_source = _khmer_render_copy(xlsx_path)
     outdir = xlsx_path.parent
     outdir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        soffice,
-        "--headless",
-        "--nologo",
-        "--nofirststartwizard",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        str(outdir),
-        str(render_source),
-    ]
     try:
-        proc = subprocess.run(
-            cmd,
-            check=False,
-            timeout=max(5, int(getattr(settings, "png_render_timeout_seconds", 12))),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env={**os.environ, "SAL_USE_VCLPLUGIN": "svp", "LANG": "C.UTF-8"},
-        )
-    except Exception:
+        # A private LibreOffice profile prevents profile-lock stalls when two
+        # Telegram commands render close together. The generic VCL plugin also
+        # guarantees a real headless render on Railway (no X11/DISPLAY needed).
+        with tempfile.TemporaryDirectory(prefix="kb_lo_profile_") as profile_dir:
+            profile_uri = Path(profile_dir).resolve().as_uri()
+            cmd = [
+                soffice,
+                f"-env:UserInstallation={profile_uri}",
+                "--headless",
+                "--nologo",
+                "--nofirststartwizard",
+                "--norestore",
+                "--convert-to",
+                "pdf:calc_pdf_Export",
+                "--outdir",
+                str(outdir),
+                str(xlsx_path),
+            ]
+            env = os.environ.copy()
+            env["SAL_USE_VCLPLUGIN"] = "gen"
+            env["HOME"] = profile_dir
+            proc = subprocess.run(
+                cmd,
+                check=False,
+                timeout=120,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout or "unknown LibreOffice error").strip()
+                print(f"⚠️ PNG renderer: LibreOffice exit={proc.returncode}; {detail[:500]}")
+    except Exception as exc:
+        print(f"⚠️ PNG renderer failed: {exc}")
         return None
 
-    pdf = render_source.with_suffix(".pdf")
+    pdf = xlsx_path.with_suffix(".pdf")
     return pdf if pdf.exists() and pdf.stat().st_size > 0 else None
 
 
@@ -127,7 +105,7 @@ def _crop_white_border(png_path: Path, padding: int = 35) -> None:
         right = min(bbox[2] + padding, img.width)
         bottom = min(bbox[3] + padding, img.height)
         cropped = img.crop((left, top, right, bottom))
-        cropped.save(png_path)
+        cropped.save(png_path, optimize=True)
     except Exception:
         return
 
@@ -146,7 +124,7 @@ def _resize_if_too_wide(png_path: Path, max_width: int = 6000) -> None:
         ratio = max_width / float(img.width)
         new_size = (max_width, int(img.height * ratio))
         img = img.resize(new_size, Image.Resampling.LANCZOS)
-        img.save(png_path)
+        img.save(png_path, optimize=True)
     except Exception:
         return
 
@@ -172,7 +150,7 @@ def pdf_first_page_to_png(pdf_path: Path, png_path: Path | None = None) -> Path 
     try:
         # 4.5 zoom gives a much bigger, clearer report image than 2.2.
         # Override from .env if needed: PNG_RENDER_SCALE=5
-        scale = float(os.getenv("PNG_RENDER_SCALE", "3.0"))
+        scale = float(os.getenv("PNG_RENDER_SCALE", "4.5"))
         doc = fitz.open(str(pdf_path))
         if len(doc) == 0:
             doc.close()
@@ -183,7 +161,7 @@ def pdf_first_page_to_png(pdf_path: Path, png_path: Path | None = None) -> Path 
         doc.close()
 
         _crop_white_border(png_path, padding=25)
-        _resize_if_too_wide(png_path, max_width=int(os.getenv("PNG_MAX_WIDTH", "4200")))
+        _resize_if_too_wide(png_path, max_width=int(os.getenv("PNG_MAX_WIDTH", "6000")))
     except Exception:
         return None
 
