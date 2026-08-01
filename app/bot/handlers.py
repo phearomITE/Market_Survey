@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+
 from telegram import Update, InputFile
 from telegram.ext import ContextTypes
 
-from app.core.config import settings
 from app.db.database import init_db
 from app.kobo.sync import sync_kobo
 from app.services.report_service import (
@@ -42,7 +42,7 @@ Commands:
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /help
 
-/report = generate and send one dealer Excel report only (fast mode).
+/report = generate one dealer Excel report from current Kobo data.
 /report_multi = generate one Excel workbook with selected dealer sheets.
 /report_today = generate one Excel workbook with 65 dealer sheets.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
@@ -52,7 +52,7 @@ Commands:
 Logic:
 1 Kobo submission = 1 outlet visit
 Group by Dealer + Date = 1 dealer template
-Sync: /report fetches only its requested dealer and date.
+Every feature reads the requested date directly from Kobo.
 """.strip()
 
 
@@ -70,7 +70,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last = getter() if callable(getter) else None
     if not last:
         await update.effective_message.reply_text(
-            "ℹ️ Bot is running.\nAuto-sync status: not run yet.\nUse /sync_kobo to sync now or wait for the 1-minute polling."
+            "✅ Bot is running.\nReports and exports read the requested date directly from Kobo.\nUse /sync_kobo only when you want to refresh PostgreSQL."
         )
         return
 
@@ -100,11 +100,9 @@ async def sync_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _maybe_sync_before_report(message) -> None:
-    if not settings.auto_sync_before_report:
-        return
-    await message.reply_text("🔄 Auto-syncing Kobo first...")
-    result = await asyncio.to_thread(sync_kobo)
-    await message.reply_text(f"✅ Kobo sync completed. Synced: {result['synced']} | Skipped: {result.get('skipped', 0)}")
+    # Report/export services read the requested date directly from Kobo.
+    # A database sync here would duplicate work and delay the Excel response.
+    return
 
 
 async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -135,9 +133,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
         with path.open("rb") as f:
-            await update.effective_message.reply_document(
-                document=InputFile(f, filename=path.name)
-            )
+            await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
         await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}. Excel sent.")
     except Exception as e:
         await wait.edit_text(f"❌ Report failed: {e}")

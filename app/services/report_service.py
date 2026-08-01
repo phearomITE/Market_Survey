@@ -12,7 +12,6 @@ from app.db.models import KoboSubmission
 from app.kobo.sync import fetch_report_submissions_fast, sync_kobo
 from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
-from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
 from app.reports.movement_exports import (
@@ -164,11 +163,9 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
 
 
 def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, report_type: ReportType | None = None) -> list:
-    """Run one targeted Kobo sync, then reload the local database.
-
-    Existing rows may be incomplete/stale (for example DB=17 while Kobo=31),
-    so a non-empty database must not skip the requested dealer/date refresh.
-    """
+    """Target the requested dealer/date and wait for any active background sync."""
+    if submissions:
+        return submissions
     try:
         result = sync_kobo(
             dealer=dealer,
@@ -181,8 +178,22 @@ def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, rep
         print(f"⚠️ Auto sync before retry failed: {e}")
         return submissions
 
-    # Do not run a second full retry. One server-filtered pass keeps /report
-    # within its response target while still importing missing dealer data.
+    rows = get_submissions(dealer, d, report_type=report_type)
+    if rows:
+        return rows
+
+    # If we only waited for another sync and it did not import this dealer/date,
+    # run one targeted pass now that the lock is free.
+    if result.get("waited_for_existing_sync"):
+        try:
+            sync_kobo(
+                dealer=dealer,
+                report_date=d,
+                wait_if_running=True,
+                timeout_seconds=settings.report_sync_wait_seconds,
+            )
+        except Exception as e:
+            print(f"⚠️ Targeted retry failed: {e}")
     return get_submissions(dealer, d, report_type=report_type)
 
 
@@ -190,28 +201,17 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
     dealer = dealer.upper().strip()
-    # Urgent Excel path: fetch the exact dealer/date from Kobo and aggregate in
-    # memory. Do not block report delivery on PostgreSQL synchronization.
-    try:
-        submissions = _filter_by_report_type(
-            fetch_report_submissions_fast(dealer, d), report_type
-        )
-    except Exception as exc:
-        print(f"⚠️ Fast Kobo report input failed; using PostgreSQL fallback: {exc}")
-        submissions = get_submissions(dealer, d, report_type=report_type)
+    all_rows = fetch_report_submissions_fast(dealer, d)
+    submissions = _filter_by_report_type(all_rows, report_type)
     if not submissions:
         label = report_type
-        all_rows = get_submissions(dealer, d, report_type=None)
         outlet_types = sorted({(row.outlet_type or "blank") for row in all_rows})
-        detail = f" DB rows for dealer/date: {len(all_rows)}; outlet types: {', '.join(outlet_types) or 'none'}."
+        detail = f" Kobo rows for dealer/date: {len(all_rows)}; outlet types: {', '.join(outlet_types) or 'none'}."
         return None, (
             f"No {label} submissions found for {dealer} on {d}." + detail +
-            " Run /sync_kobo once and retry."
+            " Check the Report Type selected in Kobo."
         )
 
-    # Fast single-dealer path: product/competitor/ring metrics were eagerly
-    # loaded by get_submissions(). Avoid the very wide dynamic-table query,
-    # which can add 20-30 seconds on Railway before Excel generation.
     agg = aggregate_submissions(submissions, wide_map={})
     agg["report_type"] = report_type
     agg["channel"] = report_type
@@ -223,13 +223,16 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
 
 def generate_today_all_dealers(report_date_str: str | None = None):
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type="GT")
-    if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type="GT")
+    submissions = _filter_by_report_type(
+        fetch_report_submissions_fast(None, d), "GT"
+    )
     grouped = {}
     for s in submissions:
         grouped.setdefault(s.dealer, []).append(s)
-    aggs = {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items() if dealer}
+    aggs = {
+        dealer: aggregate_submissions(rows, wide_map={})
+        for dealer, rows in grouped.items() if dealer
+    }
     for agg in aggs.values():
         agg["report_type"] = "GT"
         agg["channel"] = "GT"
@@ -239,7 +242,7 @@ def generate_today_all_dealers(report_date_str: str | None = None):
 
 
 def generate_today_all_dealers_with_pngs(report_date_str: str | None = None):
-    """Compatibility wrapper: generate the Excel workbook without PNG rendering."""
+    """Compatibility wrapper: generate the urgent Excel workbook only."""
     path, text = generate_today_all_dealers(report_date_str)
     return path, None, text
 
@@ -275,26 +278,9 @@ def generate_multi_dealer_reports(
     if invalid:
         raise ValueError("Unknown dealer code(s): " + ", ".join(invalid))
 
-    submissions = get_submissions(None, d, report_type=report_type)
-    requested_rows = [row for row in submissions if (row.dealer or "").upper() in seen]
-    present = {(row.dealer or "").upper() for row in requested_rows}
-    missing_before_sync = [dealer for dealer in normalized if dealer not in present]
-
-    # One date-targeted sync is much faster and safer than running one full Kobo
-    # fetch independently for every dealer.
-    if settings.auto_sync_before_report or missing_before_sync:
-        try:
-            sync_kobo(
-                dealer=None,
-                report_date=d,
-                wait_if_running=True,
-                timeout_seconds=settings.report_sync_wait_seconds,
-            )
-        except Exception as exc:
-            print(f"⚠️ Multi-dealer targeted sync failed: {exc}")
-
-        submissions = get_submissions(None, d, report_type=report_type)
-        requested_rows = [row for row in submissions if (row.dealer or "").upper() in seen]
+    requested_rows = _filter_by_report_type(
+        fetch_report_submissions_fast(None, d, dealers=seen), report_type
+    )
 
     grouped: dict[str, list[KoboSubmission]] = {dealer: [] for dealer in normalized}
     for row in requested_rows:
@@ -307,14 +293,12 @@ def generate_multi_dealer_reports(
         rows = grouped[dealer]
         if not rows:
             continue
-        agg = aggregate_submissions(rows)
+        agg = aggregate_submissions(rows, wide_map={})
         agg["report_type"] = report_type
         agg["channel"] = report_type
         aggs[dealer] = agg
 
     path = create_selected_dealer_report(aggs, normalized, d)
-    # Fast Excel-only mode: LibreOffice/PDF/PNG conversion is intentionally
-    # skipped so Telegram can receive the workbook immediately.
     png_zip = None
 
     missing = [dealer for dealer in normalized if not grouped[dealer]]
@@ -331,11 +315,8 @@ def generate_multi_dealer_reports(
 def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_date_str: str | None = None):
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
-    # Summary must reflect every Kobo submission for this date. Reading stale
-    # PostgreSQL rows can incorrectly show dealers as "No Submit" whenever at
-    # least one older dealer row already exists. Build directly from Kobo.
     submissions = _filter_by_report_type(
-        fetch_report_submissions_fast(None, d), report_type
+        fetch_report_submissions_fast(None, d, summary_only=True), report_type
     )
     if not submissions:
         raise ValueError(f"Kobo returned no {report_type} submissions for {d}.")
@@ -359,9 +340,7 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
 def generate_raw_movement_export(report_date_str: str):
     """Export combined GT and HORECA raw movement for one report date."""
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=None)
-    if not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
+    submissions = fetch_report_submissions_fast(None, d)
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
     output_path = settings.export_path / f"Raw_Movement_{d}.xlsx"
@@ -376,9 +355,7 @@ def generate_raw_movement_export(report_date_str: str):
 def generate_daily_data_export(report_date_str: str):
     """Create the requested Summary_Data + Location_Outlet workbook."""
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=None)
-    if not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
+    submissions = fetch_report_submissions_fast(None, d)
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
     path = create_daily_export(submissions, d)
@@ -394,7 +371,7 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
         )
     submissions: list[KoboSubmission] = []
     for report_date in dates:
-        submissions.extend(get_submissions(None, report_date, report_type=None))
+        submissions.extend(fetch_report_submissions_fast(None, report_date))
     if not submissions:
         raise ValueError("No submissions found for the requested report dates.")
     path = create_movement_export(submissions, dates, beer_only=True)

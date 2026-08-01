@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import json
 from time import monotonic
+
 import requests
 from app.core.config import settings
 
@@ -49,45 +50,41 @@ class KoboClient:
 
         url = f"{self.base_url}/api/v2/assets/{uid}/data.json"
         params = None
-        if dealer or report_date:
-            # Verified from the deployed XLSForm. Keep this query deliberately
-            # simple: Kobo can be very slow evaluating nested $or/$in clauses.
-            query: dict = {}
-            if dealer:
-                # Kobo choice *names* are lowercase (ca7, bmc2, avg4) even
-                # though the user-facing labels are uppercase.
-                query["outlet_info/dealer"] = str(dealer).strip().lower()
-            if report_date:
-                query["outlet_info/report_date"] = report_date.isoformat()
+        if report_date:
+            # Filter by date on Kobo, then filter Dealer after normalization.
+            # Dealer choice values vary between old/new form versions (for
+            # example CA7 vs ca7), so server-side dealer matching can return 0
+            # even when Kobo visibly contains that dealer.
+            query = {"outlet_info/report_date": report_date.isoformat()}
             params = {
                 "query": json.dumps(query, separators=(",", ":")),
-                # A daily summary can contain more than Kobo's default page.
-                # Request the whole working day in one response when possible.
                 "limit": 500,
             }
+
         if deadline_seconds is None:
-            deadline_seconds = 18 if dealer else 120
+            deadline_seconds = 120
         if request_timeout is None:
-            request_timeout = 10 if dealer else 60
+            request_timeout = 60
         if page_limit is None:
-            page_limit = 5 if dealer else 20
+            page_limit = 20
+
         rows: list[dict] = []
         started = monotonic()
         page_count = 0
         print(
-            f"🔎 Kobo targeted fetch starting: dealer={dealer or 'ALL'} "
+            f"🔎 Kobo date fetch starting: dealer-filter={dealer or 'ALL'} "
             f"date={report_date or 'ALL'}"
         )
         while url:
             if page_count >= page_limit or monotonic() - started > deadline_seconds:
                 raise TimeoutError(
-                    f"Kobo fetch exceeded the {deadline_seconds}-second limit "
-                    f"after {page_count} pages and {len(rows)} rows"
+                    f"Kobo fetch exceeded {deadline_seconds} seconds after "
+                    f"{page_count} pages and {len(rows)} rows"
                 )
             data = self._get_json(url, timeout=request_timeout, params=params)
             rows.extend(data.get("results", []))
             url = data.get("next")
             params = None
             page_count += 1
-        print(f"✅ Kobo targeted fetch finished: rows={len(rows)} pages={page_count}")
+        print(f"✅ Kobo date fetch finished: rows={len(rows)} pages={page_count}")
         return rows
