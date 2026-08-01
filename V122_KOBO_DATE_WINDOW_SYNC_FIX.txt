@@ -1,0 +1,25 @@
+V122 Kobo Date Window Sync Fix
+
+Cause: visible Kobo labels are not the internal API field paths. The old fast
+query guessed those paths and returned zero rows.
+
+Fix:
+- Query stable _submission_time using a small timezone/upload window.
+- Filter the exact dealer and Report Date with the existing parser.
+- /sync_kobo syncs today's window by default instead of all history.
+
+Run in Git Bash:
+
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V122_KOBO_DATE_WINDOW_SYNC_FIX.zip -d .
+
+python -m py_compile app/kobo/client.py app/kobo/sync.py app/bot/handlers.py
+python -m unittest tests.test_v120_sync_and_khmer_png -v
+
+git status
+git add app/kobo/client.py app/bot/handlers.py tests/test_v120_sync_and_khmer_png.py V122_KOBO_DATE_WINDOW_SYNC_FIX.txt
+git commit -m "Fix Kobo report date window sync"
+git push origin main
+
+After Railway restarts:
+/report BMC2 GT 2026-08-01

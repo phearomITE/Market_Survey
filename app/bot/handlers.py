@@ -138,9 +138,12 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def sync_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.effective_message.reply_text("🔄 Syncing Kobo submissions...")
+    sync_date = local_today()
+    msg = await update.effective_message.reply_text(
+        f"🔄 Syncing Kobo submissions for {sync_date.isoformat()}..."
+    )
     try:
-        result = await asyncio.to_thread(sync_kobo)
+        result = await asyncio.to_thread(sync_kobo, report_date=sync_date)
         await msg.edit_text(f"✅ Kobo sync completed. Fetched: {result.get('fetched', 0)} | Matched: {result.get('matched', 0)} | Synced: {result.get('synced', 0)} | Hash initialized: {result.get('hash_backfilled', 0)} | Unchanged: {result.get('unchanged', 0)} | Skipped: {result.get('skipped', 0)}")
     except Exception as e:
         await msg.edit_text(f"❌ Kobo sync failed: {e}")

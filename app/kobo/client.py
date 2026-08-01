@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 import json
 import requests
 from app.core.config import settings
@@ -45,22 +45,22 @@ class KoboClient:
 
         url = f"{self.base_url}/api/v2/assets/{uid}/data.json"
         params = None
-        if dealer or report_date:
-            conditions: list[dict] = []
-            if dealer:
-                code = str(dealer).strip().lower()
-                conditions.append({"$or": [
-                    {"dealer": code},
-                    {"outlet_info/dealer": code},
-                ]})
-            if report_date:
-                day = str(report_date)
-                conditions.append({"$or": [
-                    {"report_date": day},
-                    {"outlet_info/report_date": day},
-                ]})
-            query = conditions[0] if len(conditions) == 1 else {"$and": conditions}
-            params = {"query": json.dumps(query, separators=(",", ":"))}
+        if report_date:
+            # XLSForm group names make question paths asset-specific. Kobo's
+            # system timestamp is stable, so use a small date window here and
+            # let sync.py apply the exact parsed dealer and Report Date.
+            start = report_date - timedelta(days=1)
+            end = report_date + timedelta(days=2)
+            query = {
+                "_submission_time": {
+                    "$gte": f"{start.isoformat()}T00:00:00",
+                    "$lt": f"{end.isoformat()}T00:00:00",
+                }
+            }
+            params = {
+                "query": json.dumps(query, separators=(",", ":")),
+                "sort": json.dumps({"_submission_time": -1}, separators=(",", ":")),
+            }
         rows: list[dict] = []
         while url:
             data = self._get_json(url, timeout=25, params=params)

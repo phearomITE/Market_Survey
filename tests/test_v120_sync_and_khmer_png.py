@@ -3,12 +3,13 @@ import unittest
 
 
 class V120SyncAndKhmerPngTests(unittest.TestCase):
-    def test_kobo_fetch_uses_dealer_and_date_query(self):
+    def test_kobo_fetch_uses_stable_submission_time_query(self):
         client = Path("app/kobo/client.py").read_text(encoding="utf-8")
         sync = Path("app/kobo/sync.py").read_text(encoding="utf-8")
-        self.assertIn('"outlet_info/dealer"', client)
-        self.assertIn('"outlet_info/report_date"', client)
-        self.assertIn('params = {"query": json.dumps', client)
+        self.assertIn('"_submission_time"', client)
+        self.assertIn("timedelta(days=1)", client)
+        self.assertNotIn('"outlet_info/dealer"', client)
+        self.assertIn('"query": json.dumps(query', client)
         self.assertIn("fetch_submissions(dealer=dealer, report_date=report_date)", sync)
 
     def test_report_runs_only_one_targeted_sync(self):
@@ -24,7 +25,16 @@ class V120SyncAndKhmerPngTests(unittest.TestCase):
         docker = Path("Dockerfile").read_text(encoding="utf-8")
         self.assertIn('font.name = "Noto Sans Khmer"', source)
         self.assertIn('"SAL_USE_VCLPLUGIN": "svp"', source)
-        self.assertIn("fonts-khmeros-core", docker)
+        self.assertIn("fonts-noto-extra", docker)
+        self.assertNotIn("fonts-khmeros-core", docker)
+
+    def test_manual_sync_defaults_to_today(self):
+        handlers = Path("app/bot/handlers.py").read_text(encoding="utf-8")
+        block = handlers[handlers.index("async def sync_kobo_cmd"):handlers.index(
+            "async def _maybe_sync_before_report"
+        )]
+        self.assertIn("sync_date = local_today()", block)
+        self.assertIn("report_date=sync_date", block)
 
     def test_alert_command_is_registered(self):
         run_bot = Path("app/bot/run_bot.py").read_text(encoding="utf-8")
