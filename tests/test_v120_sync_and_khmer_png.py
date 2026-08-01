@@ -22,15 +22,13 @@ class V120SyncAndKhmerPngTests(unittest.TestCase):
         self.assertIn("return get_submissions", helper)
         self.assertNotIn("if submissions:\n        return submissions", helper)
 
-    def test_report_always_refreshes_stale_nonempty_rows(self):
+    def test_report_uses_direct_kobo_input_without_database_sync_delay(self):
         source = Path("app/services/report_service.py").read_text(encoding="utf-8")
         block = source[source.index("def generate_dealer_report"):source.index(
             "def generate_today_all_dealers"
         )]
-        self.assertIn(
-            "submissions = _sync_and_retry_if_empty(dealer, d, submissions, report_type=report_type)",
-            block,
-        )
+        self.assertIn("fetch_report_submissions_fast(dealer, d)", block)
+        self.assertNotIn("_sync_and_retry_if_empty(dealer, d", block)
         self.assertNotIn("if settings.auto_sync_before_report or not submissions", block)
 
     def test_single_report_skips_slow_wide_table_query(self):

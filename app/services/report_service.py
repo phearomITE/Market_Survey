@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
-from app.kobo.sync import sync_kobo
+from app.kobo.sync import fetch_report_submissions_fast, sync_kobo
 from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.services.render_service import excel_workbook_to_png_zip
@@ -190,10 +190,15 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
     dealer = dealer.upper().strip()
-    submissions = get_submissions(dealer, d, report_type=report_type)
-    # Always refresh this exact dealer/date. The fetch is targeted and bounded;
-    # using stale non-empty DB rows would undercount Total Outlet Visit.
-    submissions = _sync_and_retry_if_empty(dealer, d, submissions, report_type=report_type)
+    # Urgent Excel path: fetch the exact dealer/date from Kobo and aggregate in
+    # memory. Do not block report delivery on PostgreSQL synchronization.
+    try:
+        submissions = _filter_by_report_type(
+            fetch_report_submissions_fast(dealer, d), report_type
+        )
+    except Exception as exc:
+        print(f"⚠️ Fast Kobo report input failed; using PostgreSQL fallback: {exc}")
+        submissions = get_submissions(dealer, d, report_type=report_type)
     if not submissions:
         label = report_type
         all_rows = get_submissions(dealer, d, report_type=None)

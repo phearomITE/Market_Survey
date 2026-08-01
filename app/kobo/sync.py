@@ -203,6 +203,35 @@ def _source_hash(raw: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def fetch_report_submissions_fast(dealer: str, report_date: date) -> list[KoboSubmission]:
+    """Build report-ready submission objects directly from Kobo, without DB writes.
+
+    A targeted dealer/date response is already the authoritative report input.
+    Converting it in memory avoids hundreds of PostgreSQL child-row deletes and
+    inserts before an urgent Excel report can be sent.
+    """
+    rows = KoboClient().fetch_submissions(dealer=dealer, report_date=report_date)
+    submissions: list[KoboSubmission] = []
+    for raw in rows:
+        data = normalize_submission(raw)
+        flat = data.pop("_flat", {}) or {}
+        if (data.get("dealer") or "").upper() != dealer.upper():
+            continue
+        if data.get("report_date") != report_date:
+            continue
+        if not data.get("submission_id"):
+            continue
+
+        submission = KoboSubmission(**data)
+        submission.product_metrics = [KoboProductMetric(**item) for item in _product_metrics_from_flat(flat)]
+        submission.competitor_metrics = [KoboCompetitorMetric(**item) for item in _competitor_metrics_from_flat(flat)]
+        submission.ring_pull_metrics = [KoboRingPullMetric(**item) for item in _ring_pull_metrics_from_flat(flat)]
+        submissions.append(submission)
+
+    print(f"✅ Fast report input ready: dealer={dealer} date={report_date} rows={len(submissions)}")
+    return submissions
+
+
 def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = None) -> dict:
     """Fetch Kobo rows and upsert only new or changed submissions.
 
