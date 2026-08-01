@@ -4,7 +4,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive \
-    HOME=/tmp
+    HOME=/tmp \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    SAL_USE_VCLPLUGIN=svp \
+    LIBREOFFICE_PATH=/usr/bin/libreoffice \
+    PNG_RENDER_TIMEOUT_SECONDS=45
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -13,6 +18,9 @@ RUN apt-get update \
         fonts-noto-core \
         fonts-noto-extra \
         fontconfig \
+        poppler-utils \
+        xvfb \
+        xauth \
         ca-certificates \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/*

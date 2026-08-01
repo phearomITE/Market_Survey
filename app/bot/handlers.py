@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import urlencode
 
-from telegram import Update, InputFile
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputFile
 from telegram.ext import ContextTypes
 
+from app.core.config import settings
 from app.db.database import init_db
 from app.kobo.sync import sync_kobo
 from app.services.report_service import (
@@ -18,8 +20,7 @@ from app.services.report_service import (
     parse_multi_report_command_args,
     parse_report_command_args,
 )
-from app.services.submission_alert_service import format_submission_alert, local_today
-from app.services.render_service import excel_to_png
+from app.services.render_service import excel_to_png_with_diagnostics
 
 HELP_TEXT = """
 ✅ KB Market Survey Bot
@@ -37,15 +38,15 @@ Commands:
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
-/alert_submit 10
-/alert_submit 20
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
+/map
+/dashboard
 /help
 
-/report = send one dealer Excel immediately, then its PNG preview.
-/report_multi = generate one Excel workbook with selected dealer sheets.
-/report_today = generate one Excel workbook with 65 dealer sheets.
+/report = generate one dealer report and send large PNG file preview first, then Excel only.
+/report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
+/report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
@@ -53,8 +54,53 @@ Commands:
 Logic:
 1 Kobo submission = 1 outlet visit
 Group by Dealer + Date = 1 dealer template
-Every feature reads the requested date directly from Kobo.
+Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
 """.strip()
+
+
+def _viewer_url(view: str) -> str:
+    """Build a valid secure Railway map/dashboard URL."""
+    base = str(getattr(settings, "public_app_url", "") or "").strip().rstrip("/")
+    token = str(getattr(settings, "map_viewer_token", "") or "").strip()
+    if not base.startswith("https://"):
+        raise ValueError(
+            "PUBLIC_APP_URL must start with https://, for example "
+            "https://marketsurvey-production.up.railway.app"
+        )
+    if not token:
+        raise ValueError("MAP_VIEWER_TOKEN is missing.")
+    path = "/dashboard" if view == "dashboard" else "/map"
+    return f"{base}{path}?{urlencode({'access': token})}"
+
+
+async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        url = _viewer_url("map")
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ Map configuration error: {exc}")
+        return
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🗺 Open Movement Map", url=url)]]
+    )
+    await update.effective_message.reply_text(
+        "🗺 Open the read-only movement map:",
+        reply_markup=keyboard,
+    )
+
+
+async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        url = _viewer_url("dashboard")
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ Dashboard configuration error: {exc}")
+        return
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("📊 Open Movement Dashboard", url=url)]]
+    )
+    await update.effective_message.reply_text(
+        "📊 Open the read-only movement dashboard:",
+        reply_markup=keyboard,
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -71,7 +117,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last = getter() if callable(getter) else None
     if not last:
         await update.effective_message.reply_text(
-            "✅ Bot is running.\nReports and exports read the requested date directly from Kobo.\nUse /sync_kobo only when you want to refresh PostgreSQL."
+            "ℹ️ Bot is running.\nAuto-sync status: not run yet.\nUse /sync_kobo to sync now or wait for the 1-minute polling."
         )
         return
 
@@ -89,21 +135,20 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def sync_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sync_date = local_today()
-    msg = await update.effective_message.reply_text(
-        f"🔄 Syncing Kobo submissions for {sync_date.isoformat()}..."
-    )
+    msg = await update.effective_message.reply_text("🔄 Syncing Kobo submissions...")
     try:
-        result = await asyncio.to_thread(sync_kobo, report_date=sync_date)
+        result = await asyncio.to_thread(sync_kobo)
         await msg.edit_text(f"✅ Kobo sync completed. Fetched: {result.get('fetched', 0)} | Matched: {result.get('matched', 0)} | Synced: {result.get('synced', 0)} | Hash initialized: {result.get('hash_backfilled', 0)} | Unchanged: {result.get('unchanged', 0)} | Skipped: {result.get('skipped', 0)}")
     except Exception as e:
         await msg.edit_text(f"❌ Kobo sync failed: {e}")
 
 
 async def _maybe_sync_before_report(message) -> None:
-    # Report/export services read the requested date directly from Kobo.
-    # A database sync here would duplicate work and delay the Excel response.
-    return
+    if not settings.auto_sync_before_report:
+        return
+    await message.reply_text("🔄 Auto-syncing Kobo first...")
+    result = await asyncio.to_thread(sync_kobo)
+    await message.reply_text(f"✅ Kobo sync completed. Synced: {result['synced']} | Skipped: {result.get('skipped', 0)}")
 
 
 async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -123,7 +168,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     report_label = report_type
     wait = await update.effective_message.reply_text(
-        f"📊 Generating {report_label} Excel report for {dealer} {rdate}..."
+        f"📊 Generating {report_label} template preview for {dealer} {rdate}..."
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
@@ -132,26 +177,40 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await wait.edit_text(f"⚠️ {text}")
             return
 
-        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
+        # Send the Excel immediately. PNG rendering runs afterward, so a renderer
+        # problem can never block the business-critical workbook delivery.
+        await wait.edit_text(f"✅ {text}\n📎 Sending Excel report...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
+
         await wait.edit_text(
             f"✅ Excel sent for {dealer} {report_label} {rdate}.\n"
             "🖼 Creating PNG preview..."
         )
-        png_path = await asyncio.to_thread(excel_to_png, path)
-        if png_path and png_path.exists():
-            with png_path.open("rb") as png_file:
+        png, png_error = await asyncio.to_thread(excel_to_png_with_diagnostics, path)
+        if png:
+            # Send as a document to retain full resolution and still show a
+            # Telegram thumbnail preview.
+            with png.open("rb") as f:
                 await update.effective_message.reply_document(
-                    document=InputFile(png_file, filename=png_path.name),
+                    document=InputFile(f, filename=png.name),
                     caption=f"🖼 {dealer} {report_label} {rdate} report preview",
                 )
             await wait.edit_text(
-                f"✅ Completed {dealer} {report_label} {rdate}. Excel and PNG sent."
+                f"✅ Completed {dealer} {report_label} {rdate}: Excel + PNG sent."
             )
         else:
+            reason = " ".join(str(png_error or "unknown renderer error").split())
+            if len(reason) > 900:
+                reason = reason[:897] + "..."
+            print(
+                f"⚠️ Report PNG failed: dealer={dealer} type={report_label} "
+                f"date={rdate}; reason={reason}"
+            )
             await wait.edit_text(
-                f"⚠️ Excel sent for {dealer} {report_label} {rdate}, but PNG rendering failed."
+                f"⚠️ Excel sent for {dealer} {report_label} {rdate}, but PNG rendering failed.\n"
+                f"Reason: {reason}\n"
+                "Check the Railway deployment log for 'PNG renderer'."
             )
     except Exception as e:
         await wait.edit_text(f"❌ Report failed: {e}")
@@ -185,7 +244,18 @@ async def report_multi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=f"📊 Selected dealer reports - {dealer_text} ({rdate})",
             )
 
-        await wait.edit_text(f"✅ Completed selected dealer Excel reports for {rdate}.")
+        if png_zip:
+            await update.effective_message.reply_text("🖼 Uploading selected dealer PNG previews...")
+            with png_zip.open("rb") as f:
+                await update.effective_message.reply_document(
+                    document=InputFile(f, filename=png_zip.name),
+                    caption=f"🖼 PNG previews - {dealer_text} ({rdate})",
+                )
+        else:
+            await update.effective_message.reply_text(
+                "⚠️ Excel was generated, but PNG previews were not created. "
+                "Check LibreOffice, PyMuPDF and LIBREOFFICE_PATH."
+            )
     except Exception as exc:
         await wait.edit_text(f"❌ Multi-dealer report failed: {exc}")
 
@@ -194,7 +264,8 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rdate = context.args[0].strip() if context.args else None
     wait = await update.effective_message.reply_text(
         "📊 Generating /report_today output...\n"
-        "Excel workbook: 65 dealer sheets"
+        "Excel workbook: 65 dealer sheets\n"
+        "PNG ZIP: 65 dealer previews"
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
@@ -207,7 +278,18 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=f"📊 Excel workbook - 65 dealer sheets ({rdate or 'today'})",
             )
 
-        await wait.edit_text(f"✅ Completed 65-dealer Excel workbook for {rdate or 'today'}.")
+        if png_zip:
+            await update.effective_message.reply_text("🖼 Uploading PNG ZIP for 65 dealer previews...")
+            with png_zip.open("rb") as f:
+                await update.effective_message.reply_document(
+                    document=InputFile(f, filename=png_zip.name),
+                    caption=f"🖼 PNG previews - 65 dealers ({rdate or 'today'})",
+                )
+        else:
+            await update.effective_message.reply_text(
+                "⚠️ PNG ZIP not created. Excel workbook was generated successfully. "
+                "Install LibreOffice and PyMuPDF, or set LIBREOFFICE_PATH in .env."
+            )
     except Exception as e:
         await wait.edit_text(f"❌ Report today failed: {e}")
 
@@ -283,28 +365,6 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Raw movement export failed: {exc}")
-
-
-async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
-        await update.effective_message.reply_text("Usage:\n/alert_submit 10\n/alert_submit 20")
-        return
-    try:
-        threshold = int(context.args[0])
-    except (TypeError, ValueError):
-        threshold = 0
-    if threshold not in {10, 20}:
-        await update.effective_message.reply_text("Threshold must be 10 or 20.")
-        return
-    report_date = local_today()
-    wait = await update.effective_message.reply_text(
-        f"📊 Checking dealers below {threshold} reports for {report_date:%d/%m/%Y}..."
-    )
-    try:
-        text = await asyncio.to_thread(format_submission_alert, report_date, threshold)
-        await wait.edit_text(text)
-    except Exception as exc:
-        await wait.edit_text(f"❌ Submission alert failed: {exc}")
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
