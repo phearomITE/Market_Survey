@@ -1,0 +1,29 @@
+V125 Fast Reports - Remove Map and Dashboard
+
+Root cause of hanging reports:
+The bot started a full historical Kobo auto-sync three seconds after startup.
+That background task held the sync lock, so /report waited behind it.
+
+Changes:
+- Remove the full background auto-sync task.
+- /report performs only a targeted outlet_info dealer/date sync.
+- Add an 18-second hard deadline to the targeted Kobo fetch.
+- Remove Telegram /map and /dashboard commands.
+- Railway starts the Telegram bot only; no web/map server.
+- Preserve report, summary, raw movement, export, alert, GT/HORECA, Excel and PNG.
+
+Run in Git Bash:
+
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V125_FAST_REPORTS_REMOVE_MAP_DASHBOARD.zip -d .
+
+python -m py_compile app/kobo/client.py app/kobo/sync.py app/core/config.py app/bot/handlers.py app/bot/run_bot.py app/services/report_service.py
+python -m unittest tests.test_v104_daily_exports tests.test_v105_business_movement tests.test_v120_sync_and_khmer_png tests.test_v125_fast_reports_no_web -v
+
+git status
+git add Dockerfile railway.json app/kobo/client.py app/core/config.py app/bot/handlers.py app/bot/run_bot.py tests/test_v120_sync_and_khmer_png.py tests/test_v125_fast_reports_no_web.py V125_FAST_REPORTS_REMOVE_MAP_DASHBOARD.txt
+git commit -m "Make reports fast and remove map dashboard"
+git push origin main
+
+After Railway restarts:
+/report BMC2 GT 2026-08-01

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 import json
+from time import monotonic
 import requests
 from app.core.config import settings
 
@@ -66,9 +67,14 @@ class KoboClient:
             query = conditions[0] if len(conditions) == 1 else {"$and": conditions}
             params = {"query": json.dumps(query, separators=(",", ":"))}
         rows: list[dict] = []
+        started = monotonic()
+        page_count = 0
         while url:
-            data = self._get_json(url, timeout=25, params=params)
+            if page_count >= 5 or monotonic() - started > 18:
+                raise TimeoutError("Targeted Kobo fetch exceeded the 18-second report limit")
+            data = self._get_json(url, timeout=10, params=params)
             rows.extend(data.get("results", []))
             url = data.get("next")
             params = None
+            page_count += 1
         return rows

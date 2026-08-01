@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from urllib.parse import urlencode
-
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputFile
+from telegram import Update, InputFile
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
@@ -43,8 +41,6 @@ Commands:
 /alert_submit 20
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
-/map
-/dashboard
 /help
 
 /report = generate one dealer report and send large PNG file preview first, then Excel only.
@@ -57,53 +53,8 @@ Commands:
 Logic:
 1 Kobo submission = 1 outlet visit
 Group by Dealer + Date = 1 dealer template
-Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
+Sync: /report fetches only its requested dealer and date.
 """.strip()
-
-
-def _viewer_url(view: str) -> str:
-    """Build a valid secure Railway map/dashboard URL."""
-    base = str(getattr(settings, "public_app_url", "") or "").strip().rstrip("/")
-    token = str(getattr(settings, "map_viewer_token", "") or "").strip()
-    if not base.startswith("https://"):
-        raise ValueError(
-            "PUBLIC_APP_URL must start with https://, for example "
-            "https://marketsurvey-production.up.railway.app"
-        )
-    if not token:
-        raise ValueError("MAP_VIEWER_TOKEN is missing.")
-    path = "/dashboard" if view == "dashboard" else "/map"
-    return f"{base}{path}?{urlencode({'access': token})}"
-
-
-async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        url = _viewer_url("map")
-    except ValueError as exc:
-        await update.effective_message.reply_text(f"❌ Map configuration error: {exc}")
-        return
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🗺 Open Movement Map", url=url)]]
-    )
-    await update.effective_message.reply_text(
-        "🗺 Open the read-only movement map:",
-        reply_markup=keyboard,
-    )
-
-
-async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        url = _viewer_url("dashboard")
-    except ValueError as exc:
-        await update.effective_message.reply_text(f"❌ Dashboard configuration error: {exc}")
-        return
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("📊 Open Movement Dashboard", url=url)]]
-    )
-    await update.effective_message.reply_text(
-        "📊 Open the read-only movement dashboard:",
-        reply_markup=keyboard,
-    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
