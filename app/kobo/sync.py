@@ -203,7 +203,7 @@ def _source_hash(raw: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def fetch_report_submissions_fast(dealer: str, report_date: date) -> list[KoboSubmission]:
+def fetch_report_submissions_fast(dealer: str | None, report_date: date) -> list[KoboSubmission]:
     """Build report-ready submission objects directly from Kobo, without DB writes.
 
     A targeted dealer/date response is already the authoritative report input.
@@ -215,7 +215,7 @@ def fetch_report_submissions_fast(dealer: str, report_date: date) -> list[KoboSu
     for raw in rows:
         data = normalize_submission(raw)
         flat = data.pop("_flat", {}) or {}
-        if (data.get("dealer") or "").upper() != dealer.upper():
+        if dealer and (data.get("dealer") or "").upper() != dealer.upper():
             continue
         if data.get("report_date") != report_date:
             continue
@@ -228,7 +228,7 @@ def fetch_report_submissions_fast(dealer: str, report_date: date) -> list[KoboSu
         submission.ring_pull_metrics = [KoboRingPullMetric(**item) for item in _ring_pull_metrics_from_flat(flat)]
         submissions.append(submission)
 
-    print(f"✅ Fast report input ready: dealer={dealer} date={report_date} rows={len(submissions)}")
+    print(f"✅ Fast report input ready: dealer={dealer or 'ALL'} date={report_date} rows={len(submissions)}")
     return submissions
 
 

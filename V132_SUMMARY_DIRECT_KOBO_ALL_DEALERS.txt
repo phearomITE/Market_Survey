@@ -1,0 +1,12 @@
+V132 - Summary reads current Kobo submissions directly
+
+Problem fixed:
+- The GT summary used stale PostgreSQL rows.
+- If one dealer already existed (for example CA7), it skipped refresh and showed
+  other submitted dealers as No Submit.
+
+New flow:
+- /summary GT YYYY-MM-DD fetches all Kobo submissions for that date.
+- /summary HORECA YYYY-MM-DD uses the same direct Kobo flow.
+- Dealer counts, submission counts, outlets, and movement summary use current
+  Kobo rows without waiting for PostgreSQL writes.

@@ -38,6 +38,14 @@ class V120SyncAndKhmerPngTests(unittest.TestCase):
         )]
         self.assertIn("aggregate_submissions(submissions, wide_map={})", block)
 
+    def test_summary_reads_all_dealers_directly_from_kobo(self):
+        source = Path("app/services/report_service.py").read_text(encoding="utf-8")
+        block = source[source.index("def generate_region_dealer_summary"):source.index(
+            "def generate_raw_movement_export"
+        )]
+        self.assertIn("fetch_report_submissions_fast(None, d)", block)
+        self.assertNotIn("_sync_and_retry_if_empty(None, d", block)
+
     def test_khmer_font_and_headless_environment(self):
         source = Path("app/services/render_service.py").read_text(encoding="utf-8")
         docker = Path("Dockerfile").read_text(encoding="utf-8")

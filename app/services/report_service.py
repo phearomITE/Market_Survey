@@ -331,9 +331,16 @@ def generate_multi_dealer_reports(
 def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_date_str: str | None = None):
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
-    submissions = get_submissions(None, d, report_type=report_type)
-    if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=report_type)
+    # Summary must reflect every Kobo submission for this date. Reading stale
+    # PostgreSQL rows can incorrectly show dealers as "No Submit" whenever at
+    # least one older dealer row already exists. Build directly from Kobo.
+    try:
+        submissions = _filter_by_report_type(
+            fetch_report_submissions_fast(None, d), report_type
+        )
+    except Exception as exc:
+        print(f"⚠️ Direct Kobo summary input failed; using PostgreSQL fallback: {exc}")
+        submissions = get_submissions(None, d, report_type=report_type)
     rows = build_summary_rows(submissions)
     path = create_summary_report(
         rows,
