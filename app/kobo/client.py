@@ -35,6 +35,9 @@ class KoboClient:
         *,
         dealer: str | None = None,
         report_date: date | None = None,
+        deadline_seconds: int | None = None,
+        request_timeout: int | None = None,
+        page_limit: int | None = None,
     ) -> list[dict]:
         uid = asset_uid or settings.kobo_asset_uid
         if not uid:
@@ -56,7 +59,18 @@ class KoboClient:
                 query["outlet_info/dealer"] = str(dealer).strip().lower()
             if report_date:
                 query["outlet_info/report_date"] = report_date.isoformat()
-            params = {"query": json.dumps(query, separators=(",", ":"))}
+            params = {
+                "query": json.dumps(query, separators=(",", ":")),
+                # A daily summary can contain more than Kobo's default page.
+                # Request the whole working day in one response when possible.
+                "limit": 500,
+            }
+        if deadline_seconds is None:
+            deadline_seconds = 18 if dealer else 120
+        if request_timeout is None:
+            request_timeout = 10 if dealer else 60
+        if page_limit is None:
+            page_limit = 5 if dealer else 20
         rows: list[dict] = []
         started = monotonic()
         page_count = 0
@@ -65,9 +79,12 @@ class KoboClient:
             f"date={report_date or 'ALL'}"
         )
         while url:
-            if page_count >= 5 or monotonic() - started > 18:
-                raise TimeoutError("Targeted Kobo fetch exceeded the 18-second report limit")
-            data = self._get_json(url, timeout=10, params=params)
+            if page_count >= page_limit or monotonic() - started > deadline_seconds:
+                raise TimeoutError(
+                    f"Kobo fetch exceeded the {deadline_seconds}-second limit "
+                    f"after {page_count} pages and {len(rows)} rows"
+                )
+            data = self._get_json(url, timeout=request_timeout, params=params)
             rows.extend(data.get("results", []))
             url = data.get("next")
             params = None

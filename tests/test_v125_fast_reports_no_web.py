@@ -18,8 +18,10 @@ class V125FastReportsNoWebTests(unittest.TestCase):
 
     def test_targeted_fetch_has_hard_deadline(self):
         client = Path("app/kobo/client.py").read_text(encoding="utf-8")
-        self.assertIn("Targeted Kobo fetch exceeded the 18-second report limit", client)
-        self.assertIn("timeout=10", client)
+        self.assertIn("deadline_seconds = 18 if dealer else 120", client)
+        self.assertIn('"limit": 500', client)
+        self.assertIn("page_limit = 5 if dealer else 20", client)
+        self.assertIn("request_timeout = 10 if dealer else 60", client)
 
     def test_railway_starts_telegram_bot_only(self):
         railway = Path("railway.json").read_text(encoding="utf-8")

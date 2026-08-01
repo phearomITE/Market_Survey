@@ -45,6 +45,8 @@ class V120SyncAndKhmerPngTests(unittest.TestCase):
         )]
         self.assertIn("fetch_report_submissions_fast(None, d)", block)
         self.assertNotIn("_sync_and_retry_if_empty(None, d", block)
+        self.assertNotIn("using PostgreSQL fallback", block)
+        self.assertIn("if not submissions:", block)
 
     def test_khmer_font_and_headless_environment(self):
         source = Path("app/services/render_service.py").read_text(encoding="utf-8")

@@ -1,0 +1,11 @@
+V133 - Correct daily summary for 1,650+ Kobo outlets
+
+- Daily all-dealer Kobo requests use 500-row pagination.
+- Summary requests may use up to 20 pages and 120 seconds.
+- Single-dealer /report keeps its short 18-second deadline.
+- /summary no longer silently falls back to stale PostgreSQL rows.
+- If Kobo fails, the command returns an error instead of producing an incorrect
+  17-row summary.
+
+Expected for 1,650 Kobo results: four API pages and 1,650 input submissions
+before GT/HORECA filtering and exclusion of Outlet Name បូកសរុបរួម.
