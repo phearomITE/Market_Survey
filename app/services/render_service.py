@@ -4,9 +4,7 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
-import tempfile
 import zipfile
-from copy import copy
 from app.core.config import settings
 
 
@@ -41,38 +39,14 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
     if not soffice or not xlsx_path.exists():
         return None
 
-    # LibreOffice cannot shape Khmer correctly when a Latin-only template font
-    # (usually Calibri) remains on Khmer cells. Apply a Khmer-capable font only
-    # to cells that actually contain Khmer, preserving size, bold, colour and
-    # every other workbook style.
-    try:
-        from openpyxl import load_workbook
-        wb = load_workbook(xlsx_path)
-        changed = False
-        for ws in wb.worksheets:
-            for row in ws.iter_rows():
-                for cell in row:
-                    if isinstance(cell.value, str) and any("\u1780" <= char <= "\u17ff" for char in cell.value):
-                        khmer_font = copy(cell.font)
-                        khmer_font.name = os.getenv("KHMER_REPORT_FONT", "Khmer OS Battambang")
-                        cell.font = khmer_font
-                        changed = True
-        if changed:
-            wb.save(xlsx_path)
-        wb.close()
-    except Exception as exc:
-        print(f"⚠️ Khmer font preparation warning: {exc}")
-
     outdir = xlsx_path.parent
     outdir.mkdir(parents=True, exist_ok=True)
 
-    profile_dir = tempfile.mkdtemp(prefix="kb-libreoffice-")
     cmd = [
         soffice,
         "--headless",
         "--nologo",
         "--nofirststartwizard",
-        f"-env:UserInstallation=file://{profile_dir}",
         "--convert-to",
         "pdf",
         "--outdir",
@@ -80,28 +54,19 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
         str(xlsx_path),
     ]
     try:
-        render_env = os.environ.copy()
-        render_env.update({
-            "LANG": "km_KH.UTF-8",
-            "LC_ALL": "km_KH.UTF-8",
-            # "gen" is the X11 backend and fails on Railway with
-            # "X11 error: Can't open display". "svp" is LibreOffice's virtual
-            # headless backend and does not need DISPLAY.
-            "SAL_USE_VCLPLUGIN": "svp",
-        })
         proc = subprocess.run(
             cmd,
             check=False,
-            timeout=180,
+            timeout=max(5, int(os.getenv(
+                "PNG_RENDER_TIMEOUT_SECONDS",
+                str(getattr(settings, "png_render_timeout_seconds", 15)),
+            ))),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=render_env,
         )
     except Exception:
         return None
-    finally:
-        shutil.rmtree(profile_dir, ignore_errors=True)
 
     pdf = xlsx_path.with_suffix(".pdf")
     return pdf if pdf.exists() and pdf.stat().st_size > 0 else None
@@ -127,7 +92,7 @@ def _crop_white_border(png_path: Path, padding: int = 35) -> None:
         right = min(bbox[2] + padding, img.width)
         bottom = min(bbox[3] + padding, img.height)
         cropped = img.crop((left, top, right, bottom))
-        cropped.save(png_path, optimize=True)
+        cropped.save(png_path)
     except Exception:
         return
 
@@ -146,7 +111,7 @@ def _resize_if_too_wide(png_path: Path, max_width: int = 6000) -> None:
         ratio = max_width / float(img.width)
         new_size = (max_width, int(img.height * ratio))
         img = img.resize(new_size, Image.Resampling.LANCZOS)
-        img.save(png_path, optimize=True)
+        img.save(png_path)
     except Exception:
         return
 
@@ -172,7 +137,7 @@ def pdf_first_page_to_png(pdf_path: Path, png_path: Path | None = None) -> Path 
     try:
         # 4.5 zoom gives a much bigger, clearer report image than 2.2.
         # Override from .env if needed: PNG_RENDER_SCALE=5
-        scale = float(os.getenv("PNG_RENDER_SCALE", "4.5"))
+        scale = float(os.getenv("PNG_RENDER_SCALE", "2.8"))
         doc = fitz.open(str(pdf_path))
         if len(doc) == 0:
             doc.close()
@@ -183,7 +148,7 @@ def pdf_first_page_to_png(pdf_path: Path, png_path: Path | None = None) -> Path 
         doc.close()
 
         _crop_white_border(png_path, padding=25)
-        _resize_if_too_wide(png_path, max_width=int(os.getenv("PNG_MAX_WIDTH", "6000")))
+        _resize_if_too_wide(png_path, max_width=int(os.getenv("PNG_MAX_WIDTH", "4000")))
     except Exception:
         return None
 

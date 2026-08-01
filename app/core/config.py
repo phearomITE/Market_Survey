@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     auto_sync_enabled: bool = True
     auto_sync_interval_minutes: int = 1
     auto_sync_interval_seconds: int = 60
-    report_sync_wait_seconds: int = 180
+    report_sync_wait_seconds: int = 8
+    png_render_timeout_seconds: int = 15
     libreoffice_path: str = ""
 
     @property

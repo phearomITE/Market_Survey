@@ -136,6 +136,7 @@ def _build_application() -> Application:
     app = (
         Application.builder()
         .token(settings.telegram_bot_token)
+        .concurrent_updates(4)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()

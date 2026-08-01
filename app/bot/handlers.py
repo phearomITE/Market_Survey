@@ -52,7 +52,6 @@ Commands:
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
-/alert_submit = manually list dealers below today’s submission target (10 or 20).
 /export movement_multi = export Beer product movement for multiple dates.
 
 Logic:
@@ -181,9 +180,20 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await wait.edit_text(f"⚠️ {text}")
             return
 
-        await wait.edit_text(f"✅ {text}\n🖼 Creating PNG preview...")
+        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
+        with path.open("rb") as f:
+            await update.effective_message.reply_document(
+                document=InputFile(f, filename=path.name)
+            )
 
-        png = await asyncio.to_thread(excel_to_png, path)
+        await wait.edit_text("✅ Excel sent.\n🖼 Creating PNG preview (maximum 15 seconds)...")
+        try:
+            png = await asyncio.wait_for(
+                asyncio.to_thread(excel_to_png, path),
+                timeout=max(5, int(getattr(settings, "png_render_timeout_seconds", 15))),
+            )
+        except asyncio.TimeoutError:
+            png = None
         if png:
             # Send PNG as document, not photo. This keeps full resolution and shows
             # a small preview thumbnail in Telegram, like the user's requested example.
@@ -194,11 +204,9 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         else:
             await update.effective_message.reply_text(
-                "⚠️ PNG preview not created. Install LibreOffice or set LIBREOFFICE_PATH/SOFFICE_PATH. Sending Excel only."
+                "⚠️ PNG preview skipped after the fast timeout. Excel was already sent."
             )
-
-        with path.open("rb") as f:
-            await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
+        await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}.")
     except Exception as e:
         await wait.edit_text(f"❌ Report failed: {e}")
 
@@ -355,36 +363,26 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually show dealers below submission target; never runs automatically."""
     if len(context.args) != 1:
         await update.effective_message.reply_text(
             "Usage:\n/alert_submit 10\n/alert_submit 20"
         )
         return
-
     try:
         threshold = int(context.args[0])
     except (TypeError, ValueError):
         threshold = 0
     if threshold not in {10, 20}:
         await update.effective_message.reply_text(
-            "Threshold must be 10 or 20.\n"
-            "Usage:\n/alert_submit 10\n/alert_submit 20"
+            "Threshold must be 10 or 20.\nUsage:\n/alert_submit 10\n/alert_submit 20"
         )
         return
-
     report_date = local_today()
     wait = await update.effective_message.reply_text(
-        f"📊 Checking dealers below {threshold} submissions for "
-        f"{report_date:%d/%m/%Y}..."
+        f"📊 Checking dealers below {threshold} reports for {report_date:%d/%m/%Y}..."
     )
     try:
-        await _maybe_sync_before_report(update.effective_message)
-        text = await asyncio.to_thread(
-            format_submission_alert,
-            report_date,
-            threshold,
-        )
+        text = await asyncio.to_thread(format_submission_alert, report_date, threshold)
         await wait.edit_text(text)
     except Exception as exc:
         await wait.edit_text(f"❌ Submission alert failed: {exc}")

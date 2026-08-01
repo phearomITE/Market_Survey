@@ -1,0 +1,71 @@
+KB Market Survey V119 - Fast Reports and Manual Alerts Only
+
+Scope
+- Based directly on Market_Survey(20).
+- Does not modify HORECA products, CB LITE NCP, Kobo XLSForm, product mappings,
+  report templates or Final Movement calculations.
+
+Fast reports
+- Removes the two possible 180-second Kobo waits from report generation.
+- Uses locally synchronized PostgreSQL data immediately.
+- Background Kobo synchronization continues normally every minute.
+- Sends Excel before creating PNG.
+- PNG preview has a maximum 15-second deadline.
+- Uses faster PNG scale 2.8 and maximum width 4000.
+- Allows up to four Telegram commands to be processed concurrently.
+- Expected single /report completion is around 30 seconds or less under normal load.
+
+Manual submission alerts
+- /alert_submit 10
+- /alert_submit 20
+- Uses today's Asia/Phnom_Penh date.
+- Counts GT and HORECA submissions together.
+- Excludes Outlet Name បូកសរុបរួម and supported spelling variants.
+- Includes official dealers with zero submissions.
+- Shows only dealers below the selected threshold.
+- Runs manually only; no automatic scheduled alert.
+
+Git Bash deployment
+
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V119_FAST_REPORTS_AND_MANUAL_ALERTS_ONLY_PATCH.zip \
+  -d .
+
+python -m py_compile \
+  app/core/config.py \
+  app/services/report_service.py \
+  app/services/render_service.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/main.py \
+  app/web/router.py
+
+python -m unittest \
+  tests.test_v104_daily_exports \
+  tests.test_v105_business_movement \
+  tests.test_v119_fast_reports_and_alerts -v
+
+git status
+
+git add \
+  app/core/config.py \
+  app/services/report_service.py \
+  app/services/render_service.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_v119_fast_reports_and_alerts.py \
+  V119_FAST_REPORTS_AND_MANUAL_ALERTS_ONLY.txt
+
+git commit -m "Speed up reports and restore manual submission alerts"
+
+git push origin main
+
+After Railway deploys, test:
+/report CA7 GT 2026-08-01
+/report CA8 GT 2026-08-01
+/alert_submit 10
+/alert_submit 20
