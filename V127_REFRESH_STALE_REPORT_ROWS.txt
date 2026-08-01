@@ -1,0 +1,28 @@
+V127 Refresh Stale Report Rows
+
+Cause of CA7 showing 17 while Kobo shows 31:
+PostgreSQL already contained 17 rows. The report code only synchronized Kobo
+when the database result was empty, so it treated the stale 17 rows as complete.
+
+Fix:
+- /report always runs one targeted dealer/date Kobo refresh.
+- Reload PostgreSQL after the refresh.
+- Keep one Kobo submission = one outlet visit.
+- Subtract only the approved summary Outlet Name marker from Total Outlet Visit.
+- Preserve the V125 no-background-sync and V126 bounded exact query behavior.
+
+Run in Git Bash:
+
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V127_REFRESH_STALE_REPORT_ROWS.zip -d .
+
+python -m py_compile app/services/report_service.py app/kobo/client.py app/kobo/sync.py
+python -m unittest tests.test_v120_sync_and_khmer_png tests.test_v125_fast_reports_no_web -v
+
+git status
+git add app/services/report_service.py tests/test_v120_sync_and_khmer_png.py V127_REFRESH_STALE_REPORT_ROWS.txt
+git commit -m "Refresh stale dealer rows before reports"
+git push origin main
+
+After Railway restarts:
+/report CA7 GT 2026-08-01

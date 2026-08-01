@@ -164,9 +164,11 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
 
 
 def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, report_type: ReportType | None = None) -> list:
-    """Run one fast server-filtered Kobo sync, then retry the local database."""
-    if submissions:
-        return submissions
+    """Run one targeted Kobo sync, then reload the local database.
+
+    Existing rows may be incomplete/stale (for example DB=17 while Kobo=31),
+    so a non-empty database must not skip the requested dealer/date refresh.
+    """
     try:
         result = sync_kobo(
             dealer=dealer,
@@ -189,8 +191,9 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
     d = parse_report_date(report_date_str)
     dealer = dealer.upper().strip()
     submissions = get_submissions(dealer, d, report_type=report_type)
-    if settings.auto_sync_before_report or not submissions:
-        submissions = _sync_and_retry_if_empty(dealer, d, submissions, report_type=report_type)
+    # Always refresh this exact dealer/date. The fetch is targeted and bounded;
+    # using stale non-empty DB rows would undercount Total Outlet Visit.
+    submissions = _sync_and_retry_if_empty(dealer, d, submissions, report_type=report_type)
     if not submissions:
         label = report_type
         all_rows = get_submissions(dealer, d, report_type=None)
