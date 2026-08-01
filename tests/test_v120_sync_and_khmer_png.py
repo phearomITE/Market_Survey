@@ -3,12 +3,13 @@ import unittest
 
 
 class V120SyncAndKhmerPngTests(unittest.TestCase):
-    def test_kobo_fetch_uses_stable_submission_time_query(self):
+    def test_kobo_fetch_uses_exact_xlsform_dealer_and_date(self):
         client = Path("app/kobo/client.py").read_text(encoding="utf-8")
         sync = Path("app/kobo/sync.py").read_text(encoding="utf-8")
-        self.assertIn('"_submission_time"', client)
-        self.assertIn("timedelta(days=1)", client)
-        self.assertNotIn('"outlet_info/dealer"', client)
+        self.assertIn('code = str(dealer).strip().upper()', client)
+        self.assertIn('{"dealer": {"$in": [code, code.lower()]}}', client)
+        self.assertIn('{"report_date": report_date.isoformat()}', client)
+        self.assertNotIn('code = str(dealer).strip().lower()', client)
         self.assertIn('"query": json.dumps(query', client)
         self.assertIn("fetch_submissions(dealer=dealer, report_date=report_date)", sync)
 

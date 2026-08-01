@@ -1,0 +1,28 @@
+V123 Exact Kobo Dealer/Date Fast Sync
+
+Verified from the deployed XLSForm survey sheet:
+- dealer is a top-level field named dealer
+- Report Date is a top-level field named report_date
+- dealer choice values are uppercase
+
+The previous query lowercased BMC2 to bmc2, causing zero matches. The temporary
+date-window fallback then fetched too many records and exceeded 30 seconds.
+
+This fix queries the exact uppercase dealer and exact report date, so /report
+downloads only the requested submissions.
+
+Run in Git Bash:
+
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V123_EXACT_KOBO_DEALER_DATE_FAST_SYNC.zip -d .
+
+python -m py_compile app/kobo/client.py app/kobo/sync.py app/bot/handlers.py
+python -m unittest tests.test_v120_sync_and_khmer_png -v
+
+git status
+git add app/kobo/client.py tests/test_v120_sync_and_khmer_png.py V123_EXACT_KOBO_DEALER_DATE_FAST_SYNC.txt
+git commit -m "Use exact Kobo dealer and date query"
+git push origin main
+
+After Railway restarts:
+/report BMC2 GT 2026-08-01
