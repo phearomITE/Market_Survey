@@ -1,0 +1,87 @@
+KB MARKET SURVEY V143 - DISABLE REPEATING FULL KOBO SYNC
+========================================================
+
+The Railway log showed:
+
+Auto Kobo sync enabled: every 60 seconds
+Kobo fast fetch: dealer-filter=ALL date=ALL
+Auto sync failed: Kobo fetch exceeded 35s after 20 pages and 2000 rows
+
+Cause
+-----
+Railway still had AUTO_SYNC_ENABLED=true. That environment variable overrides
+.env.example. The bot therefore downloaded all historical Kobo pages every
+minute. The dataset is now larger than 2,000 rows, so it reached the safety
+limit, failed, waited 60 seconds, and repeated.
+
+V143 fix
+--------
+1. The bot never starts the repeating full-history synchronization loop, even
+   if an old Railway AUTO_SYNC_ENABLED=true variable remains.
+2. Report, summary, raw movement, and export commands continue to use the fast
+   date-filtered Kobo path from V142.
+3. /sync_kobo now refreshes today's submissions only and has a 50-second
+   command deadline.
+4. /alert_submit continues to read today's Kobo metadata directly.
+
+Railway variables
+-----------------
+AUTO_SYNC_ENABLED=false
+AUTO_SYNC_BEFORE_REPORT=false
+COMMAND_TIMEOUT_SECONDS=55
+KOBO_FETCH_DEADLINE_SECONDS=35
+KOBO_REQUEST_TIMEOUT_SECONDS=15
+KOBO_CACHE_TTL_SECONDS=30
+PNG_RENDER_TIMEOUT_SECONDS=18
+
+Run in Git Bash
+---------------
+The ZIP intentionally does not contain README.md, so your existing local
+README changes are preserved.
+
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V143_DISABLE_AUTO_SYNC_LOOP.zip \
+  -d .
+
+python -m py_compile \
+  app/core/config.py \
+  app/kobo/client.py \
+  app/kobo/sync.py \
+  app/services/report_service.py \
+  app/services/submission_alert_service.py \
+  app/services/render_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+python -m unittest \
+  tests.test_v104_daily_exports \
+  tests.test_v105_business_movement \
+  tests.test_v142_one_minute_commands \
+  tests.test_v143_disable_full_auto_sync -v
+
+git status
+
+git add \
+  Dockerfile \
+  railway.json \
+  .env.example \
+  app \
+  templates \
+  tests \
+  V142_ONE_MINUTE_REPORTS.txt \
+  V143_DISABLE_AUTO_SYNC_LOOP.txt
+
+git commit -m "Disable repeating full Kobo synchronization"
+
+git push origin main
+
+Expected startup log
+--------------------
+KB Market Survey Bot running...
+Automatic full Kobo sync disabled; reports use fast date-filtered Kobo reads.
+
+You must no longer see:
+Auto Kobo sync enabled: every 60 seconds
+Kobo fast fetch: dealer-filter=ALL date=ALL

@@ -59,7 +59,7 @@ Commands:
 Logic:
 1 Kobo submission = 1 outlet visit
 Group by Dealer + Date = 1 dealer template
-Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
+Full-history auto-sync is disabled. /sync_kobo manually syncs today's rows.
 """.strip()
 
 
@@ -142,7 +142,9 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last = getter() if callable(getter) else None
     if not last:
         await update.effective_message.reply_text(
-            "ℹ️ Bot is running.\nAuto-sync status: not run yet.\nUse /sync_kobo to sync now or wait for the 1-minute polling."
+            "ℹ️ Bot is running.\nAutomatic full sync: disabled.\n"
+            "Reports use live date-filtered Kobo data. Use /sync_kobo only when "
+            "you want to refresh today's PostgreSQL rows."
         )
         return
 
@@ -160,10 +162,25 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def sync_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.effective_message.reply_text("🔄 Syncing Kobo submissions...")
+    report_date = local_today()
+    msg = await update.effective_message.reply_text(
+        f"🔄 Syncing today's Kobo submissions ({report_date})..."
+    )
     try:
-        result = await _run_fast(sync_kobo, timeout_seconds=50)
-        await msg.edit_text(f"✅ Kobo sync completed. Fetched: {result.get('fetched', 0)} | Matched: {result.get('matched', 0)} | Synced: {result.get('synced', 0)} | Hash initialized: {result.get('hash_backfilled', 0)} | Unchanged: {result.get('unchanged', 0)} | Skipped: {result.get('skipped', 0)}")
+        result = await _run_fast(
+            sync_kobo,
+            report_date=report_date,
+            timeout_seconds=50,
+        )
+        await msg.edit_text(
+            f"✅ Kobo sync completed for {report_date}. "
+            f"Fetched: {result.get('fetched', 0)} | "
+            f"Matched: {result.get('matched', 0)} | "
+            f"Synced: {result.get('synced', 0)} | "
+            f"Hash initialized: {result.get('hash_backfilled', 0)} | "
+            f"Unchanged: {result.get('unchanged', 0)} | "
+            f"Skipped: {result.get('skipped', 0)}"
+        )
     except Exception as e:
         await msg.edit_text(f"❌ Kobo sync failed: {e}")
 

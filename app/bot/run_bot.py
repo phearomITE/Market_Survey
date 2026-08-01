@@ -88,11 +88,16 @@ async def _auto_sync_loop() -> None:
 
 
 async def _post_init(app: Application) -> None:
-    """Start background tasks after Telegram initializes."""
-    global _auto_sync_task
+    """Keep full-history synchronization out of the interactive bot process.
 
-    if getattr(settings, "auto_sync_enabled", False):
-        _auto_sync_task = asyncio.create_task(_auto_sync_loop())
+    V143 intentionally ignores an old Railway AUTO_SYNC_ENABLED=true variable.
+    Reports read their requested date directly from Kobo, and /sync_kobo remains
+    available for a bounded manual current-day database refresh.
+    """
+    print(
+        "ℹ️ Automatic full Kobo sync disabled; "
+        "reports use fast date-filtered Kobo reads."
+    )
 
 
 async def _post_shutdown(app: Application) -> None:
