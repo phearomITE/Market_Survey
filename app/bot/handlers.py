@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from functools import partial
+from threading import Lock
 from time import monotonic
 from urllib.parse import urlencode
 
@@ -63,7 +64,29 @@ Reports use cached, date-filtered Kobo data. Full-history auto-sync is disabled.
 """.strip()
 
 
-async def _run_fast(function, *args, timeout_seconds: int | None = None, **kwargs):
+_HEAVY_JOB_LOCK = Lock()
+
+
+def _run_exclusive(function, *args, **kwargs):
+    """Keep timed-out worker threads from piling up on Railway CPU."""
+    if not _HEAVY_JOB_LOCK.acquire(blocking=False):
+        raise RuntimeError(
+            "Another report/export is still finishing. Please wait a few "
+            "seconds and run the command once."
+        )
+    try:
+        return function(*args, **kwargs)
+    finally:
+        _HEAVY_JOB_LOCK.release()
+
+
+async def _run_fast(
+    function,
+    *args,
+    timeout_seconds: int | None = None,
+    exclusive: bool = True,
+    **kwargs,
+):
     timeout = max(
         1,
         min(
@@ -73,12 +96,20 @@ async def _run_fast(function, *args, timeout_seconds: int | None = None, **kwarg
     )
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(partial(function, *args, **kwargs)),
+            asyncio.to_thread(
+                partial(
+                    _run_exclusive if exclusive else function,
+                    *((function,) + args if exclusive else args),
+                    **kwargs,
+                )
+            ),
             timeout=timeout,
         )
     except asyncio.TimeoutError as exc:
         raise TimeoutError(
-            f"Operation stopped after {timeout} seconds. Please retry once."
+            f"Operation exceeded the {timeout}-second fast limit. "
+            "The worker is protected from duplicate jobs; retry once after "
+            "a few seconds."
         ) from exc
 
 

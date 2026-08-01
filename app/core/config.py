@@ -37,10 +37,11 @@ class Settings(BaseSettings):
     auto_sync_enabled: bool = False
     auto_sync_interval_minutes: int = 1
     auto_sync_interval_seconds: int = 60
-    command_timeout_seconds: int = 55
+    command_timeout_seconds: int = 58
     kobo_fetch_deadline_seconds: int = 30
     kobo_request_timeout_seconds: int = 12
     kobo_cache_ttl_seconds: int = 180
+    kobo_normalized_cache_ttl_seconds: int = 180
     report_sync_wait_seconds: int = 45
     png_render_timeout_seconds: int = 18
     libreoffice_path: str = ""

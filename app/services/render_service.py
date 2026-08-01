@@ -1,12 +1,40 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import lru_cache
 import os
 import shutil
 import subprocess
 import tempfile
 import zipfile
 from app.core.config import settings
+
+
+@lru_cache(maxsize=1)
+def _khmer_font_match() -> tuple[bool, str]:
+    """Return the actual fontconfig match used by headless LibreOffice."""
+    fc_match = shutil.which("fc-match")
+    if not fc_match:
+        return False, "fontconfig fc-match is unavailable"
+    try:
+        process = subprocess.run(
+            [
+                fc_match,
+                "-f",
+                "%{family}|%{file}",
+                "Noto Sans Khmer",
+            ],
+            check=False,
+            timeout=5,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        detail = " ".join((process.stdout or process.stderr or "").split())
+        ready = process.returncode == 0 and "noto sans khmer" in detail.lower()
+        return ready, detail or f"fc-match exit={process.returncode}"
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _find_soffice() -> str | None:
@@ -40,6 +68,11 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
     if not soffice or not xlsx_path.exists():
         return None
     try:
+        font_ready, font_detail = _khmer_font_match()
+        if font_ready:
+            print(f"✅ Khmer PNG font: {font_detail}")
+        else:
+            print(f"⚠️ Khmer PNG font not matched: {font_detail}")
         with tempfile.TemporaryDirectory(prefix="kb-lo-") as temporary:
             root = Path(temporary)
             output = root / "output"
@@ -52,6 +85,8 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
             environment["SAL_USE_VCLPLUGIN"] = "svp"
             environment["LANG"] = "C.UTF-8"
             environment["LC_ALL"] = "C.UTF-8"
+            if Path("/etc/fonts/fonts.conf").exists():
+                environment["FONTCONFIG_FILE"] = "/etc/fonts/fonts.conf"
             environment.pop("DISPLAY", None)
             command = [
                 soffice,

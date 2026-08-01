@@ -111,7 +111,13 @@ def _clean(v) -> str:
 
 
 def _normalize_khmer_cells(ws: Worksheet) -> None:
-    """Remove hidden separators and force a Khmer-shaping font for PNG."""
+    """Normalize Khmer and remove Excel theme-font overrides before PNG.
+
+    A font can contain both ``name=Noto Sans Khmer`` and ``scheme=minor``.
+    Microsoft Excel uses the explicit font correctly, but LibreOffice may honor
+    the theme scheme and substitute another font.  That substitution is what
+    splits Khmer coeng clusters such as គ្រប់ in the rendered PNG.
+    """
     for row in ws.iter_rows():
         for cell in row:
             if isinstance(cell, MergedCell) or not isinstance(cell.value, str):
@@ -123,6 +129,9 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
             if any("\u1780" <= char <= "\u17ff" for char in value):
                 font = copy(cell.font)
                 font.name = SUMMARY_FONT_NAME
+                font.scheme = None
+                font.charset = None
+                font.family = None
                 cell.font = font
 
 

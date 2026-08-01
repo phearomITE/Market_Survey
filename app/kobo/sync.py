@@ -5,6 +5,7 @@ import hashlib
 import json
 from datetime import date
 from types import SimpleNamespace
+from time import monotonic
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -18,7 +19,16 @@ from app.db.models import (
     SyncLog,
 )
 from app.kobo.client import KoboClient
-from app.kobo.parser import normalize_submission, to_float, to_int, yes_value
+from app.kobo.parser import (
+    ALIASES,
+    FlatFieldMap,
+    flatten_dict,
+    normalize_dealer,
+    normalize_submission,
+    to_float,
+    to_int,
+    yes_value,
+)
 from app.db.kobo_wide import upsert_wide_submission
 from app.core.config import settings
 _SYNC_LOCK = Lock()
@@ -28,12 +38,51 @@ _SYNC_FINISHED.set()
 from app.reports.aggregator import (
     ALL_COMPETITOR_PRODUCTS,
     ALL_OWN_PRODUCTS,
+    COMPETITOR_PRODUCTS,
+    HORECA_COMPETITOR_PRODUCTS,
+    HORECA_OWN_PRODUCTS,
+    OWN_PRODUCTS,
     RING_PRODUCTS,
     STATUS_AVAILABLE,
     competitor_field,
     first_value,
     product_field,
 )
+
+
+_REPORT_CACHE: dict[tuple[str, str, str], tuple[float, list]] = {}
+_REPORT_CACHE_LOCK = Lock()
+_REPORT_FLIGHT_LOCKS: dict[tuple[str, str, str], Lock] = {}
+
+
+def _report_flight_lock(cache_key: tuple[str, str, str]) -> Lock:
+    with _REPORT_CACHE_LOCK:
+        return _REPORT_FLIGHT_LOCKS.setdefault(cache_key, Lock())
+
+
+def clear_report_submission_cache() -> None:
+    """Invalidate normalized rows after a manual database/Kobo sync."""
+    with _REPORT_CACHE_LOCK:
+        _REPORT_CACHE.clear()
+
+
+def _cached_report_rows(cache_key: tuple[str, str, str]) -> list | None:
+    with _REPORT_CACHE_LOCK:
+        cached = _REPORT_CACHE.get(cache_key)
+    if not cached:
+        return None
+    if monotonic() - cached[0] > max(
+        0, int(settings.kobo_normalized_cache_ttl_seconds)
+    ):
+        with _REPORT_CACHE_LOCK:
+            _REPORT_CACHE.pop(cache_key, None)
+        return None
+    return list(cached[1])
+
+
+def _store_report_rows(cache_key: tuple[str, str, str], rows: list) -> None:
+    with _REPORT_CACHE_LOCK:
+        _REPORT_CACHE[cache_key] = (monotonic(), list(rows))
 
 
 def _status_to_mov(value) -> int | None:
@@ -58,11 +107,23 @@ def _has_any_product_detail(flat: dict, product: str) -> bool:
     return False
 
 
-def _product_metrics_from_flat(flat: dict) -> list[dict]:
+def _product_metrics_from_flat(
+    flat: dict,
+    products: list[str] | tuple[str, ...] | None = None,
+) -> list[dict]:
     rows: list[dict] = []
-    for product in ALL_OWN_PRODUCTS:
+    for product in products or ALL_OWN_PRODUCTS:
         status = first_value(flat, product_field(product, "status"))
         score = first_value(flat, product_field(product, "mov"))
+        stock_status = first_value(flat, product_field(product, "stock"))
+        bbe_date = first_value(flat, product_field(product, "bbe"))
+        buy_in_price = first_value(flat, product_field(product, "buy_in"))
+        sell_out_price = first_value(flat, product_field(product, "sell_out"))
+        ring_pull_value = first_value(flat, product_field(product, "ring_pull"))
+        new_outlet_purchase = first_value(
+            flat, product_field(product, "new_purchase")
+        )
+        volume_ctn = first_value(flat, product_field(product, "volume"))
         movement = to_int(score)
         if movement is None:
             movement = _status_to_mov(status)
@@ -70,20 +131,32 @@ def _product_metrics_from_flat(flat: dict) -> list[dict]:
         if status not in (None, ""):
             available = str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
         else:
-            available = _has_any_product_detail(flat, product)
+            available = any(
+                value not in (None, "")
+                for value in (
+                    score,
+                    stock_status,
+                    bbe_date,
+                    buy_in_price,
+                    sell_out_price,
+                    ring_pull_value,
+                    new_outlet_purchase,
+                    volume_ctn,
+                )
+            )
 
         values = {
             "product_name": product,
             "status": str(status).strip() if status not in (None, "") else None,
             "available": bool(available),
             "movement_score": movement,
-            "stock_status": first_value(flat, product_field(product, "stock")),
-            "bbe_date": first_value(flat, product_field(product, "bbe")),
-            "buy_in_price": to_float(first_value(flat, product_field(product, "buy_in"))),
-            "sell_out_price": to_float(first_value(flat, product_field(product, "sell_out"))),
-            "ring_pull_value": to_float(first_value(flat, product_field(product, "ring_pull"))),
-            "new_outlet_purchase": yes_value(first_value(flat, product_field(product, "new_purchase"))),
-            "volume_ctn": to_float(first_value(flat, product_field(product, "volume"))),
+            "stock_status": stock_status,
+            "bbe_date": bbe_date,
+            "buy_in_price": to_float(buy_in_price),
+            "sell_out_price": to_float(sell_out_price),
+            "ring_pull_value": to_float(ring_pull_value),
+            "new_outlet_purchase": yes_value(new_outlet_purchase),
+            "volume_ctn": to_float(volume_ctn),
         }
 
         # Store every product row so reporting has fixed rows, even if blank.
@@ -91,11 +164,17 @@ def _product_metrics_from_flat(flat: dict) -> list[dict]:
     return rows
 
 
-def _competitor_metrics_from_flat(flat: dict) -> list[dict]:
+def _competitor_metrics_from_flat(
+    flat: dict,
+    products: list[str] | tuple[str, ...] | None = None,
+) -> list[dict]:
     rows: list[dict] = []
-    for product in ALL_COMPETITOR_PRODUCTS:
+    for product in products or ALL_COMPETITOR_PRODUCTS:
         status = first_value(flat, competitor_field(product, "status"))
         score = first_value(flat, competitor_field(product, "mov"))
+        stock_status = first_value(flat, competitor_field(product, "stock"))
+        buy_in_price = first_value(flat, competitor_field(product, "buy_in"))
+        sell_out_price = first_value(flat, competitor_field(product, "sell_out"))
         movement = to_int(score)
         if movement is None:
             movement = _status_to_mov(status)
@@ -104,9 +183,9 @@ def _competitor_metrics_from_flat(flat: dict) -> list[dict]:
                 "product_name": product,
                 "status": str(status).strip() if status not in (None, "") else None,
                 "movement_score": movement,
-                "stock_status": first_value(flat, competitor_field(product, "stock")),
-                "buy_in_price": to_float(first_value(flat, competitor_field(product, "buy_in"))),
-                "sell_out_price": to_float(first_value(flat, competitor_field(product, "sell_out"))),
+                "stock_status": stock_status,
+                "buy_in_price": to_float(buy_in_price),
+                "sell_out_price": to_float(sell_out_price),
             }
         )
     return rows
@@ -213,13 +292,13 @@ def fetch_report_submissions_fast(
     summary_only: bool = False,
     metadata_only: bool = False,
 ) -> list[KoboSubmission]:
-    """Normalize one date directly from Kobo without PostgreSQL writes."""
-    rows = KoboClient().fetch_submissions(
-        report_date=report_date,
-        dealer=dealer,
-        deadline_seconds=settings.kobo_fetch_deadline_seconds,
-        request_timeout=settings.kobo_request_timeout_seconds,
-    )
+    """Normalize one date directly from Kobo without PostgreSQL writes.
+
+    Rows are indexed once, report/dealer filtered before product parsing and
+    cached by date+mode.  This is shared by every export command, so a second
+    command for the same date avoids repeating 1,600 product parses.
+    """
+    mode = "metadata" if metadata_only else "summary" if summary_only else "full"
     wanted = {
         str(value).strip().upper()
         for value in (dealers or set())
@@ -227,10 +306,74 @@ def fetch_report_submissions_fast(
     }
     if dealer:
         wanted.add(str(dealer).strip().upper())
+    scope = ",".join(sorted(wanted)) if wanted else "ALL"
+    cache_key = (report_date.isoformat(), mode, scope)
 
+    # A full-date cache is a safe superset for all other modes/scopes.
+    full_all_key = (report_date.isoformat(), "full", "ALL")
+    full_rows = _cached_report_rows(full_all_key)
+    if full_rows is not None:
+        selected = [
+            row for row in full_rows
+            if not wanted or str(getattr(row, "dealer", "")).upper() in wanted
+        ]
+        print(
+            f"⚡ Normalized Kobo cache hit: date={report_date} "
+            f"mode=full scope={scope} rows={len(selected)}"
+        )
+        return selected
+
+    cached = _cached_report_rows(cache_key)
+    if cached is not None:
+        print(
+            f"⚡ Normalized Kobo cache hit: date={report_date} "
+            f"mode={mode} scope={scope} rows={len(cached)}"
+        )
+        return cached
+
+    with _report_flight_lock(cache_key):
+        cached = _cached_report_rows(cache_key)
+        if cached is not None:
+            return cached
+
+        submissions = _build_report_submissions(
+            dealer=dealer,
+            report_date=report_date,
+            wanted=wanted,
+            summary_only=summary_only,
+            metadata_only=metadata_only,
+        )
+        _store_report_rows(cache_key, submissions)
+        return list(submissions)
+
+
+def _build_report_submissions(
+    *,
+    dealer: str | None,
+    report_date: date,
+    wanted: set[str],
+    summary_only: bool,
+    metadata_only: bool,
+) -> list[KoboSubmission]:
+    rows = KoboClient().fetch_submissions(
+        report_date=report_date,
+        dealer=dealer,
+        deadline_seconds=settings.kobo_fetch_deadline_seconds,
+        request_timeout=settings.kobo_request_timeout_seconds,
+    )
     submissions: list[KoboSubmission] = []
     for raw in rows:
-        data = normalize_submission(raw)
+        flat: FlatFieldMap = flatten_dict(raw)
+        # Dealer commands should parse product fields only for the requested
+        # dealer, not for all 1,600 submissions returned for the date.
+        if wanted:
+            raw_dealer = normalize_dealer(
+                flat.parser_value(ALIASES["dealer"], "")
+            )
+            if raw_dealer not in wanted:
+                continue
+
+        data = normalize_submission(raw, flat=flat)
         flat = data.pop("_flat", {}) or {}
         normalized_dealer = str(data.get("dealer") or "").strip().upper()
         if wanted and normalized_dealer not in wanted:
@@ -246,26 +389,29 @@ def fetch_report_submissions_fast(
             submissions.append(submission)
             continue
 
-        product_rows = _product_metrics_from_flat(flat)
-        competitor_rows = _competitor_metrics_from_flat(flat)
+        report_type = str(data.get("report_type") or "GT").strip().upper()
         if summary_only:
-            own_names = {"CB LITE NCP", "CBL Pint"}
-            competitor_names = {
-                "GB SNOW NCP",
-                "Hanuman LITE NCP",
-                "Greet LITE NCP",
+            own_products = ["CBL Pint"] if report_type == "HORECA" else ["CB LITE NCP"]
+            competitor_products = [
                 "Tiger Crystal Pint",
                 "HANUMAN LITE Pint",
                 "Vathanac LITE Pint",
-            }
-            product_rows = [
-                item for item in product_rows
-                if item["product_name"] in own_names
+            ] if report_type == "HORECA" else [
+                "GB SNOW NCP",
+                "Hanuman LITE NCP",
+                "Greet LITE NCP",
             ]
-            competitor_rows = [
-                item for item in competitor_rows
-                if item["product_name"] in competitor_names
-            ]
+        elif report_type == "HORECA":
+            own_products = HORECA_OWN_PRODUCTS
+            competitor_products = HORECA_COMPETITOR_PRODUCTS
+        else:
+            own_products = OWN_PRODUCTS
+            competitor_products = COMPETITOR_PRODUCTS
+
+        product_rows = _product_metrics_from_flat(flat, own_products)
+        competitor_rows = _competitor_metrics_from_flat(
+            flat, competitor_products
+        )
 
         submission.product_metrics = [
             SimpleNamespace(**item) for item in product_rows
@@ -275,7 +421,7 @@ def fetch_report_submissions_fast(
         ]
         submission.ring_pull_metrics = (
             []
-            if summary_only
+            if summary_only or report_type == "HORECA"
             else [
                 SimpleNamespace(**item)
                 for item in _ring_pull_metrics_from_flat(flat)
@@ -414,7 +560,9 @@ def sync_kobo(
 
     _SYNC_FINISHED.clear()
     try:
-        return _sync_kobo_unlocked(dealer=dealer, report_date=report_date)
+        result = _sync_kobo_unlocked(dealer=dealer, report_date=report_date)
+        clear_report_submission_cache()
+        return result
     finally:
         _SYNC_FINISHED.set()
         _SYNC_LOCK.release()

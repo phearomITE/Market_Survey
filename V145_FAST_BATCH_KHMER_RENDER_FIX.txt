@@ -1,0 +1,44 @@
+V145 FAST BATCH + KHMER PNG RENDER FIX
+=======================================
+
+Resolved production failures
+----------------------------
+- /summary GT DATE
+- /summary HORECA DATE
+- /raw_movement DATE
+- /export DATE
+- /export movement_multi DATE DATE ...
+- /report_today DATE
+- /alert_submit 10 and /alert_submit 20
+- /report DEALER GT/HORECA DATE keeps Excel + PNG output
+
+Performance changes
+-------------------
+1. Every Kobo submission is flattened and indexed once.
+2. Product field aliases are compiled and cached once per process.
+3. Dealer filtering happens before product metric parsing.
+4. Summary parses only the own product and three comparison products.
+5. Full normalized rows are cached by report date for 180 seconds.
+6. Duplicate commands cannot leave multiple timed-out report jobs competing
+   for Railway CPU.
+7. Daily export no longer reads the huge PostgreSQL wide payload table.
+
+Synthetic 1,653-row benchmark on the complete product flow
+----------------------------------------------------------
+- Summary normalization: under 1 second
+- Full GT/HORECA normalization: about 3.2 seconds
+- Raw movement workbook: about 4.3 seconds
+- Two-sheet daily workbook: about 1.3 seconds
+
+Khmer PNG changes
+-----------------
+- NFC-normalize Khmer strings and remove hidden zero-width separators.
+- Apply Noto Sans Khmer to every Khmer-containing report cell.
+- Clear Excel theme scheme/charset/family overrides that made LibreOffice
+  replace the Khmer font and split clusters such as គ្រប់.
+- Docker build verifies that fontconfig resolves Noto Sans Khmer to a real
+  installed font file.
+- The renderer logs the matched Khmer font before LibreOffice conversion.
+
+Business calculations, GT/HORECA routing, templates and final movement rules
+remain unchanged.

@@ -1,0 +1,55 @@
+Run in Git Bash after downloading the V145 ZIP:
+
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V145_FAST_BATCH_KHMER_PNG_FIX.zip \
+  -d .
+
+python -m py_compile \
+  app/kobo/parser.py \
+  app/kobo/client.py \
+  app/kobo/sync.py \
+  app/reports/aggregator.py \
+  app/reports/excel_report.py \
+  app/reports/summary_report.py \
+  app/reports/movement_exports.py \
+  app/services/render_service.py \
+  app/services/report_service.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/main.py
+
+python -m unittest \
+  tests.test_v104_daily_exports \
+  tests.test_v105_business_movement \
+  tests.test_v145_fast_batch_khmer -v
+
+git status
+
+git add \
+  Dockerfile \
+  app \
+  templates \
+  tests \
+  V144_FAST_KOBO_KHMER_PNG_FIX.txt \
+  V145_FAST_BATCH_KHMER_RENDER_FIX.txt \
+  V145_GIT_BASH_DEPLOY.txt
+
+git commit -m "Fix fast Kobo batch exports and Khmer PNG rendering"
+
+git push origin main
+
+Railway should deploy automatically. Test:
+
+/summary GT 2026-08-01
+/summary HORECA 2026-08-01
+/raw_movement 2026-08-01
+/export 2026-08-01
+/report CA2 GT 2026-08-01
+/alert_submit 10
+
+For PNG rendering, Railway logs should include a line beginning:
+
+✅ Khmer PNG font: Noto Sans Khmer|
