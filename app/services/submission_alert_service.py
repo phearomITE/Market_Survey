@@ -5,7 +5,6 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.core.config import settings
 from app.data.dealers import ALL_DEALERS
 
 
@@ -26,16 +25,20 @@ def _is_final_summary_outlet_name(value: Any) -> bool:
     return normalized in {item.replace(" ", "") for item in FINAL_SUMMARY_KEYWORDS}
 
 
-def local_now() -> datetime:
+def local_today() -> date:
+    """Return the current report date in the configured Cambodia timezone."""
     try:
-        return datetime.now(ZoneInfo(settings.app_timezone))
+        from app.core.config import settings
+
+        return datetime.now(ZoneInfo(settings.app_timezone)).date()
     except Exception:
-        return datetime.now(ZoneInfo("Asia/Phnom_Penh"))
+        return datetime.now(ZoneInfo("Asia/Phnom_Penh")).date()
 
 
 def dealer_submission_counts(report_date: date) -> dict[str, int]:
-    """Count real outlet submissions for all official dealers on one date."""
+    """Count valid Kobo outlet submissions for every official dealer."""
     from sqlalchemy import select
+
     from app.db.database import SessionLocal
     from app.db.models import KoboSubmission
 
@@ -43,10 +46,10 @@ def dealer_submission_counts(report_date: date) -> dict[str, int]:
     official = set(ALL_DEALERS)
 
     with SessionLocal() as db:
-        stmt = select(KoboSubmission.dealer, KoboSubmission.outlet_name).where(
+        statement = select(KoboSubmission.dealer, KoboSubmission.outlet_name).where(
             KoboSubmission.report_date == report_date
         )
-        for dealer, outlet_name in db.execute(stmt):
+        for dealer, outlet_name in db.execute(statement):
             dealer_code = _clean(dealer).upper()
             if dealer_code not in official:
                 continue
@@ -61,18 +64,14 @@ def dealers_below_threshold(
     counts: dict[str, int],
     threshold: int,
 ) -> list[tuple[str, int]]:
-    """List low-submit dealers, closest to the target first.
-
-    Example: for <10, a dealer with 8 reports appears before a dealer with 5.
-    Official dealer order is used to break equal-count ties.
-    """
-    order = {dealer: index for index, dealer in enumerate(ALL_DEALERS)}
+    """Return dealers below target, highest submission count first."""
+    official_order = {dealer: index for index, dealer in enumerate(ALL_DEALERS)}
     rows = [
         (dealer, int(counts.get(dealer, 0)))
         for dealer in ALL_DEALERS
-        if int(counts.get(dealer, 0)) < int(threshold)
+        if int(counts.get(dealer, 0)) < threshold
     ]
-    return sorted(rows, key=lambda item: (-item[1], order[item[0]]))
+    return sorted(rows, key=lambda item: (-item[1], official_order[item[0]]))
 
 
 def format_submission_alert(
@@ -80,9 +79,12 @@ def format_submission_alert(
     threshold: int,
     counts: dict[str, int] | None = None,
 ) -> str:
-    counts = counts or dealer_submission_counts(report_date)
-    low_dealers = dealers_below_threshold(counts, threshold)
+    """Build the manual Telegram response for /alert_submit."""
+    if threshold not in {10, 20}:
+        raise ValueError("Threshold must be 10 or 20.")
 
+    counts = counts if counts is not None else dealer_submission_counts(report_date)
+    low_dealers = dealers_below_threshold(counts, threshold)
     lines = [
         f"📊 Dealer ដែល Submit Report តិចជាង {threshold}",
         f"📅 {report_date:%d/%m/%Y}",
@@ -96,6 +98,8 @@ def format_submission_alert(
         )
         lines.extend(["", f"សរុប Dealer: {len(low_dealers)}"])
     else:
-        lines.append(f"✅ Dealer ទាំងអស់បាន Submit ចាប់ពី {threshold} Report ឡើងទៅ។")
+        lines.append(
+            f"✅ Dealer ទាំងអស់បាន Submit ចាប់ពី {threshold} Report ឡើងទៅ។"
+        )
 
     return "\n".join(lines)

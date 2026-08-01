@@ -21,6 +21,7 @@ from app.services.report_service import (
     parse_report_command_args,
 )
 from app.services.render_service import excel_to_png, excel_to_pdf
+from app.services.submission_alert_service import format_submission_alert, local_today
 
 HELP_TEXT = """
 ✅ KB Market Survey Bot
@@ -38,6 +39,8 @@ Commands:
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
+/alert_submit 10
+/alert_submit 20
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /map
@@ -49,6 +52,7 @@ Commands:
 /report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
+/alert_submit = manually list dealers below today’s submission target (10 or 20).
 /export movement_multi = export Beer product movement for multiple dates.
 
 Logic:
@@ -348,6 +352,42 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Raw movement export failed: {exc}")
+
+
+async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually show dealers below submission target; never runs automatically."""
+    if len(context.args) != 1:
+        await update.effective_message.reply_text(
+            "Usage:\n/alert_submit 10\n/alert_submit 20"
+        )
+        return
+
+    try:
+        threshold = int(context.args[0])
+    except (TypeError, ValueError):
+        threshold = 0
+    if threshold not in {10, 20}:
+        await update.effective_message.reply_text(
+            "Threshold must be 10 or 20.\n"
+            "Usage:\n/alert_submit 10\n/alert_submit 20"
+        )
+        return
+
+    report_date = local_today()
+    wait = await update.effective_message.reply_text(
+        f"📊 Checking dealers below {threshold} submissions for "
+        f"{report_date:%d/%m/%Y}..."
+    )
+    try:
+        await _maybe_sync_before_report(update.effective_message)
+        text = await asyncio.to_thread(
+            format_submission_alert,
+            report_date,
+            threshold,
+        )
+        await wait.edit_text(text)
+    except Exception as exc:
+        await wait.edit_text(f"❌ Submission alert failed: {exc}")
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
