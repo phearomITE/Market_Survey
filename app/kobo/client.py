@@ -46,14 +46,23 @@ class KoboClient:
         url = f"{self.base_url}/api/v2/assets/{uid}/data.json"
         params = None
         if dealer or report_date:
-            # Verified against the deployed XLSForm: both fields are top-level.
+            # Current Kobo form stores these questions inside outlet_info;
+            # older/newer assets may expose them at the top level. Query both.
             # Dealer choice names are uppercase, so never lowercase the code.
             conditions: list[dict] = []
             if dealer:
                 code = str(dealer).strip().upper()
-                conditions.append({"dealer": {"$in": [code, code.lower()]}})
+                dealer_values = {"$in": [code, code.lower()]}
+                conditions.append({"$or": [
+                    {"outlet_info/dealer": dealer_values},
+                    {"dealer": dealer_values},
+                ]})
             if report_date:
-                conditions.append({"report_date": report_date.isoformat()})
+                day = report_date.isoformat()
+                conditions.append({"$or": [
+                    {"outlet_info/report_date": day},
+                    {"report_date": day},
+                ]})
             query = conditions[0] if len(conditions) == 1 else {"$and": conditions}
             params = {"query": json.dumps(query, separators=(",", ":"))}
         rows: list[dict] = []
