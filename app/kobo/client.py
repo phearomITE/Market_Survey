@@ -47,28 +47,21 @@ class KoboClient:
         url = f"{self.base_url}/api/v2/assets/{uid}/data.json"
         params = None
         if dealer or report_date:
-            # Current Kobo form stores these questions inside outlet_info;
-            # older/newer assets may expose them at the top level. Query both.
-            # Dealer choice names are uppercase, so never lowercase the code.
-            conditions: list[dict] = []
+            # Verified from the deployed XLSForm. Keep this query deliberately
+            # simple: Kobo can be very slow evaluating nested $or/$in clauses.
+            query: dict = {}
             if dealer:
-                code = str(dealer).strip().upper()
-                dealer_values = {"$in": [code, code.lower()]}
-                conditions.append({"$or": [
-                    {"outlet_info/dealer": dealer_values},
-                    {"dealer": dealer_values},
-                ]})
+                query["outlet_info/dealer"] = str(dealer).strip().upper()
             if report_date:
-                day = report_date.isoformat()
-                conditions.append({"$or": [
-                    {"outlet_info/report_date": day},
-                    {"report_date": day},
-                ]})
-            query = conditions[0] if len(conditions) == 1 else {"$and": conditions}
+                query["outlet_info/report_date"] = report_date.isoformat()
             params = {"query": json.dumps(query, separators=(",", ":"))}
         rows: list[dict] = []
         started = monotonic()
         page_count = 0
+        print(
+            f"🔎 Kobo targeted fetch starting: dealer={dealer or 'ALL'} "
+            f"date={report_date or 'ALL'}"
+        )
         while url:
             if page_count >= 5 or monotonic() - started > 18:
                 raise TimeoutError("Targeted Kobo fetch exceeded the 18-second report limit")
@@ -77,4 +70,5 @@ class KoboClient:
             url = data.get("next")
             params = None
             page_count += 1
+        print(f"✅ Kobo targeted fetch finished: rows={len(rows)} pages={page_count}")
         return rows

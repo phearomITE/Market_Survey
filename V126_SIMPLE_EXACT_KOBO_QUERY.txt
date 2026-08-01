@@ -1,0 +1,25 @@
+V126 Simple Exact Kobo Query
+
+The complex Kobo $or/$in compatibility query did not return promptly. The
+deployed XLSForm is confirmed to use these exact paths:
+- outlet_info/dealer
+- outlet_info/report_date
+
+V126 uses direct equality with uppercase dealer code and exact date. It also
+prints targeted fetch start/finish logs and keeps the 18-second hard deadline.
+
+Run in Git Bash:
+
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V126_SIMPLE_EXACT_KOBO_QUERY.zip -d .
+
+python -m py_compile app/kobo/client.py app/kobo/sync.py app/bot/handlers.py
+python -m unittest tests.test_v120_sync_and_khmer_png tests.test_v125_fast_reports_no_web -v
+
+git status
+git add app/kobo/client.py tests/test_v120_sync_and_khmer_png.py V126_SIMPLE_EXACT_KOBO_QUERY.txt
+git commit -m "Use simple exact Kobo report query"
+git push origin main
+
+After Railway restarts:
+/report BMC2 GT 2026-08-01
