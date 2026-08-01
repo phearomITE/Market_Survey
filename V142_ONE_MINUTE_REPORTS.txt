@@ -1,0 +1,96 @@
+KB MARKET SURVEY V142 - ONE-MINUTE COMMAND FIX
+================================================
+
+Root cause fixed
+----------------
+The report command was waiting for a complete Kobo -> PostgreSQL synchronization.
+That sync downloads every submission and writes many product/competitor rows for
+each outlet. Kobo requests could wait 120 seconds, sync waits allowed 180-240
+seconds, and LibreOffice could wait another 180 seconds.
+
+V142 behavior
+-------------
+1. /report, /summary, /raw_movement and /export read the requested Kobo date
+   directly; they do not wait for database synchronization.
+2. Kobo calls are date-filtered, have a 35-second fetch deadline, and share a
+   30-second cache between commands.
+3. Every blocking Telegram command has a maximum handler wait of 55 seconds.
+4. /report uploads Excel first. PNG gets only the time remaining and cannot
+   delay the Excel file.
+5. /report_multi and /report_today are Excel-only so bulk PNG conversion cannot
+   block the bot.
+6. /alert_submit 10 and /alert_submit 20 read current Kobo metadata directly.
+7. Automatic heavy database sync is disabled by default. /sync_kobo remains a
+   manual command and also returns a timeout message instead of hanging.
+
+Important Railway variables
+----------------------------
+AUTO_SYNC_BEFORE_REPORT=false
+AUTO_SYNC_ENABLED=false
+COMMAND_TIMEOUT_SECONDS=55
+KOBO_FETCH_DEADLINE_SECONDS=35
+KOBO_REQUEST_TIMEOUT_SECONDS=15
+KOBO_CACHE_TTL_SECONDS=30
+PNG_RENDER_TIMEOUT_SECONDS=18
+LIBREOFFICE_PATH=/usr/bin/libreoffice
+
+Run in Git Bash after downloading
+---------------------------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V142_ONE_MINUTE_REPORTS.zip \
+  -d .
+
+python -m py_compile \
+  app/core/config.py \
+  app/kobo/client.py \
+  app/kobo/sync.py \
+  app/services/report_service.py \
+  app/services/submission_alert_service.py \
+  app/services/render_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/reports/aggregator.py \
+  app/reports/excel_report.py \
+  app/reports/movement_exports.py \
+  app/reports/summary_report.py \
+  app/main.py \
+  app/web/router.py
+
+python -m unittest \
+  tests.test_v104_daily_exports \
+  tests.test_v105_business_movement \
+  tests.test_v142_one_minute_commands -v
+
+git status
+
+git add \
+  Dockerfile \
+  railway.json \
+  .env.example \
+  app \
+  templates \
+  tests \
+  V142_ONE_MINUTE_REPORTS.txt
+
+git commit -m "Make all report commands finish within one minute"
+
+git push origin main
+
+After Railway deploys
+---------------------
+Set the Railway variables listed above, redeploy once, then test:
+
+/report CA7 GT 2026-08-01
+/summary GT 2026-08-01
+/raw_movement 2026-08-01
+/export 2026-08-01
+/alert_submit 10
+/alert_submit 20
+
+Expected report order:
+1. Excel file is sent first.
+2. PNG is sent afterward if rendering finishes inside the remaining time.
+3. If an external service is slow, Telegram receives a timeout message by 55
+   seconds instead of staying forever on "Generating...".

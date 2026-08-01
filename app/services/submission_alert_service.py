@@ -4,19 +4,11 @@ from collections import Counter
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
-
 from app.data.dealers import ALL_DEALERS
-from app.db.database import SessionLocal, init_db
-from app.db.models import KoboSubmission
+from app.kobo.sync import fetch_report_submissions_fast
 
 
-SUMMARY_NAMES = {
-    "បូកសរុបរួម",
-    "បូកសរុបរូម",
-    "សរុបរួម",
-    "បួកសរុបរួម",
-}
+SUMMARY_NAMES = {"បូកសរុបរួម", "បូកសរុបរូម", "សរុបរួម", "បួកសរុបរួម"}
 
 
 def _clean(value) -> str:
@@ -24,7 +16,6 @@ def _clean(value) -> str:
 
 
 def local_today() -> date:
-    """Return today's date in the configured Cambodia business timezone."""
     try:
         from app.core.config import settings
 
@@ -34,25 +25,20 @@ def local_today() -> date:
 
 
 def dealer_submission_counts(report_date: date) -> dict[str, int]:
-    """Count one outlet per Kobo submission, excluding final summary rows."""
-    init_db()
-    official = set(ALL_DEALERS)
-    summary_names = {_clean(value).replace(" ", "") for value in SUMMARY_NAMES}
+    """Count live Kobo rows without waiting for PostgreSQL synchronization."""
     counts: Counter[str] = Counter()
-
-    with SessionLocal() as database:
-        rows = database.execute(
-            select(KoboSubmission.dealer, KoboSubmission.outlet_name).where(
-                KoboSubmission.report_date == report_date
-            )
-        ).all()
-
-    for dealer_value, outlet_name_value in rows:
-        dealer = _clean(dealer_value).upper()
-        outlet_name = _clean(outlet_name_value).replace(" ", "")
+    official = set(ALL_DEALERS)
+    summary_names = {value.replace(" ", "") for value in SUMMARY_NAMES}
+    submissions = fetch_report_submissions_fast(
+        None,
+        report_date,
+        metadata_only=True,
+    )
+    for submission in submissions:
+        dealer = _clean(getattr(submission, "dealer", None)).upper()
+        outlet_name = _clean(getattr(submission, "outlet_name", None)).replace(" ", "")
         if dealer in official and outlet_name not in summary_names:
             counts[dealer] += 1
-
     return {dealer: int(counts.get(dealer, 0)) for dealer in ALL_DEALERS}
 
 
@@ -76,7 +62,6 @@ def format_submission_alert(
 ) -> str:
     if threshold not in {10, 20}:
         raise ValueError("Threshold must be 10 or 20.")
-
     rows = dealers_below_threshold(
         counts if counts is not None else dealer_submission_counts(report_date),
         threshold,

@@ -33,10 +33,16 @@ class Settings(BaseSettings):
     gt_summary_template_path: str = "templates/template_gt_summary.xlsx"
     export_dir: str = "exports"
     auto_sync_before_report: bool = False
-    auto_sync_enabled: bool = True
+    auto_sync_enabled: bool = False
     auto_sync_interval_minutes: int = 1
     auto_sync_interval_seconds: int = 60
-    report_sync_wait_seconds: int = 180
+    # Every interactive Telegram command must answer within one minute.
+    command_timeout_seconds: int = 55
+    kobo_fetch_deadline_seconds: int = 35
+    kobo_request_timeout_seconds: int = 15
+    kobo_cache_ttl_seconds: int = 30
+    report_sync_wait_seconds: int = 45
+    png_render_timeout_seconds: int = 18
     libreoffice_path: str = ""
 
     @property
