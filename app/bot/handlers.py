@@ -18,7 +18,6 @@ from app.services.report_service import (
     parse_multi_report_command_args,
     parse_report_command_args,
 )
-from app.services.render_service import excel_to_png, excel_to_pdf
 from app.services.submission_alert_service import format_submission_alert, local_today
 
 HELP_TEXT = """
@@ -43,9 +42,9 @@ Commands:
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /help
 
-/report = generate one dealer report and send large PNG file preview first, then Excel only.
-/report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
-/report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
+/report = generate and send one dealer Excel report only (fast mode).
+/report_multi = generate one Excel workbook with selected dealer sheets.
+/report_today = generate one Excel workbook with 65 dealer sheets.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
@@ -125,7 +124,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     report_label = report_type
     wait = await update.effective_message.reply_text(
-        f"📊 Generating {report_label} template preview for {dealer} {rdate}..."
+        f"📊 Generating {report_label} Excel report for {dealer} {rdate}..."
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
@@ -139,27 +138,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_document(
                 document=InputFile(f, filename=path.name)
             )
-        await wait.edit_text("✅ Excel sent.\n🖼 Creating Khmer PNG preview...")
-        try:
-            png = await asyncio.wait_for(
-                asyncio.to_thread(excel_to_png, path),
-                timeout=max(5, int(getattr(settings, "png_render_timeout_seconds", 12))),
-            )
-        except asyncio.TimeoutError:
-            png = None
-        if png:
-            # Send PNG as document, not photo. This keeps full resolution and shows
-            # a small preview thumbnail in Telegram, like the user's requested example.
-            with png.open("rb") as f:
-                await update.effective_message.reply_document(
-                    document=InputFile(f, filename=png.name),
-                    caption=f"🖼 {dealer} {report_label} {rdate} report preview"
-                )
-        else:
-            await update.effective_message.reply_text(
-                "⚠️ PNG preview skipped after the fast timeout. Excel was already sent."
-            )
-        await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}.")
+        await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}. Excel sent.")
     except Exception as e:
         await wait.edit_text(f"❌ Report failed: {e}")
 
@@ -192,18 +171,7 @@ async def report_multi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=f"📊 Selected dealer reports - {dealer_text} ({rdate})",
             )
 
-        if png_zip:
-            await update.effective_message.reply_text("🖼 Uploading selected dealer PNG previews...")
-            with png_zip.open("rb") as f:
-                await update.effective_message.reply_document(
-                    document=InputFile(f, filename=png_zip.name),
-                    caption=f"🖼 PNG previews - {dealer_text} ({rdate})",
-                )
-        else:
-            await update.effective_message.reply_text(
-                "⚠️ Excel was generated, but PNG previews were not created. "
-                "Check LibreOffice, PyMuPDF and LIBREOFFICE_PATH."
-            )
+        await wait.edit_text(f"✅ Completed selected dealer Excel reports for {rdate}.")
     except Exception as exc:
         await wait.edit_text(f"❌ Multi-dealer report failed: {exc}")
 
@@ -212,8 +180,7 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rdate = context.args[0].strip() if context.args else None
     wait = await update.effective_message.reply_text(
         "📊 Generating /report_today output...\n"
-        "Excel workbook: 65 dealer sheets\n"
-        "PNG ZIP: 65 dealer previews"
+        "Excel workbook: 65 dealer sheets"
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
@@ -226,18 +193,7 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=f"📊 Excel workbook - 65 dealer sheets ({rdate or 'today'})",
             )
 
-        if png_zip:
-            await update.effective_message.reply_text("🖼 Uploading PNG ZIP for 65 dealer previews...")
-            with png_zip.open("rb") as f:
-                await update.effective_message.reply_document(
-                    document=InputFile(f, filename=png_zip.name),
-                    caption=f"🖼 PNG previews - 65 dealers ({rdate or 'today'})",
-                )
-        else:
-            await update.effective_message.reply_text(
-                "⚠️ PNG ZIP not created. Excel workbook was generated successfully. "
-                "Install LibreOffice and PyMuPDF, or set LIBREOFFICE_PATH in .env."
-            )
+        await wait.edit_text(f"✅ Completed 65-dealer Excel workbook for {rdate or 'today'}.")
     except Exception as e:
         await wait.edit_text(f"❌ Report today failed: {e}")
 

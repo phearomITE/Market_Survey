@@ -234,19 +234,9 @@ def generate_today_all_dealers(report_date_str: str | None = None):
 
 
 def generate_today_all_dealers_with_pngs(report_date_str: str | None = None):
-    """Generate /report_today output: one 65-dealer Excel workbook + PNG ZIP.
-
-    The workbook contains one sheet per dealer in ALL_DEALERS order, including
-    dealers with zero submissions. The PNG ZIP contains one PNG preview per
-    worksheet/page when LibreOffice + PyMuPDF are available.
-    """
+    """Compatibility wrapper: generate the Excel workbook without PNG rendering."""
     path, text = generate_today_all_dealers(report_date_str)
-    png_zip = excel_workbook_to_png_zip(path, sheet_names=list(ALL_DEALERS))
-    if png_zip:
-        text = f"{text}; PNG previews: {len(ALL_DEALERS)} dealer pages"
-    else:
-        text = f"{text}; PNG ZIP not created. Install LibreOffice/PyMuPDF or check LIBREOFFICE_PATH."
-    return path, png_zip, text
+    return path, None, text
 
 
 
@@ -318,11 +308,9 @@ def generate_multi_dealer_reports(
         aggs[dealer] = agg
 
     path = create_selected_dealer_report(aggs, normalized, d)
-    png_zip = excel_workbook_to_png_zip(
-        path,
-        sheet_names=normalized,
-        zip_path=path.with_name(f"{path.stem}_PNG.zip"),
-    )
+    # Fast Excel-only mode: LibreOffice/PDF/PNG conversion is intentionally
+    # skipped so Telegram can receive the workbook immediately.
+    png_zip = None
 
     missing = [dealer for dealer in normalized if not grouped[dealer]]
     total_rows = sum(len(rows) for rows in grouped.values())
@@ -332,11 +320,6 @@ def generate_multi_dealer_reports(
     )
     if missing:
         status += "; no data: " + ", ".join(missing)
-    if png_zip:
-        status += f"; PNG previews: {len(normalized)}"
-    else:
-        status += "; PNG ZIP not created"
-
     return path, png_zip, status
 
 

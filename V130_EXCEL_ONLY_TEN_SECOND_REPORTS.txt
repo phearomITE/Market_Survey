@@ -1,0 +1,9 @@
+V130 - Excel-only fast report mode
+
+- /report sends the Excel workbook immediately and does not create PNG/PDF.
+- /report_multi creates and sends Excel only.
+- /report_today creates and sends Excel only.
+- Keeps the targeted lowercase Kobo dealer/date fetch and fast single-dealer aggregation.
+
+The 10-second delivery is a performance target. Actual time can vary with Kobo,
+PostgreSQL, Railway cold start, and Telegram upload latency.
