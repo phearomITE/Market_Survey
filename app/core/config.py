@@ -33,18 +33,14 @@ class Settings(BaseSettings):
     gt_summary_template_path: str = "templates/template_gt_summary.xlsx"
     export_dir: str = "exports"
     auto_sync_before_report: bool = False
-    # Full-history sync must never run beside interactive Telegram commands.
-    auto_sync_enabled: bool = False
+    auto_sync_enabled: bool = True
     auto_sync_interval_minutes: int = 1
     auto_sync_interval_seconds: int = 60
-    command_timeout_seconds: int = 58
-    kobo_fetch_deadline_seconds: int = 30
-    kobo_request_timeout_seconds: int = 12
-    kobo_cache_ttl_seconds: int = 180
-    kobo_normalized_cache_ttl_seconds: int = 180
-    report_sync_wait_seconds: int = 45
-    png_render_timeout_seconds: int = 18
+    report_sync_wait_seconds: int = 180
     libreoffice_path: str = ""
+    # Keep Telegram report rendering bounded. Excel is always returned even if
+    # the optional PNG conversion cannot finish inside this limit.
+    png_render_timeout_seconds: int = 30
 
     @property
     def db_url(self) -> str:

@@ -8,7 +8,6 @@ from collections import Counter, defaultdict
 from copy import copy
 from datetime import date, datetime
 from pathlib import Path
-from statistics import mean, median
 from typing import Iterable
 
 from openpyxl import Workbook, load_workbook
@@ -136,16 +135,9 @@ def _dealer_movement(
         if member is not None:
             members.add(member)
 
+    agg = aggregate_submissions(submission_rows, wide_map=wide_map)
     config = SUMMARY_MOVEMENT_CONFIG.get(
         str(report_type or "GT").upper(), SUMMARY_MOVEMENT_CONFIG["GT"]
-    )
-    agg = aggregate_submissions(
-        submission_rows,
-        wide_map=wide_map,
-        own_product_names=[config["own"]],
-        competitor_product_names=list(config["competitors"]),
-        include_ring_pull=False,
-        include_manual_summary=False,
     )
     own_data = (agg.get("products") or {}).get(config["own"]) or {}
     own_display = own_data.get("mov")

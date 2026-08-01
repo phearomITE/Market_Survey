@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from functools import partial
-from threading import Lock
-from time import monotonic
 from urllib.parse import urlencode
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputFile
@@ -23,8 +20,7 @@ from app.services.report_service import (
     parse_multi_report_command_args,
     parse_report_command_args,
 )
-from app.services.render_service import excel_to_png
-from app.services.submission_alert_service import format_submission_alert, local_today
+from app.services.render_service import excel_to_png, excel_to_pdf
 
 HELP_TEXT = """
 ✅ KB Market Survey Bot
@@ -44,15 +40,13 @@ Commands:
 /raw_movement 2026-07-25
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
-/alert_submit 10
-/alert_submit 20
 /map
 /dashboard
 /help
 
-/report = send Excel first, then create one quick PNG preview.
-/report_multi = fast Excel workbook with selected dealer sheets.
-/report_today = fast Excel workbook with 65 dealer sheets.
+/report = generate one dealer report and send large PNG file preview first, then Excel only.
+/report_multi = generate one workbook with selected dealer sheets + one PNG preview ZIP.
+/report_today = generate one Excel workbook with 65 dealer sheets + PNG ZIP for 65 dealer previews.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
@@ -60,57 +54,8 @@ Commands:
 Logic:
 1 Kobo submission = 1 outlet visit
 Group by Dealer + Date = 1 dealer template
-Reports use cached, date-filtered Kobo data. Full-history auto-sync is disabled.
+Auto-sync: bot polls Kobo every 1 minute when AUTO_SYNC_ENABLED=true
 """.strip()
-
-
-_HEAVY_JOB_LOCK = Lock()
-
-
-def _run_exclusive(function, *args, **kwargs):
-    """Keep timed-out worker threads from piling up on Railway CPU."""
-    if not _HEAVY_JOB_LOCK.acquire(blocking=False):
-        raise RuntimeError(
-            "Another report/export is still finishing. Please wait a few "
-            "seconds and run the command once."
-        )
-    try:
-        return function(*args, **kwargs)
-    finally:
-        _HEAVY_JOB_LOCK.release()
-
-
-async def _run_fast(
-    function,
-    *args,
-    timeout_seconds: int | None = None,
-    exclusive: bool = True,
-    **kwargs,
-):
-    timeout = max(
-        1,
-        min(
-            int(timeout_seconds or settings.command_timeout_seconds),
-            int(settings.command_timeout_seconds),
-        ),
-    )
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(
-                partial(
-                    _run_exclusive if exclusive else function,
-                    *((function,) + args if exclusive else args),
-                    **kwargs,
-                )
-            ),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError as exc:
-        raise TimeoutError(
-            f"Operation exceeded the {timeout}-second fast limit. "
-            "The worker is protected from duplicate jobs; retry once after "
-            "a few seconds."
-        ) from exc
 
 
 def _viewer_url(view: str) -> str:
@@ -172,8 +117,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last = getter() if callable(getter) else None
     if not last:
         await update.effective_message.reply_text(
-            "ℹ️ Bot is running.\nAutomatic full sync: disabled.\n"
-            "Reports read the requested date directly from Kobo."
+            "ℹ️ Bot is running.\nAuto-sync status: not run yet.\nUse /sync_kobo to sync now or wait for the 1-minute polling."
         )
         return
 
@@ -191,21 +135,20 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def sync_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    report_date = local_today()
-    msg = await update.effective_message.reply_text(
-        f"🔄 Syncing today's Kobo submissions ({report_date})..."
-    )
+    msg = await update.effective_message.reply_text("🔄 Syncing Kobo submissions...")
     try:
-        result = await _run_fast(
-            sync_kobo, report_date=report_date, timeout_seconds=50
-        )
+        result = await asyncio.to_thread(sync_kobo)
         await msg.edit_text(f"✅ Kobo sync completed. Fetched: {result.get('fetched', 0)} | Matched: {result.get('matched', 0)} | Synced: {result.get('synced', 0)} | Hash initialized: {result.get('hash_backfilled', 0)} | Unchanged: {result.get('unchanged', 0)} | Skipped: {result.get('skipped', 0)}")
     except Exception as e:
         await msg.edit_text(f"❌ Kobo sync failed: {e}")
 
 
 async def _maybe_sync_before_report(message) -> None:
-    return
+    if not settings.auto_sync_before_report:
+        return
+    await message.reply_text("🔄 Auto-syncing Kobo first...")
+    result = await asyncio.to_thread(sync_kobo)
+    await message.reply_text(f"✅ Kobo sync completed. Synced: {result['synced']} | Skipped: {result.get('skipped', 0)}")
 
 
 async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -225,47 +168,18 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     report_label = report_type
     wait = await update.effective_message.reply_text(
-        f"📊 Generating {report_label} Excel report for {dealer} {rdate}..."
+        f"📊 Generating {report_label} template preview for {dealer} {rdate}..."
     )
-    started = monotonic()
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, text = await _run_fast(
-            generate_dealer_report,
-            dealer,
-            rdate,
-            report_type,
-            timeout_seconds=42,
-        )
+        path, text = await asyncio.to_thread(generate_dealer_report, dealer, rdate, report_type)
         if not path:
             await wait.edit_text(f"⚠️ {text}")
             return
 
-        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel first...")
-        with path.open("rb") as f:
-            await update.effective_message.reply_document(
-                document=InputFile(f, filename=path.name)
-            )
+        await wait.edit_text(f"✅ {text}\n🖼 Creating PNG preview...")
 
-        remaining = max(
-            0,
-            int(settings.command_timeout_seconds - (monotonic() - started)),
-        )
-        if remaining < 3:
-            await wait.edit_text(
-                f"✅ Completed {dealer} {report_label} {rdate}. "
-                "Excel sent; PNG skipped at the fast limit."
-            )
-            return
-        await wait.edit_text("✅ Excel sent. 🖼 Creating quick PNG preview...")
-        try:
-            png = await _run_fast(
-                excel_to_png,
-                path,
-                timeout_seconds=min(settings.png_render_timeout_seconds, remaining),
-            )
-        except TimeoutError:
-            png = None
+        png = await asyncio.to_thread(excel_to_png, path)
         if png:
             # Send PNG as document, not photo. This keeps full resolution and shows
             # a small preview thumbnail in Telegram, like the user's requested example.
@@ -276,10 +190,11 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         else:
             await update.effective_message.reply_text(
-                "⚠️ PNG preview was not created within the fast limit. "
-                "Excel was sent successfully."
+                "⚠️ PNG preview not created. Install LibreOffice or set LIBREOFFICE_PATH/SOFFICE_PATH. Sending Excel only."
             )
-        await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}.")
+
+        with path.open("rb") as f:
+            await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
     except Exception as e:
         await wait.edit_text(f"❌ Report failed: {e}")
 
@@ -298,12 +213,11 @@ async def report_multi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Dealers ({len(dealers)}): {dealer_text}"
     )
     try:
-        path, png_zip, text = await _run_fast(
+        path, png_zip, text = await asyncio.to_thread(
             generate_multi_dealer_reports,
             dealers,
             rdate,
             "GT",
-            timeout_seconds=50,
         )
 
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
@@ -320,6 +234,11 @@ async def report_multi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     document=InputFile(f, filename=png_zip.name),
                     caption=f"🖼 PNG previews - {dealer_text} ({rdate})",
                 )
+        else:
+            await update.effective_message.reply_text(
+                "⚠️ Excel was generated, but PNG previews were not created. "
+                "Check LibreOffice, PyMuPDF and LIBREOFFICE_PATH."
+            )
     except Exception as exc:
         await wait.edit_text(f"❌ Multi-dealer report failed: {exc}")
 
@@ -328,13 +247,12 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rdate = context.args[0].strip() if context.args else None
     wait = await update.effective_message.reply_text(
         "📊 Generating /report_today output...\n"
-        "Fast Excel workbook: 65 dealer sheets"
+        "Excel workbook: 65 dealer sheets\n"
+        "PNG ZIP: 65 dealer previews"
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, png_zip, text = await _run_fast(
-            generate_today_all_dealers_with_pngs, rdate, timeout_seconds=50
-        )
+        path, png_zip, text = await asyncio.to_thread(generate_today_all_dealers_with_pngs, rdate)
 
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
         with path.open("rb") as f:
@@ -350,23 +268,21 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     document=InputFile(f, filename=png_zip.name),
                     caption=f"🖼 PNG previews - 65 dealers ({rdate or 'today'})",
                 )
+        else:
+            await update.effective_message.reply_text(
+                "⚠️ PNG ZIP not created. Excel workbook was generated successfully. "
+                "Install LibreOffice and PyMuPDF, or set LIBREOFFICE_PATH in .env."
+            )
     except Exception as e:
         await wait.edit_text(f"❌ Report today failed: {e}")
 
 
 async def debug_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    report_date = local_today()
-    msg = await update.effective_message.reply_text(
-        f"🔎 Checking Kobo fields for {report_date}..."
-    )
+    msg = await update.effective_message.reply_text("🔎 Checking Kobo fields...")
     try:
         from app.kobo.client import KoboClient
         from app.kobo.parser import normalize_submission
-        rows = await _run_fast(
-            KoboClient().fetch_submissions,
-            report_date=report_date,
-            timeout_seconds=35,
-        )
+        rows = KoboClient().fetch_submissions()
         if not rows:
             await msg.edit_text("⚠️ Kobo API returned 0 submissions.")
             return
@@ -402,12 +318,7 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     try:
         await _maybe_sync_before_report(update.effective_message)
-        path, text = await _run_fast(
-            generate_region_dealer_summary,
-            report_type,
-            rdate,
-            timeout_seconds=50,
-        )
+        path, text = await asyncio.to_thread(generate_region_dealer_summary, report_type, rdate)
         await wait.edit_text(f"✅ {text}\n📎 Uploading summary Excel...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(document=InputFile(f, filename=path.name))
@@ -426,10 +337,9 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 Generating combined GT/HORECA raw movement for {report_date}..."
     )
     try:
-        path, text = await _run_fast(
+        path, text = await asyncio.to_thread(
             generate_raw_movement_export,
             report_date,
-            timeout_seconds=50,
         )
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
         with path.open("rb") as file_handle:
@@ -440,36 +350,6 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(f"❌ Raw movement export failed: {exc}")
 
 
-async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
-        await update.effective_message.reply_text(
-            "Usage:\n/alert_submit 10\n/alert_submit 20"
-        )
-        return
-    try:
-        threshold = int(context.args[0])
-    except (TypeError, ValueError):
-        threshold = 0
-    if threshold not in {10, 20}:
-        await update.effective_message.reply_text("Threshold must be 10 or 20.")
-        return
-    report_date = local_today()
-    wait = await update.effective_message.reply_text(
-        f"📊 Checking dealers below {threshold} reports for "
-        f"{report_date:%d/%m/%Y}..."
-    )
-    try:
-        message = await _run_fast(
-            format_submission_alert,
-            report_date,
-            threshold,
-            timeout_seconds=45,
-        )
-        await wait.edit_text(message)
-    except Exception as exc:
-        await wait.edit_text(f"❌ Submission alert failed: {exc}")
-
-
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = [str(value).strip() for value in context.args if str(value).strip()]
     if len(args) == 1:
@@ -478,10 +358,9 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 Generating two-sheet market survey export for {report_date}..."
         )
         try:
-            path, text = await _run_fast(
+            path, text = await asyncio.to_thread(
                 generate_daily_data_export,
                 report_date,
-                timeout_seconds=50,
             )
             await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
             with path.open("rb") as file_handle:
@@ -503,10 +382,9 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📦 Generating multi-date Beer movement export..."
     )
     try:
-        path, text = await _run_fast(
+        path, text = await asyncio.to_thread(
             generate_movement_multi_export,
             report_dates,
-            timeout_seconds=50,
         )
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
         with path.open("rb") as file_handle:

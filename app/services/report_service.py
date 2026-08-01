@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Literal
 
@@ -10,9 +9,10 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
-from app.kobo.sync import fetch_report_submissions_fast, sync_kobo
+from app.kobo.sync import sync_kobo
 from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
+from app.services.render_service import excel_workbook_to_png_zip
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
 from app.reports.movement_exports import (
@@ -202,18 +202,20 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
     dealer = dealer.upper().strip()
-    all_rows = fetch_report_submissions_fast(dealer, d)
-    submissions = _filter_by_report_type(all_rows, report_type)
+    submissions = get_submissions(dealer, d, report_type=report_type)
+    if settings.auto_sync_before_report or not submissions:
+        submissions = _sync_and_retry_if_empty(dealer, d, submissions, report_type=report_type)
     if not submissions:
         label = report_type
+        all_rows = get_submissions(dealer, d, report_type=None)
         outlet_types = sorted({(row.outlet_type or "blank") for row in all_rows})
-        detail = f" Kobo rows for dealer/date: {len(all_rows)}; outlet types: {', '.join(outlet_types) or 'none'}."
+        detail = f" DB rows for dealer/date: {len(all_rows)}; outlet types: {', '.join(outlet_types) or 'none'}."
         return None, (
             f"No {label} submissions found for {dealer} on {d}." + detail +
-            " Check the command date and Report Type selected in Kobo."
+            " Run /sync_kobo once and retry."
         )
 
-    agg = aggregate_submissions(submissions, wide_map={})
+    agg = aggregate_submissions(submissions)
     agg["report_type"] = report_type
     agg["channel"] = report_type
 
@@ -224,17 +226,13 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
 
 def generate_today_all_dealers(report_date_str: str | None = None):
     d = parse_report_date(report_date_str)
-    submissions = _filter_by_report_type(
-        fetch_report_submissions_fast(None, d), "GT"
-    )
+    submissions = get_submissions(None, d, report_type="GT")
+    if settings.auto_sync_before_report or not submissions:
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type="GT")
     grouped = {}
     for s in submissions:
         grouped.setdefault(s.dealer, []).append(s)
-    aggs = {
-        dealer: aggregate_submissions(rows, wide_map={})
-        for dealer, rows in grouped.items()
-        if dealer
-    }
+    aggs = {dealer: aggregate_submissions(rows) for dealer, rows in grouped.items() if dealer}
     for agg in aggs.values():
         agg["report_type"] = "GT"
         agg["channel"] = "GT"
@@ -244,9 +242,19 @@ def generate_today_all_dealers(report_date_str: str | None = None):
 
 
 def generate_today_all_dealers_with_pngs(report_date_str: str | None = None):
-    """Generate the urgent 65-dealer Excel workbook without a slow PNG ZIP."""
+    """Generate /report_today output: one 65-dealer Excel workbook + PNG ZIP.
+
+    The workbook contains one sheet per dealer in ALL_DEALERS order, including
+    dealers with zero submissions. The PNG ZIP contains one PNG preview per
+    worksheet/page when LibreOffice + PyMuPDF are available.
+    """
     path, text = generate_today_all_dealers(report_date_str)
-    return path, None, text
+    png_zip = excel_workbook_to_png_zip(path, sheet_names=list(ALL_DEALERS))
+    if png_zip:
+        text = f"{text}; PNG previews: {len(ALL_DEALERS)} dealer pages"
+    else:
+        text = f"{text}; PNG ZIP not created. Install LibreOffice/PyMuPDF or check LIBREOFFICE_PATH."
+    return path, png_zip, text
 
 
 
@@ -280,9 +288,26 @@ def generate_multi_dealer_reports(
     if invalid:
         raise ValueError("Unknown dealer code(s): " + ", ".join(invalid))
 
-    requested_rows = _filter_by_report_type(
-        fetch_report_submissions_fast(None, d, dealers=seen), report_type
-    )
+    submissions = get_submissions(None, d, report_type=report_type)
+    requested_rows = [row for row in submissions if (row.dealer or "").upper() in seen]
+    present = {(row.dealer or "").upper() for row in requested_rows}
+    missing_before_sync = [dealer for dealer in normalized if dealer not in present]
+
+    # One date-targeted sync is much faster and safer than running one full Kobo
+    # fetch independently for every dealer.
+    if settings.auto_sync_before_report or missing_before_sync:
+        try:
+            sync_kobo(
+                dealer=None,
+                report_date=d,
+                wait_if_running=True,
+                timeout_seconds=settings.report_sync_wait_seconds,
+            )
+        except Exception as exc:
+            print(f"⚠️ Multi-dealer targeted sync failed: {exc}")
+
+        submissions = get_submissions(None, d, report_type=report_type)
+        requested_rows = [row for row in submissions if (row.dealer or "").upper() in seen]
 
     grouped: dict[str, list[KoboSubmission]] = {dealer: [] for dealer in normalized}
     for row in requested_rows:
@@ -295,13 +320,17 @@ def generate_multi_dealer_reports(
         rows = grouped[dealer]
         if not rows:
             continue
-        agg = aggregate_submissions(rows, wide_map={})
+        agg = aggregate_submissions(rows)
         agg["report_type"] = report_type
         agg["channel"] = report_type
         aggs[dealer] = agg
 
     path = create_selected_dealer_report(aggs, normalized, d)
-    png_zip = None
+    png_zip = excel_workbook_to_png_zip(
+        path,
+        sheet_names=normalized,
+        zip_path=path.with_name(f"{path.stem}_PNG.zip"),
+    )
 
     missing = [dealer for dealer in normalized if not grouped[dealer]]
     total_rows = sum(len(rows) for rows in grouped.values())
@@ -311,17 +340,20 @@ def generate_multi_dealer_reports(
     )
     if missing:
         status += "; no data: " + ", ".join(missing)
+    if png_zip:
+        status += f"; PNG previews: {len(normalized)}"
+    else:
+        status += "; PNG ZIP not created"
+
     return path, png_zip, status
 
 
 def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_date_str: str | None = None):
     report_type = normalize_report_type(report_type)
     d = parse_report_date(report_date_str)
-    submissions = _filter_by_report_type(
-        fetch_report_submissions_fast(None, d, summary_only=True), report_type
-    )
-    if not submissions:
-        raise ValueError(f"Kobo returned no {report_type} submissions for {d}.")
+    submissions = get_submissions(None, d, report_type=report_type)
+    if settings.auto_sync_before_report or not submissions:
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=report_type)
     rows = build_summary_rows(submissions)
     path = create_summary_report(
         rows,
@@ -342,7 +374,9 @@ def generate_region_dealer_summary(report_type: ReportType | str = "GT", report_
 def generate_raw_movement_export(report_date_str: str):
     """Export combined GT and HORECA raw movement for one report date."""
     d = parse_report_date(report_date_str)
-    submissions = fetch_report_submissions_fast(None, d)
+    submissions = get_submissions(None, d, report_type=None)
+    if not submissions:
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
     output_path = settings.export_path / f"Raw_Movement_{d}.xlsx"
@@ -357,7 +391,9 @@ def generate_raw_movement_export(report_date_str: str):
 def generate_daily_data_export(report_date_str: str):
     """Create the requested Summary_Data + Location_Outlet workbook."""
     d = parse_report_date(report_date_str)
-    submissions = fetch_report_submissions_fast(None, d)
+    submissions = get_submissions(None, d, report_type=None)
+    if not submissions:
+        submissions = _sync_and_retry_if_empty(None, d, submissions, report_type=None)
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
     path = create_daily_export(submissions, d)
@@ -371,17 +407,9 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
         raise ValueError(
             "Usage: /export movement_multi 2026-07-04 2026-07-18 2026-07-25"
         )
-    # Different dates are independent Kobo queries. Fetch them concurrently so
-    # a three-date movement export stays inside the Telegram command deadline.
-    workers = min(4, len(dates))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        chunks = list(
-            executor.map(
-                lambda report_date: fetch_report_submissions_fast(None, report_date),
-                dates,
-            )
-        )
-    submissions = [row for chunk in chunks for row in chunk]
+    submissions: list[KoboSubmission] = []
+    for report_date in dates:
+        submissions.extend(get_submissions(None, report_date, report_type=None))
     if not submissions:
         raise ValueError("No submissions found for the requested report dates.")
     path = create_movement_export(submissions, dates, beer_only=True)
