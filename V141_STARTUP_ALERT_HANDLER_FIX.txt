@@ -1,0 +1,84 @@
+KB Market Survey V141 - Startup and /alert_submit Fix
+====================================================
+
+ROOT CAUSE
+----------
+Railway received mixed bot files:
+
+- app/bot/run_bot.py imported alert_submit_cmd
+- app/bot/handlers.py did not define alert_submit_cmd
+
+Python therefore stopped before the bot could start. py_compile alone did not
+catch it because compilation does not execute imports.
+
+V141 FIX
+--------
+1. Restores alert_submit_cmd in app/bot/handlers.py.
+2. Restores app/services/submission_alert_service.py.
+3. Registers /alert_submit exactly once in app/bot/run_bot.py.
+4. Keeps the command manual only; there is no automatic alert schedule.
+5. /alert_submit refreshes today's Kobo rows before counting.
+6. One Kobo submission equals one outlet; Outlet Name បូកសរុបរួម is excluded.
+7. Preserves the V140 Railway PNG renderer fix.
+8. Adds a test for every run_bot -> handlers import contract.
+
+RUN IN GIT BASH
+---------------
+
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/Market_Survey_V141_STARTUP_ALERT_PNG_FIX.zip \
+  -d .
+
+python -m py_compile \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/services/submission_alert_service.py \
+  app/services/render_service.py \
+  app/services/report_service.py \
+  app/reports/excel_report.py \
+  app/main.py
+
+python -c "from app.bot.handlers import alert_submit_cmd; from app.bot.run_bot import _build_application; print('STARTUP IMPORTS OK')"
+
+python -m unittest \
+  tests.test_v140_railway_png_renderer \
+  tests.test_v141_startup_handler_contract -v
+
+git status --short
+
+# Stage the complete application together. Do not stage only handlers.py or
+# only run_bot.py, because that caused the mixed-version startup failure.
+git add \
+  Dockerfile \
+  .env.example \
+  app \
+  tests \
+  V140_RAILWAY_PNG_RENDERER_FIX.txt \
+  V141_STARTUP_ALERT_HANDLER_FIX.txt
+
+git diff --cached --name-only
+
+git commit -m "Fix bot startup alert handler and Railway PNG rendering"
+
+git push origin main
+
+VERIFY AFTER RAILWAY DEPLOYS
+----------------------------
+
+The startup log must show:
+
+✅ KB Market Survey Bot running...
+
+It must NOT show:
+
+ImportError: cannot import name 'alert_submit_cmd'
+
+Then test:
+
+/alert_submit 10
+/alert_submit 20
+/report CA7 GT 2026-08-01
+
+The report sends Excel first and PNG second.

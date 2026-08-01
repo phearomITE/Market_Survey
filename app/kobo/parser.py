@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, date
-import re
 from typing import Any
 
 
@@ -154,9 +153,7 @@ def flatten_dict(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
 
 
 def _key_norm(key: str) -> str:
-    value = str(key or "").strip().lower()
-    value = re.sub(r"[^0-9a-z\u1780-\u17ff]+", "_", value)
-    return re.sub(r"_+", "_", value).strip("_")
+    return str(key).strip().lower().replace(" ", "_")
 
 
 def _last_part(key: str) -> str:
@@ -175,23 +172,11 @@ def get_any(row: dict, keys: list[str], default=None):
         if real_key and flat.get(real_key) not in (None, ""):
             return flat.get(real_key)
 
-    # Do not collapse matching suffixes into a dictionary: Kobo can export
-    # duplicate leaf names from different groups, and a blank duplicate must
-    # never overwrite a populated Region or Dealer value.
-    wanted_last_parts = {_last_part(k) for k in keys}
-    for real_key, value in flat.items():
-        if _last_part(real_key) in wanted_last_parts and value not in (None, ""):
-            return value
-
-    # Final fallback for Kobo variants such as dealer_0, region_code, or
-    # translated labels whose group prefix changed after redeployment.
-    compact_aliases = {_key_norm(k).replace("_", "") for k in keys}
-    for real_key, value in flat.items():
-        if value in (None, ""):
-            continue
-        leaf = _last_part(real_key).replace("_", "")
-        if any(leaf == alias or leaf.startswith(alias) for alias in compact_aliases):
-            return value
+    last_map = {_last_part(k): k for k in flat.keys()}
+    for k in keys:
+        real_key = last_map.get(_last_part(k))
+        if real_key and flat.get(real_key) not in (None, ""):
+            return flat.get(real_key)
     return default
 
 

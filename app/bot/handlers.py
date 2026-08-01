@@ -20,6 +20,7 @@ from app.services.report_service import (
     parse_multi_report_command_args,
     parse_report_command_args,
 )
+from app.services.submission_alert_service import format_submission_alert, local_today
 from app.services.render_service import excel_to_png_with_diagnostics
 
 HELP_TEXT = """
@@ -38,6 +39,8 @@ Commands:
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
+/alert_submit 10
+/alert_submit 20
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /map
@@ -365,6 +368,40 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Raw movement export failed: {exc}")
+
+
+async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually list official dealers below 10 or 20 submissions today."""
+    if len(context.args) != 1:
+        await update.effective_message.reply_text(
+            "Usage:\n/alert_submit 10\n/alert_submit 20"
+        )
+        return
+
+    try:
+        threshold = int(context.args[0])
+    except (TypeError, ValueError):
+        threshold = 0
+    if threshold not in {10, 20}:
+        await update.effective_message.reply_text("Threshold must be 10 or 20.")
+        return
+
+    report_date = local_today()
+    wait = await update.effective_message.reply_text(
+        f"📊 Checking dealers below {threshold} reports for {report_date:%d/%m/%Y}..."
+    )
+    try:
+        # The alert is manual only. Refresh the requested day before counting so
+        # the result does not depend on the age of PostgreSQL data.
+        await asyncio.to_thread(sync_kobo, report_date=report_date)
+        text = await asyncio.to_thread(
+            format_submission_alert,
+            report_date,
+            threshold,
+        )
+        await wait.edit_text(text)
+    except Exception as exc:
+        await wait.edit_text(f"❌ Submission alert failed: {exc}")
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

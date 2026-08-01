@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     map_viewer_token: str = ""
     map_editor_token: str = ""
 
-    template_path: str = "templates/template_general.xlsx"
+    template_path: str = "templates/template_by_dealer.xlsx"
     horeca_template_path: str = "templates/template_horeca_products.xlsx"
     gt_summary_template_path: str = "templates/template_gt_summary.xlsx"
     export_dir: str = "exports"

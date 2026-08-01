@@ -110,8 +110,7 @@ def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
     """Resolve old, new GT, and HORECA template row coordinates safely."""
     if _is_channel_specialist_report(agg):
         return {
-            # The approved HORECA template uses row 25 for CB LITE NCP.
-            "freshness_end": 25,
+            "freshness_end": 24,
             "movement_header": 26,
             "movement_start": 27,
             "movement_end": 41,

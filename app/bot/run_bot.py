@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
     alert_submit_cmd,
+    dashboard_cmd,
     debug_kobo_cmd,
     help_cmd,
     export_cmd,
+    map_cmd,
     report_cmd,
     report_multi_cmd,
     report_today_cmd,
@@ -21,6 +24,90 @@ from app.bot.handlers import (
 )
 from app.core.config import settings
 from app.db.database import init_db
+from app.kobo.sync import sync_kobo
+
+
+_auto_sync_task: asyncio.Task | None = None
+_last_auto_sync: dict | None = None
+
+
+async def _auto_sync_loop() -> None:
+    """Pull Kobo submissions automatically at the configured interval."""
+    global _last_auto_sync
+
+    interval_seconds = int(
+        getattr(settings, "auto_sync_interval_seconds", 0) or 0
+    )
+
+    if interval_seconds <= 0:
+        interval_minutes = int(
+            getattr(settings, "auto_sync_interval_minutes", 1) or 1
+        )
+        interval_seconds = interval_minutes * 60
+
+    interval_seconds = max(60, interval_seconds)
+
+    print(
+        f"🔄 Auto Kobo sync enabled: every {interval_seconds} seconds"
+    )
+
+    # Allow the application to complete startup before the first sync.
+    await asyncio.sleep(3)
+
+    while True:
+        try:
+            started = datetime.now()
+            result = await asyncio.to_thread(sync_kobo)
+
+            _last_auto_sync = {
+                "time": started,
+                "result": result,
+                "error": None,
+            }
+
+            print(
+                f"✅ Auto sync done at {started:%Y-%m-%d %H:%M:%S}: "
+                f"fetched={result.get('fetched')} "
+                f"synced={result.get('synced')} "
+                f"skipped={result.get('skipped')}"
+            )
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception as exc:
+            _last_auto_sync = {
+                "time": datetime.now(),
+                "result": None,
+                "error": str(exc),
+            }
+
+            print(f"⚠️ Auto sync failed: {exc}")
+
+        await asyncio.sleep(interval_seconds)
+
+
+async def _post_init(app: Application) -> None:
+    """Start background tasks after Telegram initializes."""
+    global _auto_sync_task
+
+    if getattr(settings, "auto_sync_enabled", False):
+        _auto_sync_task = asyncio.create_task(_auto_sync_loop())
+
+
+async def _post_shutdown(app: Application) -> None:
+    """Stop background tasks cleanly during shutdown."""
+    global _auto_sync_task
+
+    if _auto_sync_task is not None:
+        _auto_sync_task.cancel()
+
+        try:
+            await _auto_sync_task
+        except asyncio.CancelledError:
+            pass
+
+        _auto_sync_task = None
 
 
 def _safe_database_target() -> str:
@@ -49,12 +136,13 @@ def _build_application() -> Application:
     app = (
         Application.builder()
         .token(settings.telegram_bot_token)
-        .concurrent_updates(4)
+        .post_init(_post_init)
+        .post_shutdown(_post_shutdown)
         .build()
     )
 
     # Let handlers read the latest Kobo synchronization status.
-    app.bot_data["get_last_auto_sync"] = lambda: None
+    app.bot_data["get_last_auto_sync"] = lambda: _last_auto_sync
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
@@ -69,6 +157,8 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("map", map_cmd))
+    app.add_handler(CommandHandler("dashboard", dashboard_cmd))
 
     return app
 
@@ -105,4 +195,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

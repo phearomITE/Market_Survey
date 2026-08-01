@@ -4,7 +4,6 @@ from threading import Event, Lock
 import hashlib
 import json
 from datetime import date
-from types import SimpleNamespace
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -204,80 +203,6 @@ def _source_hash(raw: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def fetch_report_submissions_fast(
-    dealer: str | None,
-    report_date: date,
-    *,
-    dealers: set[str] | None = None,
-    summary_only: bool = False,
-    metadata_only: bool = False,
-) -> list[KoboSubmission]:
-    """Return authoritative report rows directly from Kobo without DB writes.
-
-    Kobo is filtered by date only. Dealer is normalized and filtered locally,
-    which supports submissions from old and new XLSForm versions where the
-    stored dealer choice can differ in letter case.
-    """
-    rows = KoboClient().fetch_submissions(report_date=report_date, dealer=dealer)
-    submissions: list[KoboSubmission] = []
-    wanted_dealers = {
-        str(value).strip().upper() for value in (dealers or set()) if str(value).strip()
-    }
-    if dealer:
-        wanted_dealers.add(str(dealer).strip().upper())
-
-    for raw in rows:
-        data = normalize_submission(raw)
-        flat = data.pop("_flat", {}) or {}
-        normalized_dealer = str(data.get("dealer") or "").strip().upper()
-
-        if wanted_dealers and normalized_dealer not in wanted_dealers:
-            continue
-        if data.get("report_date") != report_date:
-            continue
-        if not data.get("submission_id"):
-            continue
-
-        submission = SimpleNamespace(**data)
-        if metadata_only:
-            submission.product_metrics = []
-            submission.competitor_metrics = []
-            submission.ring_pull_metrics = []
-            submissions.append(submission)
-            continue
-
-        product_rows = _product_metrics_from_flat(flat)
-        competitor_rows = _competitor_metrics_from_flat(flat)
-        if summary_only:
-            own_names = {"CB LITE NCP", "CBL Pint"}
-            competitor_names = {
-                "GB SNOW NCP", "Hanuman LITE NCP", "Greet LITE NCP",
-                "Tiger Crystal Pint", "HANUMAN LITE Pint", "Vathanac LITE Pint",
-            }
-            product_rows = [
-                item for item in product_rows if item["product_name"] in own_names
-            ]
-            competitor_rows = [
-                item for item in competitor_rows
-                if item["product_name"] in competitor_names
-            ]
-
-        submission.product_metrics = [SimpleNamespace(**item) for item in product_rows]
-        submission.competitor_metrics = [
-            SimpleNamespace(**item) for item in competitor_rows
-        ]
-        submission.ring_pull_metrics = [] if summary_only else [
-            SimpleNamespace(**item) for item in _ring_pull_metrics_from_flat(flat)
-        ]
-        submissions.append(submission)
-
-    print(
-        f"✅ Fast Kobo input ready: dealer={dealer or 'ALL'} "
-        f"date={report_date} rows={len(submissions)}"
-    )
-    return submissions
-
-
 def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = None) -> dict:
     """Fetch Kobo rows and upsert only new or changed submissions.
 
@@ -285,7 +210,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     makes an on-demand /report sync fast even when the Kobo asset contains many rows.
     """
     init_db()
-    rows = KoboClient().fetch_submissions(report_date=report_date, dealer=dealer)
+    rows = KoboClient().fetch_submissions()
     synced = 0
     unchanged = 0
     hash_backfilled = 0
@@ -404,4 +329,3 @@ def sync_kobo(
 
 if __name__ == "__main__":
     print(sync_kobo())
-

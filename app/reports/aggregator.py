@@ -78,27 +78,7 @@ COMPETITOR_PRODUCTS = [
     "Hitech 1500mL",
 ]
 
-HORECA_OWN_PRODUCTS = [
-    "CB Pint",
-    "CBL Pint",
-    "CB SUPEEME Pint",
-    "CB Black Pint",
-    "CB LITE ORD",
-    "CBC 4.4 NCP",
-    "CB Original NCP",
-    "CB LITE NCP",
-    "CB BLACK NCP",
-    "CAMBODIA COLA",
-    "WURKZ",
-    "CAMBODIA ED",
-    "DAZZ",
-    "DAZZ Zero Sugar",
-    "EXPREZ Melon",
-    "EXPREZ Can 330ml",
-    "CAMBODIA Sport 300mL",
-    "CAMBODIA Sport 500mL",
-    "CAMBODIA WATER 500mL",
-]
+HORECA_OWN_PRODUCTS = ["CB Pint", "CBL Pint", "CB SUPEEME Pint", "CB Black Pint"]
 HORECA_COMPETITOR_PRODUCTS = [
     "Angkor Pint",
     "Tiger Pint",
@@ -108,37 +88,9 @@ HORECA_COMPETITOR_PRODUCTS = [
     "ABC Pint",
     "HANUMAN Black Pint",
     "Dragon Pint",
-    "GB SNOW ORD",
-    "HANUMAN LITE ORD",
-    "Krud LITE ORD",
-    "GB Original NCP",
-    "Krud NCP",
-    "GB SNOW NCP",
-    "Hanuman LITE NCP",
-    "Krud LITE NCP",
-    "Greet LITE NCP",
-    "Hanuman Black NCP",
-    "Coca Cola 330ml",
-    "V Cola 330ml",
-    "Boostrong",
-    "Krud ED",
-    "Super Boostrong",
-    "King Kong",
-    "AIRA",
-    "BACCHUSE",
-    "Dragon",
-    "BACCHUSE Sugar Free",
-    "Sting Can 330ml",
-    "Idol Can 330ml",
-    "Pocari Sweat",
-    "V-Active Sport",
-    "Vital 500mL",
-    "Provida 500mL",
-    "Ganzberg 500ml",
-    "Hitech 500mL",
 ]
-ALL_OWN_PRODUCTS = list(dict.fromkeys(OWN_PRODUCTS + HORECA_OWN_PRODUCTS))
-ALL_COMPETITOR_PRODUCTS = list(dict.fromkeys(COMPETITOR_PRODUCTS + HORECA_COMPETITOR_PRODUCTS))
+ALL_OWN_PRODUCTS = OWN_PRODUCTS + HORECA_OWN_PRODUCTS
+ALL_COMPETITOR_PRODUCTS = COMPETITOR_PRODUCTS + HORECA_COMPETITOR_PRODUCTS
 
 RING_PRODUCTS = ["CBL NCP 6 Can", "CBL NCP 5 USD"]
 RING_PRODUCT_ALIASES = {
@@ -154,7 +106,7 @@ OFFTAKE_COMPARE_GROUPS = [
     ["CBC 4.4 NCP", "CB Original NCP", "GB Original NCP", "Krud NCP"],
     ["CB LITE NCP", "GB SNOW NCP", "Hanuman LITE NCP", "Krud LITE NCP", "Greet LITE NCP"],
     ["CB BLACK NCP", "Hanuman Black NCP"],
-    ["CAMBODIA COLA", "Coca Cola 330ml", "V Cola 330ml"],
+    ["CAMBODIA COLA", "Coca Cola 330ml"],
     ["WURKZ", "Boostrong", "Krud ED"],
     ["Wurkz Ice", "Champion", "King Kong Ice", "Krud Ice"],
     ["CAMBODIA ED", "Super Boostrong", "King Kong", "AIRA"],
@@ -215,7 +167,6 @@ COMPETITOR_CODES = {
     "Greet LITE NCP": ["greet_lite_ncp", "greet_lite", "great_lite"],
     "Hanuman Black NCP": ["hanuman_black_ncp", "hanuman_black"],
     "Coca Cola 330ml": ["coca_cola_330"],
-    "V Cola 330ml": ["v_cola_330"],
     "Boostrong": ["boostrong"],
     "Krud ED": ["krud_ed"],
     "Champion": ["champion"],
@@ -267,7 +218,6 @@ PRODUCT_LABEL_ALIASES = {
     "Greet LITE NCP": ["Greet LITE NCP", "Greet Lite", "Great Lite"],
     "Hanuman Black NCP": ["Hanuman Black NCP", "Hanuman Black"],
     "Ganzberg 500ml": ["Ganzberg 500ml", "Ganzberg  500ml"],
-    "V Cola 330ml": ["V Cola 330ml", "V-Cola 330ml"],
 }
 
 STATUS_TO_MOVEMENT = {

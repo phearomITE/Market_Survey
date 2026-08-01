@@ -20,6 +20,7 @@ from app.reports.aggregator import (
     OWN_PRODUCTS,
     aggregate_submissions,
     is_final_summary_outlet_name,
+    load_wide_payloads,
 )
 
 
@@ -136,9 +137,7 @@ def create_daily_export(
     Movement comes from aggregate_submissions(), exactly like /report.
     """
     rows = list(submissions)
-    # Rows already contain current Kobo product metrics. Do not query the
-    # potentially stale PostgreSQL wide table during an urgent daily export.
-    wide_map = {}
+    wide_map = load_wide_payloads(rows)
     grouped: dict[tuple[str, str], list] = defaultdict(list)
     for submission in rows:
         key = (
@@ -366,4 +365,3 @@ def create_movement_export(
         output_path = settings.export_path / f"{prefix}_{joined_dates}.xlsx"
     wb.save(output_path)
     return output_path
-
