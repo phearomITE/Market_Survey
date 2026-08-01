@@ -1,0 +1,70 @@
+KB Market Survey V120 - Fast Targeted Sync and Khmer PNG
+
+Fix 1 - CA8 exists in Kobo but report said DB rows 0
+- /report performs one server-filtered Kobo sync for the requested dealer/date.
+- Kobo receives dealer and report-date query filters, so it does not download and
+  process the entire asset for one dealer report.
+- Only one sync attempt is allowed; the old second 180-second retry is removed.
+- Existing synchronized database rows are still used immediately.
+- Excel is sent before PNG and up to four Telegram commands can run concurrently.
+
+Fix 2 - Khmer correct in Excel but separated in PNG
+- Docker installs fonts-khmeros-core in addition to Noto fonts.
+- Before PDF/PNG conversion, a temporary render-only workbook applies
+  Noto Sans Khmer only to cells containing Khmer characters.
+- The original Excel workbook is not modified.
+- LibreOffice uses the headless svp backend and UTF-8 locale.
+- Example គ្រប់ should remain correctly shaped instead of separating marks.
+
+Also included
+- Manual /alert_submit 10 and /alert_submit 20 command registration.
+- No HORECA product, CB LITE NCP, Kobo XLSForm or report-template changes.
+
+Git Bash deployment
+
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V120_FAST_TARGETED_SYNC_AND_KHMER_PNG_PATCH.zip \
+  -d .
+
+python -m py_compile \
+  app/kobo/client.py \
+  app/kobo/sync.py \
+  app/core/config.py \
+  app/services/report_service.py \
+  app/services/render_service.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  app/main.py \
+  app/web/router.py
+
+python -m unittest \
+  tests.test_v104_daily_exports \
+  tests.test_v105_business_movement \
+  tests.test_v120_sync_and_khmer_png -v
+
+git status
+
+git add \
+  Dockerfile \
+  app/kobo/client.py \
+  app/kobo/sync.py \
+  app/core/config.py \
+  app/services/report_service.py \
+  app/services/render_service.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_v120_sync_and_khmer_png.py \
+  V120_FAST_TARGETED_SYNC_AND_KHMER_PNG.txt
+
+git commit -m "Fix targeted report sync and Khmer PNG rendering"
+
+git push origin main
+
+After Railway finishes rebuilding the Docker image, test:
+/report CA8 GT 2026-08-01
+/alert_submit 10
+/alert_submit 20

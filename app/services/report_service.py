@@ -164,9 +164,23 @@ def get_submissions(dealer: str | None, report_date: date, report_type: ReportTy
 
 
 def _sync_and_retry_if_empty(dealer: str | None, d: date, submissions: list, report_type: ReportType | None = None) -> list:
-    """Retry the local database only; never block a report on Kobo network work."""
+    """Run one fast server-filtered Kobo sync, then retry the local database."""
     if submissions:
         return submissions
+    try:
+        result = sync_kobo(
+            dealer=dealer,
+            report_date=d,
+            wait_if_running=True,
+            timeout_seconds=settings.report_sync_wait_seconds,
+        )
+        print(f"ℹ️ Report sync result: {result}")
+    except Exception as e:
+        print(f"⚠️ Auto sync before retry failed: {e}")
+        return submissions
+
+    # Do not run a second full retry. One server-filtered pass keeps /report
+    # within its response target while still importing missing dealer data.
     return get_submissions(dealer, d, report_type=report_type)
 
 

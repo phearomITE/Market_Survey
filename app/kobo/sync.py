@@ -210,7 +210,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     makes an on-demand /report sync fast even when the Kobo asset contains many rows.
     """
     init_db()
-    rows = KoboClient().fetch_submissions()
+    rows = KoboClient().fetch_submissions(dealer=dealer, report_date=report_date)
     synced = 0
     unchanged = 0
     hash_backfilled = 0

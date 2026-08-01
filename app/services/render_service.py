@@ -1,11 +1,47 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import copy
 import os
 import shutil
 import subprocess
 import zipfile
 from app.core.config import settings
+
+
+def _contains_khmer(value) -> bool:
+    return isinstance(value, str) and any("\u1780" <= char <= "\u17ff" for char in value)
+
+
+def _khmer_render_copy(xlsx_path: Path) -> Path:
+    """Make a render-only workbook using a Khmer shaping-capable font.
+
+    The original Excel file is never modified. LibreOffice otherwise replaces
+    Arial/Calibri with a Latin fallback and can separate Khmer combining marks.
+    """
+    try:
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(xlsx_path)
+        changed = False
+        for sheet in workbook.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if _contains_khmer(cell.value):
+                        font = copy(cell.font)
+                        font.name = "Noto Sans Khmer"
+                        cell.font = font
+                        changed = True
+        if not changed:
+            workbook.close()
+            return xlsx_path
+        output = xlsx_path.with_name(f"{xlsx_path.stem}_khmer_render.xlsx")
+        workbook.save(output)
+        workbook.close()
+        return output
+    except Exception as exc:
+        print(f"⚠️ Khmer render font preparation failed: {exc}")
+        return xlsx_path
 
 
 def _find_soffice() -> str | None:
@@ -39,6 +75,7 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
     if not soffice or not xlsx_path.exists():
         return None
 
+    render_source = _khmer_render_copy(xlsx_path)
     outdir = xlsx_path.parent
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -51,24 +88,22 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
         "pdf",
         "--outdir",
         str(outdir),
-        str(xlsx_path),
+        str(render_source),
     ]
     try:
         proc = subprocess.run(
             cmd,
             check=False,
-            timeout=max(5, int(os.getenv(
-                "PNG_RENDER_TIMEOUT_SECONDS",
-                str(getattr(settings, "png_render_timeout_seconds", 15)),
-            ))),
+            timeout=max(5, int(getattr(settings, "png_render_timeout_seconds", 12))),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env={**os.environ, "SAL_USE_VCLPLUGIN": "svp", "LANG": "C.UTF-8"},
         )
     except Exception:
         return None
 
-    pdf = xlsx_path.with_suffix(".pdf")
+    pdf = render_source.with_suffix(".pdf")
     return pdf if pdf.exists() and pdf.stat().st_size > 0 else None
 
 
@@ -137,7 +172,7 @@ def pdf_first_page_to_png(pdf_path: Path, png_path: Path | None = None) -> Path 
     try:
         # 4.5 zoom gives a much bigger, clearer report image than 2.2.
         # Override from .env if needed: PNG_RENDER_SCALE=5
-        scale = float(os.getenv("PNG_RENDER_SCALE", "2.8"))
+        scale = float(os.getenv("PNG_RENDER_SCALE", "3.0"))
         doc = fitz.open(str(pdf_path))
         if len(doc) == 0:
             doc.close()
@@ -148,7 +183,7 @@ def pdf_first_page_to_png(pdf_path: Path, png_path: Path | None = None) -> Path 
         doc.close()
 
         _crop_white_border(png_path, padding=25)
-        _resize_if_too_wide(png_path, max_width=int(os.getenv("PNG_MAX_WIDTH", "4000")))
+        _resize_if_too_wide(png_path, max_width=int(os.getenv("PNG_MAX_WIDTH", "4200")))
     except Exception:
         return None
 

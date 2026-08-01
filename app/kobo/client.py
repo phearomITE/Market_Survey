@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+import json
 import requests
 from app.core.config import settings
 
@@ -12,8 +14,8 @@ class KoboClient:
         if self.token:
             self.session.headers.update({"Authorization": f"Token {self.token}"})
 
-    def _get_json(self, url: str, timeout: int = 120) -> dict:
-        resp = self.session.get(url, timeout=timeout)
+    def _get_json(self, url: str, timeout: int = 120, params: dict | None = None) -> dict:
+        resp = self.session.get(url, timeout=timeout, params=params)
         if resp.status_code in (401, 403):
             raise RuntimeError("Kobo authentication failed. Check KOBO_TOKEN in .env.")
         if resp.status_code == 404:
@@ -26,7 +28,13 @@ class KoboClient:
         data = self._get_json(url, timeout=60)
         return data.get("results", data if isinstance(data, list) else [])
 
-    def fetch_submissions(self, asset_uid: str | None = None) -> list[dict]:
+    def fetch_submissions(
+        self,
+        asset_uid: str | None = None,
+        *,
+        dealer: str | None = None,
+        report_date: date | None = None,
+    ) -> list[dict]:
         uid = asset_uid or settings.kobo_asset_uid
         if not uid:
             assets = self.list_assets()
@@ -36,9 +44,27 @@ class KoboClient:
                 raise RuntimeError("KOBO_ASSET_UID is missing. Set it in .env. Enketo URL is not enough for API sync.")
 
         url = f"{self.base_url}/api/v2/assets/{uid}/data.json"
+        params = None
+        if dealer or report_date:
+            conditions: list[dict] = []
+            if dealer:
+                code = str(dealer).strip().lower()
+                conditions.append({"$or": [
+                    {"dealer": code},
+                    {"outlet_info/dealer": code},
+                ]})
+            if report_date:
+                day = str(report_date)
+                conditions.append({"$or": [
+                    {"report_date": day},
+                    {"outlet_info/report_date": day},
+                ]})
+            query = conditions[0] if len(conditions) == 1 else {"$and": conditions}
+            params = {"query": json.dumps(query, separators=(",", ":"))}
         rows: list[dict] = []
         while url:
-            data = self._get_json(url, timeout=120)
+            data = self._get_json(url, timeout=25, params=params)
             rows.extend(data.get("results", []))
             url = data.get("next")
+            params = None
         return rows

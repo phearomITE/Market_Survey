@@ -12,12 +12,9 @@ RUN apt-get update \
         libreoffice-core \
         fonts-noto-core \
         fonts-noto-extra \
-        fonts-khmeros \
-        locales \
+        fonts-khmeros-core \
         fontconfig \
         ca-certificates \
-    && sed -i 's/^# *km_KH.UTF-8 UTF-8/km_KH.UTF-8 UTF-8/' /etc/locale.gen \
-    && locale-gen \
     && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,9 +27,6 @@ RUN python -m pip install --upgrade pip \
 COPY . .
 
 RUN mkdir -p /app/exports \
-    && chmod -R 775 /app/exports \
-    && test -x /usr/bin/soffice \
-    && SAL_USE_VCLPLUGIN=svp /usr/bin/soffice --headless --version \
-    && fc-match "Khmer OS Battambang"
+    && chmod -R 775 /app/exports
 
-CMD ["python", "-m", "app.launcher"]
+CMD ["python", "-m", "app.bot.run_bot"]

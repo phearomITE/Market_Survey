@@ -185,12 +185,11 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_document(
                 document=InputFile(f, filename=path.name)
             )
-
-        await wait.edit_text("✅ Excel sent.\n🖼 Creating PNG preview (maximum 15 seconds)...")
+        await wait.edit_text("✅ Excel sent.\n🖼 Creating Khmer PNG preview...")
         try:
             png = await asyncio.wait_for(
                 asyncio.to_thread(excel_to_png, path),
-                timeout=max(5, int(getattr(settings, "png_render_timeout_seconds", 15))),
+                timeout=max(5, int(getattr(settings, "png_render_timeout_seconds", 12))),
             )
         except asyncio.TimeoutError:
             png = None
@@ -364,18 +363,14 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 1:
-        await update.effective_message.reply_text(
-            "Usage:\n/alert_submit 10\n/alert_submit 20"
-        )
+        await update.effective_message.reply_text("Usage:\n/alert_submit 10\n/alert_submit 20")
         return
     try:
         threshold = int(context.args[0])
     except (TypeError, ValueError):
         threshold = 0
     if threshold not in {10, 20}:
-        await update.effective_message.reply_text(
-            "Threshold must be 10 or 20.\nUsage:\n/alert_submit 10\n/alert_submit 20"
-        )
+        await update.effective_message.reply_text("Threshold must be 10 or 20.")
         return
     report_date = local_today()
     wait = await update.effective_message.reply_text(
