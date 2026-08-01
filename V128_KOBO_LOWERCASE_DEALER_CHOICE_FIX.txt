@@ -1,0 +1,33 @@
+V128 Kobo Lowercase Dealer Choice Fix
+
+Definitive cause verified from the XLSForm choices sheet:
+- stored name ca7, displayed label CA7
+- stored name bmc2, displayed label BMC2
+- stored name avg4, displayed label AVG4
+
+Kobo API queries must use the stored lowercase choice name. Reports and the
+PostgreSQL parser continue using uppercase dealer labels.
+
+This package also includes V127 so every /report refreshes stale DB rows before
+generating the workbook.
+
+Run in Git Bash:
+
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/KB_Market_Survey_V128_KOBO_LOWERCASE_DEALER_CHOICE_FIX.zip -d .
+
+python -m py_compile app/kobo/client.py app/kobo/sync.py app/services/report_service.py
+python -m unittest tests.test_v120_sync_and_khmer_png tests.test_v125_fast_reports_no_web -v
+
+git status
+git add app/kobo/client.py app/services/report_service.py tests/test_v120_sync_and_khmer_png.py V128_KOBO_LOWERCASE_DEALER_CHOICE_FIX.txt
+git commit -m "Use Kobo stored dealer choice names"
+git push origin main
+
+After Railway restarts, run the required reports one at a time:
+/report CA7 GT 2026-08-01
+/report CA8 GT 2026-08-01
+/report KSM1 GT 2026-08-01
+/report BTB1 GT 2026-08-01
+/report BMC2 GT 2026-08-01
+/report AVG4 GT 2026-08-01

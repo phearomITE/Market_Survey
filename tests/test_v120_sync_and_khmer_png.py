@@ -6,7 +6,7 @@ class V120SyncAndKhmerPngTests(unittest.TestCase):
     def test_kobo_fetch_uses_exact_xlsform_dealer_and_date(self):
         client = Path("app/kobo/client.py").read_text(encoding="utf-8")
         sync = Path("app/kobo/sync.py").read_text(encoding="utf-8")
-        self.assertIn('query["outlet_info/dealer"] = str(dealer).strip().upper()', client)
+        self.assertIn('query["outlet_info/dealer"] = str(dealer).strip().lower()', client)
         self.assertIn('query["outlet_info/report_date"] = report_date.isoformat()', client)
         self.assertNotIn('dealer_values = {"$in"', client)
         self.assertNotIn('conditions.append({"$or"', client)

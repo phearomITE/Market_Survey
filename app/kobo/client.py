@@ -51,7 +51,9 @@ class KoboClient:
             # simple: Kobo can be very slow evaluating nested $or/$in clauses.
             query: dict = {}
             if dealer:
-                query["outlet_info/dealer"] = str(dealer).strip().upper()
+                # Kobo choice *names* are lowercase (ca7, bmc2, avg4) even
+                # though the user-facing labels are uppercase.
+                query["outlet_info/dealer"] = str(dealer).strip().lower()
             if report_date:
                 query["outlet_info/report_date"] = report_date.isoformat()
             params = {"query": json.dumps(query, separators=(",", ":"))}
