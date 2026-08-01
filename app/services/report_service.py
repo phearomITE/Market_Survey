@@ -204,7 +204,10 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
             " Run /sync_kobo once and retry."
         )
 
-    agg = aggregate_submissions(submissions)
+    # Fast single-dealer path: product/competitor/ring metrics were eagerly
+    # loaded by get_submissions(). Avoid the very wide dynamic-table query,
+    # which can add 20-30 seconds on Railway before Excel generation.
+    agg = aggregate_submissions(submissions, wide_map={})
     agg["report_type"] = report_type
     agg["channel"] = report_type
 

@@ -33,6 +33,13 @@ class V120SyncAndKhmerPngTests(unittest.TestCase):
         )
         self.assertNotIn("if settings.auto_sync_before_report or not submissions", block)
 
+    def test_single_report_skips_slow_wide_table_query(self):
+        source = Path("app/services/report_service.py").read_text(encoding="utf-8")
+        block = source[source.index("def generate_dealer_report"):source.index(
+            "def generate_today_all_dealers"
+        )]
+        self.assertIn("aggregate_submissions(submissions, wide_map={})", block)
+
     def test_khmer_font_and_headless_environment(self):
         source = Path("app/services/render_service.py").read_text(encoding="utf-8")
         docker = Path("Dockerfile").read_text(encoding="utf-8")
