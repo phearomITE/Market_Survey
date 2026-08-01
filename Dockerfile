@@ -12,7 +12,6 @@ RUN apt-get update \
         libreoffice-core \
         fonts-noto-core \
         fonts-noto-extra \
-        fonts-khmeros-core \
         fontconfig \
         ca-certificates \
     && fc-cache -f -v \
