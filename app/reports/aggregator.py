@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime
 import difflib
 import re
+import unicodedata
 from typing import Any
 
 from sqlalchemy import text
@@ -535,7 +536,10 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
 
 def _clean_location_piece(text: Any) -> str:
     """Clean one user-entered location phrase without destroying meaning."""
-    value = str(text or "").replace("\r", " ").replace("\n", " ")
+    value = unicodedata.normalize("NFC", str(text or ""))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        value = value.replace(hidden, "")
+    value = value.replace("\r", " ").replace("\n", " ")
     value = re.sub(r"\s+", " ", value).strip(" ,;|/\\")
     return value
 
@@ -863,7 +867,10 @@ def is_available(payload: dict, product: str) -> bool:
 def _clean_text(value: Any) -> str:
     if value in (None, ""):
         return ""
-    return str(value).replace("\r", "\n").strip()
+    text = unicodedata.normalize("NFC", str(value))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        text = text.replace(hidden, "")
+    return text.replace("\r", "\n").strip()
 
 
 FINAL_SUMMARY_KEYWORDS = (
@@ -1337,9 +1344,15 @@ def aggregate_submissions(
         "summary_control_count": summary_control_count,
         "total_outlets": total_outlets,
         "outlet_types": outlet_types,
-        "group_no": to_int(mode([s.group_no for s in header_submissions])) or 2,
-        "member_no": to_int(mode([s.member_no for s in header_submissions])),
-        "location_text": combine_location_visit([s.location_text for s in data_submissions]),
+        "group_no": to_int(
+            mode([getattr(s, "group_no", None) for s in header_submissions])
+        ) or 2,
+        "member_no": to_int(
+            mode([getattr(s, "member_no", None) for s in header_submissions])
+        ),
+        "location_text": combine_location_visit(
+            [getattr(s, "location_text", None) for s in data_submissions]
+        ),
         "products": {},
         "competitors": {},
         "ring_pull": {},
@@ -1471,13 +1484,6 @@ def aggregate_submissions(
         # Re-point every known GB Original alias to the exact same final dict.
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
             result["competitors"][alias] = gb
-
-        print(
-            "✅ AGG GB Original final:",
-            "values=", gb_values,
-            "avg=", gb.get("_mov_avg"),
-            "mov=", gb.get("mov"),
-        )
 
     # Apply the comparison-row normalization after every raw average and
     # rounded movement is ready. Each row gets exactly one movement 10.

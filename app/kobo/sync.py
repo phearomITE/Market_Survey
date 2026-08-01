@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import (
     KoboCompetitorMetric,
@@ -21,6 +20,7 @@ from app.db.models import (
 from app.kobo.client import KoboClient
 from app.kobo.parser import normalize_submission, to_float, to_int, yes_value
 from app.db.kobo_wide import upsert_wide_submission
+from app.core.config import settings
 _SYNC_LOCK = Lock()
 _SYNC_FINISHED = Event()
 _SYNC_FINISHED.set()
@@ -213,32 +213,27 @@ def fetch_report_submissions_fast(
     summary_only: bool = False,
     metadata_only: bool = False,
 ) -> list[KoboSubmission]:
-    """Build report rows directly from a date-filtered Kobo response.
-
-    This intentionally performs no PostgreSQL writes. Interactive reports must
-    not wait for the expensive full sync that creates dozens of product rows
-    for every Kobo submission.
-    """
+    """Normalize one date directly from Kobo without PostgreSQL writes."""
     rows = KoboClient().fetch_submissions(
         report_date=report_date,
         dealer=dealer,
         deadline_seconds=settings.kobo_fetch_deadline_seconds,
         request_timeout=settings.kobo_request_timeout_seconds,
     )
-    submissions: list[KoboSubmission] = []
-    wanted_dealers = {
+    wanted = {
         str(value).strip().upper()
         for value in (dealers or set())
         if str(value).strip()
     }
     if dealer:
-        wanted_dealers.add(str(dealer).strip().upper())
+        wanted.add(str(dealer).strip().upper())
 
+    submissions: list[KoboSubmission] = []
     for raw in rows:
         data = normalize_submission(raw)
         flat = data.pop("_flat", {}) or {}
         normalized_dealer = str(data.get("dealer") or "").strip().upper()
-        if wanted_dealers and normalized_dealer not in wanted_dealers:
+        if wanted and normalized_dealer not in wanted:
             continue
         if data.get("report_date") != report_date or not data.get("submission_id"):
             continue
@@ -264,11 +259,11 @@ def fetch_report_submissions_fast(
                 "Vathanac LITE Pint",
             }
             product_rows = [
-                item for item in product_rows if item["product_name"] in own_names
+                item for item in product_rows
+                if item["product_name"] in own_names
             ]
             competitor_rows = [
-                item
-                for item in competitor_rows
+                item for item in competitor_rows
                 if item["product_name"] in competitor_names
             ]
 
@@ -278,14 +273,19 @@ def fetch_report_submissions_fast(
         submission.competitor_metrics = [
             SimpleNamespace(**item) for item in competitor_rows
         ]
-        submission.ring_pull_metrics = [] if summary_only else [
-            SimpleNamespace(**item) for item in _ring_pull_metrics_from_flat(flat)
-        ]
+        submission.ring_pull_metrics = (
+            []
+            if summary_only
+            else [
+                SimpleNamespace(**item)
+                for item in _ring_pull_metrics_from_flat(flat)
+            ]
+        )
         submissions.append(submission)
 
     print(
-        f"✅ Fast Kobo report rows: dealer={dealer or 'ALL'} "
-        f"date={report_date} rows={len(submissions)}"
+        f"✅ Fast Kobo rows: date={report_date} "
+        f"dealer={dealer or 'ALL'} rows={len(submissions)}"
     )
     return submissions
 

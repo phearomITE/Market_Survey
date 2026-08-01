@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
+import unicodedata
 from copy import copy
 
 from openpyxl import load_workbook
@@ -103,7 +104,26 @@ PRODUCT_NAME_MAP = {
 
 
 def _clean(v) -> str:
-    return " ".join(str(v or "").split()).strip()
+    value = unicodedata.normalize("NFC", str(v or ""))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        value = value.replace(hidden, "")
+    return " ".join(value.split()).strip()
+
+
+def _normalize_khmer_cells(ws: Worksheet) -> None:
+    """Remove hidden separators and force a Khmer-shaping font for PNG."""
+    for row in ws.iter_rows():
+        for cell in row:
+            if isinstance(cell, MergedCell) or not isinstance(cell.value, str):
+                continue
+            value = unicodedata.normalize("NFC", cell.value)
+            for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+                value = value.replace(hidden, "")
+            cell.value = value
+            if any("\u1780" <= char <= "\u17ff" for char in value):
+                font = copy(cell.font)
+                font.name = SUMMARY_FONT_NAME
+                cell.font = font
 
 
 def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
@@ -360,14 +380,6 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
 
     best = max(unique, key=_metric_mov_score)
 
-    if target in {"gboriginal", "gboriginalncp"}:
-        print(
-            "✅ Excel GB Original lookup candidates:",
-            [_metric_value(c, "mov", "movement_score", "final_mov", "final_movement") for c in unique],
-            "selected:",
-            _metric_value(best, "mov", "movement_score", "final_mov", "final_movement"),
-        )
-
     return best
 
 
@@ -433,7 +445,6 @@ def _force_specific_competitor_value(ws: Worksheet, agg: dict, product_name: str
                     ws.cell(row, col + 2).value = _blank_if_none(_metric_value(metrics, "stock", "stock_status"))
                     _set_number_cell(ws, row, col + 3, _metric_value(metrics, "buy_in", "buy_in_price"))
                     _set_number_cell(ws, row, col + 4, _metric_value(metrics, "sell_out", "sell_out_price"))
-                print(f"✅ FINAL FORCE {product_name} Excel {ws.cell(row, col + 1).coordinate} = {final_mov}")
 
 
 def _safe_title(title: str, used: set[str]) -> str:
@@ -746,7 +757,10 @@ def _estimate_summary_lines(text: str) -> int:
 
 def _clean_summary_text(text: str) -> str:
     """Clean summary text without forcing artificial line breaks."""
-    text = (text or "").strip()
+    text = unicodedata.normalize("NFC", str(text or ""))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        text = text.replace(hidden, "")
+    text = text.strip()
     # Keep explicit user/AI paragraph breaks, but remove excessive spacing.
     cleaned_lines: list[str] = []
     for line in text.replace("\r", "\n").splitlines():
@@ -904,7 +918,6 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
             for cc in [8, 13, 18, 23]:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
-                    print("✅ FORCE WRITE GB Original to Excel:", gb_mov, "cell", ws.cell(rr, cc + 1).coordinate)
 
     # Section 4: Ring Pull fixed products.
     ring_pull_start = layout["ring_start"]
@@ -928,6 +941,11 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
         issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
         suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
         _fit_summary_row_height(ws, row, issue_lines, suggestion_lines)
+
+    # Apply to Location, stock labels, key issues and suggestions. The Excel
+    # values stay unchanged; LibreOffice receives a font that shapes Khmer
+    # consonant clusters correctly instead of splitting them in the PNG.
+    _normalize_khmer_cells(ws)
 
     # Page setup helps LibreOffice render a single clean preview image/PDF.
     ws.sheet_view.showGridLines = False

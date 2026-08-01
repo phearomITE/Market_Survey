@@ -49,7 +49,7 @@ Commands:
 /dashboard
 /help
 
-/report = send Excel first, then create a quick PNG only when time remains.
+/report = send Excel first, then create one quick PNG preview.
 /report_multi = fast Excel workbook with selected dealer sheets.
 /report_today = fast Excel workbook with 65 dealer sheets.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
@@ -59,12 +59,11 @@ Commands:
 Logic:
 1 Kobo submission = 1 outlet visit
 Group by Dealer + Date = 1 dealer template
-Full-history auto-sync is disabled. /sync_kobo manually syncs today's rows.
+Reports use cached, date-filtered Kobo data. Full-history auto-sync is disabled.
 """.strip()
 
 
 async def _run_fast(function, *args, timeout_seconds: int | None = None, **kwargs):
-    """Run blocking work with one bounded Telegram-command deadline."""
     timeout = max(
         1,
         min(
@@ -143,8 +142,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not last:
         await update.effective_message.reply_text(
             "ℹ️ Bot is running.\nAutomatic full sync: disabled.\n"
-            "Reports use live date-filtered Kobo data. Use /sync_kobo only when "
-            "you want to refresh today's PostgreSQL rows."
+            "Reports read the requested date directly from Kobo."
         )
         return
 
@@ -168,27 +166,14 @@ async def sync_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     try:
         result = await _run_fast(
-            sync_kobo,
-            report_date=report_date,
-            timeout_seconds=50,
+            sync_kobo, report_date=report_date, timeout_seconds=50
         )
-        await msg.edit_text(
-            f"✅ Kobo sync completed for {report_date}. "
-            f"Fetched: {result.get('fetched', 0)} | "
-            f"Matched: {result.get('matched', 0)} | "
-            f"Synced: {result.get('synced', 0)} | "
-            f"Hash initialized: {result.get('hash_backfilled', 0)} | "
-            f"Unchanged: {result.get('unchanged', 0)} | "
-            f"Skipped: {result.get('skipped', 0)}"
-        )
+        await msg.edit_text(f"✅ Kobo sync completed. Fetched: {result.get('fetched', 0)} | Matched: {result.get('matched', 0)} | Synced: {result.get('synced', 0)} | Hash initialized: {result.get('hash_backfilled', 0)} | Unchanged: {result.get('unchanged', 0)} | Skipped: {result.get('skipped', 0)}")
     except Exception as e:
         await msg.edit_text(f"❌ Kobo sync failed: {e}")
 
 
 async def _maybe_sync_before_report(message) -> None:
-    # Interactive commands read their requested date directly from Kobo. A full
-    # Kobo -> PostgreSQL sync creates many metric rows and must never block a
-    # report, even when an old Railway variable still enables auto-sync.
     return
 
 
@@ -225,8 +210,6 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await wait.edit_text(f"⚠️ {text}")
             return
 
-        # Excel is the business-critical output, so upload it before the optional
-        # LibreOffice preview. A PNG problem can no longer delay the workbook.
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel first...")
         with path.open("rb") as f:
             await update.effective_message.reply_document(
@@ -239,12 +222,11 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         if remaining < 3:
             await wait.edit_text(
-                f"✅ Completed {dealer} {report_label} {rdate}. Excel sent. "
-                "PNG skipped to keep the command under one minute."
+                f"✅ Completed {dealer} {report_label} {rdate}. "
+                "Excel sent; PNG skipped at the fast limit."
             )
             return
-
-        await wait.edit_text(f"✅ Excel sent for {dealer}. 🖼 Creating quick PNG preview...")
+        await wait.edit_text("✅ Excel sent. 🖼 Creating quick PNG preview...")
         try:
             png = await _run_fast(
                 excel_to_png,
@@ -252,11 +234,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 timeout_seconds=min(settings.png_render_timeout_seconds, remaining),
             )
         except TimeoutError:
-            await wait.edit_text(
-                f"✅ Completed {dealer} {report_label} {rdate}. Excel sent. "
-                "PNG stopped at the fast time limit."
-            )
-            return
+            png = None
         if png:
             # Send PNG as document, not photo. This keeps full resolution and shows
             # a small preview thumbnail in Telegram, like the user's requested example.
@@ -267,7 +245,8 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         else:
             await update.effective_message.reply_text(
-                "⚠️ PNG preview was not created within the fast limit. Excel was sent successfully."
+                "⚠️ PNG preview was not created within the fast limit. "
+                "Excel was sent successfully."
             )
         await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}.")
     except Exception as e:
@@ -323,9 +302,7 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await _maybe_sync_before_report(update.effective_message)
         path, png_zip, text = await _run_fast(
-            generate_today_all_dealers_with_pngs,
-            rdate,
-            timeout_seconds=50,
+            generate_today_all_dealers_with_pngs, rdate, timeout_seconds=50
         )
 
         await wait.edit_text(f"✅ {text}\n📎 Uploading Excel workbook...")
@@ -347,13 +324,17 @@ async def report_today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def debug_kobo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.effective_message.reply_text("🔎 Checking Kobo fields...")
+    report_date = local_today()
+    msg = await update.effective_message.reply_text(
+        f"🔎 Checking Kobo fields for {report_date}..."
+    )
     try:
         from app.kobo.client import KoboClient
         from app.kobo.parser import normalize_submission
         rows = await _run_fast(
             KoboClient().fetch_submissions,
-            timeout_seconds=45,
+            report_date=report_date,
+            timeout_seconds=35,
         )
         if not rows:
             await msg.edit_text("⚠️ Kobo API returned 0 submissions.")
@@ -429,7 +410,6 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually list official dealers below 10 or 20 submissions today."""
     if len(context.args) != 1:
         await update.effective_message.reply_text(
             "Usage:\n/alert_submit 10\n/alert_submit 20"
@@ -442,19 +422,19 @@ async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if threshold not in {10, 20}:
         await update.effective_message.reply_text("Threshold must be 10 or 20.")
         return
-
     report_date = local_today()
     wait = await update.effective_message.reply_text(
-        f"📊 Checking dealers below {threshold} reports for {report_date:%d/%m/%Y}..."
+        f"📊 Checking dealers below {threshold} reports for "
+        f"{report_date:%d/%m/%Y}..."
     )
     try:
-        text = await _run_fast(
+        message = await _run_fast(
             format_submission_alert,
             report_date,
             threshold,
             timeout_seconds=45,
         )
-        await wait.edit_text(text)
+        await wait.edit_text(message)
     except Exception as exc:
         await wait.edit_text(f"❌ Submission alert failed: {exc}")
 

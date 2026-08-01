@@ -34,31 +34,28 @@ def _find_soffice() -> str | None:
 
 
 def excel_to_pdf(xlsx_path: Path) -> Path | None:
-    """Convert Excel to PDF in a private true-headless LibreOffice profile."""
+    """Convert Excel in a private true-headless LibreOffice profile."""
     xlsx_path = Path(xlsx_path).resolve()
     soffice = _find_soffice()
     if not soffice or not xlsx_path.exists():
         return None
-
     try:
-        with tempfile.TemporaryDirectory(prefix="kb-lo-fast-") as temporary:
-            temporary_dir = Path(temporary)
-            output_dir = temporary_dir / "output"
-            profile_dir = temporary_dir / "profile"
-            output_dir.mkdir()
-            profile_dir.mkdir()
-
+        with tempfile.TemporaryDirectory(prefix="kb-lo-") as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            profile = root / "profile"
+            output.mkdir()
+            profile.mkdir()
             environment = os.environ.copy()
-            environment["HOME"] = str(temporary_dir)
-            environment["TMPDIR"] = str(temporary_dir)
+            environment["HOME"] = str(root)
+            environment["TMPDIR"] = str(root)
             environment["SAL_USE_VCLPLUGIN"] = "svp"
-            environment["LANG"] = environment.get("LANG") or "C.UTF-8"
-            environment["LC_ALL"] = environment.get("LC_ALL") or "C.UTF-8"
+            environment["LANG"] = "C.UTF-8"
+            environment["LC_ALL"] = "C.UTF-8"
             environment.pop("DISPLAY", None)
-
-            cmd = [
+            command = [
                 soffice,
-                f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
+                f"-env:UserInstallation={profile.resolve().as_uri()}",
                 "--headless",
                 "--invisible",
                 "--nologo",
@@ -69,11 +66,11 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
                 "--convert-to",
                 "pdf:calc_pdf_Export",
                 "--outdir",
-                str(output_dir),
+                str(output),
                 str(xlsx_path),
             ]
             process = subprocess.run(
-                cmd,
+                command,
                 check=False,
                 timeout=max(5, int(settings.png_render_timeout_seconds)),
                 stdout=subprocess.PIPE,
@@ -81,13 +78,13 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
                 text=True,
                 env=environment,
             )
-            converted = output_dir / f"{xlsx_path.stem}.pdf"
+            converted = output / f"{xlsx_path.stem}.pdf"
             if process.returncode != 0 or not converted.is_file():
                 detail = " ".join(
                     f"{process.stdout or ''} {process.stderr or ''}".split()
                 )
                 print(
-                    f"⚠️ Fast PNG conversion failed: exit={process.returncode}; "
+                    f"⚠️ PNG conversion failed: exit={process.returncode}; "
                     f"{detail[-800:]}"
                 )
                 return None
@@ -98,12 +95,12 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
             return final_pdf if final_pdf.stat().st_size > 20 else None
     except subprocess.TimeoutExpired:
         print(
-            f"⚠️ Fast PNG conversion stopped after "
+            f"⚠️ PNG conversion stopped after "
             f"{settings.png_render_timeout_seconds}s"
         )
         return None
     except Exception as exc:
-        print(f"⚠️ Fast PNG conversion failed: {exc}")
+        print(f"⚠️ PNG conversion failed: {exc}")
         return None
 
 

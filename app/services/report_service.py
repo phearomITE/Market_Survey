@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Literal
 
@@ -209,7 +210,7 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
         detail = f" Kobo rows for dealer/date: {len(all_rows)}; outlet types: {', '.join(outlet_types) or 'none'}."
         return None, (
             f"No {label} submissions found for {dealer} on {d}." + detail +
-            " Check the Report Type selected in Kobo."
+            " Check the command date and Report Type selected in Kobo."
         )
 
     agg = aggregate_submissions(submissions, wide_map={})
@@ -243,7 +244,7 @@ def generate_today_all_dealers(report_date_str: str | None = None):
 
 
 def generate_today_all_dealers_with_pngs(report_date_str: str | None = None):
-    """Generate the urgent 65-dealer Excel workbook without slow PNG ZIP."""
+    """Generate the urgent 65-dealer Excel workbook without a slow PNG ZIP."""
     path, text = generate_today_all_dealers(report_date_str)
     return path, None, text
 
@@ -370,9 +371,17 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
         raise ValueError(
             "Usage: /export movement_multi 2026-07-04 2026-07-18 2026-07-25"
         )
-    submissions: list[KoboSubmission] = []
-    for report_date in dates:
-        submissions.extend(fetch_report_submissions_fast(None, report_date))
+    # Different dates are independent Kobo queries. Fetch them concurrently so
+    # a three-date movement export stays inside the Telegram command deadline.
+    workers = min(4, len(dates))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        chunks = list(
+            executor.map(
+                lambda report_date: fetch_report_submissions_fast(None, report_date),
+                dates,
+            )
+        )
+    submissions = [row for chunk in chunks for row in chunk]
     if not submissions:
         raise ValueError("No submissions found for the requested report dates.")
     path = create_movement_export(submissions, dates, beer_only=True)

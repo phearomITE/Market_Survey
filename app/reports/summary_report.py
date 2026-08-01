@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from copy import copy
 from datetime import date, datetime
 from pathlib import Path
+from statistics import mean, median
 from typing import Iterable
 
 from openpyxl import Workbook, load_workbook

@@ -20,6 +20,7 @@ RUN apt-get update \
         fontconfig \
         ca-certificates \
     && fc-cache -f -v \
+    && fc-match "Noto Sans Khmer" \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
