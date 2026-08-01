@@ -68,13 +68,13 @@ class V136FormHorecaRegionPngTests(unittest.TestCase):
         for name in ("region", "dealer", "final_summary_report_type", "report_date", "outlet_type"):
             self.assertEqual(ws.cell(rows[name], 4).value, "yes")
 
-        self.assertIsNone(ws.cell(rows["fresh_cb_lite_ncp_group"], 8).value)
-        blank_horeca = ws.cell(rows["fresh_cb_pint_group"], 8).value
-        blank_gt = ws.cell(rows["fresh_wurkz_ice_group"], 8).value
-        self.assertIn("string-length", blank_horeca)
-        self.assertIn("= 'horeca'", blank_horeca)
-        self.assertIn("string-length", blank_gt)
-        self.assertIn("= 'gt'", blank_gt)
+        shared_route = ws.cell(rows["fresh_cb_lite_ncp_group"], 8).value
+        horeca_route = ws.cell(rows["fresh_cb_pint_group"], 8).value
+        gt_route = ws.cell(rows["fresh_wurkz_ice_group"], 8).value
+        self.assertIn("= 'gt'", shared_route)
+        self.assertIn("= 'horeca'", shared_route)
+        self.assertEqual(horeca_route, "${final_summary_report_type} = 'horeca'")
+        self.assertEqual(gt_route, "${final_summary_report_type} = 'gt'")
 
         own_pint_prefixes = (
             "fresh_cb_pint", "fresh_cbl_pint", "fresh_cb_supeeme_pint", "fresh_cb_black_pint",
