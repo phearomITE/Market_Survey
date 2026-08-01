@@ -28,16 +28,15 @@ class Settings(BaseSettings):
     map_viewer_token: str = ""
     map_editor_token: str = ""
 
-    template_path: str = "templates/template_by_dealer.xlsx"
+    template_path: str = "templates/template_general.xlsx"
     horeca_template_path: str = "templates/template_horeca_products.xlsx"
     gt_summary_template_path: str = "templates/template_gt_summary.xlsx"
     export_dir: str = "exports"
     auto_sync_before_report: bool = False
-    auto_sync_enabled: bool = False
+    auto_sync_enabled: bool = True
     auto_sync_interval_minutes: int = 1
     auto_sync_interval_seconds: int = 60
-    report_sync_wait_seconds: int = 20
-    png_render_timeout_seconds: int = 12
+    report_sync_wait_seconds: int = 180
     libreoffice_path: str = ""
 
     @property

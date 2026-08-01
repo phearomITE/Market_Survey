@@ -15,10 +15,6 @@ def startup():
 def root():
     return {'status': 'ok', 'app': 'KB Market Survey'}
 
-@app.get('/health')
-def health():
-    return {'status': 'ok'}
-
 @app.post('/sync_kobo')
 def api_sync_kobo():
     return sync_kobo()
