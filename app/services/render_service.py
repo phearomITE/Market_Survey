@@ -10,6 +10,33 @@ import zipfile
 from app.core.config import settings
 
 
+_KHMER_LO_PROFILE = """<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry">
+  <item oor:path="/org.openoffice.Office.Common/I18N/CTL">
+    <prop oor:name="CTLFont" oor:op="fuse"><value>true</value></prop>
+  </item>
+  <item oor:path="/org.openoffice.Office.Linguistic/General">
+    <prop oor:name="DefaultLocale_CTL" oor:op="fuse"><value>km-KH</value></prop>
+  </item>
+</oor:items>
+"""
+
+
+def _prepare_khmer_profile(profile: Path) -> None:
+    """Enable LibreOffice complex-text shaping in the private profile.
+
+    Headless LibreOffice starts with a new profile for every report. Without
+    the CTL setting that fresh profile can render a Khmer coeng cluster as
+    separate glyphs even though the XLSX contains the correct Unicode text.
+    """
+    user_directory = profile / "user"
+    user_directory.mkdir(parents=True, exist_ok=True)
+    (user_directory / "registrymodifications.xcu").write_text(
+        _KHMER_LO_PROFILE,
+        encoding="utf-8",
+    )
+
+
 @lru_cache(maxsize=1)
 def _khmer_font_match() -> tuple[bool, str]:
     """Return the actual fontconfig match used by headless LibreOffice."""
@@ -78,11 +105,14 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
             output = root / "output"
             profile = root / "profile"
             output.mkdir()
-            profile.mkdir()
+            _prepare_khmer_profile(profile)
             environment = os.environ.copy()
             environment["HOME"] = str(root)
             environment["TMPDIR"] = str(root)
             environment["SAL_USE_VCLPLUGIN"] = "svp"
+            # Use LibreOffice's stable Cairo/HarfBuzz text path. Skia has
+            # produced detached Khmer coeng glyphs in some headless builds.
+            environment["SAL_DISABLESKIA"] = "1"
             environment["LANG"] = "C.UTF-8"
             environment["LC_ALL"] = "C.UTF-8"
             if Path("/etc/fonts/fonts.conf").exists():

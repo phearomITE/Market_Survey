@@ -17,6 +17,7 @@ from app.reports.aggregator import (
     product_field,
 )
 from app.reports.excel_report import SUMMARY_FONT_NAME, _normalize_khmer_cells
+from app.services.render_service import _prepare_khmer_profile
 
 
 def _submission(index: int) -> dict:
@@ -93,6 +94,28 @@ class V145FastBatchKhmerTests(unittest.TestCase):
         self.assertEqual(sheet["A1"].font.name, SUMMARY_FONT_NAME)
         self.assertIsNone(sheet["A1"].font.scheme)
         self.assertIsNone(sheet["A1"].font.charset)
+
+    def test_headless_profile_enables_khmer_complex_text_layout(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as temporary:
+            profile = Path(temporary) / "profile"
+            _prepare_khmer_profile(profile)
+            config = (
+                profile / "user" / "registrymodifications.xcu"
+            ).read_text(encoding="utf-8")
+        self.assertIn("CTLFont", config)
+        self.assertIn("DefaultLocale_CTL", config)
+        self.assertIn("km-KH", config)
+
+    def test_renderer_disables_skia_for_khmer_shaping(self):
+        from pathlib import Path
+
+        source = Path("app/services/render_service.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('environment["SAL_DISABLESKIA"] = "1"', source)
 
 
 if __name__ == "__main__":

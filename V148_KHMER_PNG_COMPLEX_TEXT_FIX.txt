@@ -1,0 +1,11 @@
+V148 Khmer PNG complex-text fix
+
+- Keeps the Excel value unchanged and normalized as Unicode NFC.
+- Enables LibreOffice complex-text layout (CTL) for Khmer in every private
+  headless rendering profile.
+- Forces the stable Cairo/HarfBuzz rendering path instead of Skia.
+- Adds a fontconfig rule that strongly prefers Noto Sans Khmer for Khmer text.
+- Verifies the Railway image contains Noto Sans Khmer and shaping libraries.
+
+Expected result: Khmer clusters such as គ្រប់ stay joined in Telegram PNG
+previews for both GT and HORECA reports.
