@@ -113,7 +113,9 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
     assert ws["F4"].value == "<5"
     assert ws["I4"].value == "GB SNOW NCP"
     assert ws["C9"].value == 1
-    assert ws["H9"].value == 8
+    # Final Movement is normalized inside its comparison row. The own product
+    # is in the 9-to-10 band and the leading competitor is exactly 10.
+    assert ws["I9"].value == 9
     assert ws["J9"].value == "GB SNOW NCP"
-    assert ws["K9"].value == 9
+    assert ws["K9"].value == 10
     assert ws["A1"].fill.fgColor.rgb.endswith("1F4E78")

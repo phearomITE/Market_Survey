@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     LC_ALL=C.UTF-8 \
     SAL_USE_VCLPLUGIN=svp \
     LIBREOFFICE_PATH=/usr/bin/libreoffice \
-    PNG_RENDER_TIMEOUT_SECONDS=30
+    PNG_RENDER_TIMEOUT_SECONDS=18
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -19,7 +19,7 @@ RUN apt-get update \
         fontconfig \
         ca-certificates \
     && fc-cache -f -v \
-    && fc-match -f '%{family}|%{file}\n' "Noto Sans Khmer:lang=km" \
+    && fc-match -f '%{family}|%{file}\n' "Noto Sans Khmer" \
         | grep -i "Noto Sans Khmer" \
     && rm -rf /var/lib/apt/lists/*
 

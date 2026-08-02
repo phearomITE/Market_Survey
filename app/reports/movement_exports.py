@@ -137,7 +137,10 @@ def create_daily_export(
     Movement comes from aggregate_submissions(), exactly like /report.
     """
     rows = list(submissions)
-    wide_map = load_wide_payloads(rows)
+    # Direct Kobo rows already contain normalized metric objects. Querying the
+    # huge PostgreSQL wide table here duplicated work and could consume most of
+    # the Telegram timeout before Excel generation even started.
+    wide_map = {}
     grouped: dict[tuple[str, str], list] = defaultdict(list)
     for submission in rows:
         key = (

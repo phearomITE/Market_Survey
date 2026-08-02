@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
+    alert_submit_cmd,
     dashboard_cmd,
     debug_kobo_cmd,
     help_cmd,
@@ -87,11 +88,11 @@ async def _auto_sync_loop() -> None:
 
 
 async def _post_init(app: Application) -> None:
-    """Start background tasks after Telegram initializes."""
-    global _auto_sync_task
-
-    if getattr(settings, "auto_sync_enabled", False):
-        _auto_sync_task = asyncio.create_task(_auto_sync_loop())
+    """Never start a full-history sync beside interactive reports."""
+    print(
+        "ℹ️ Automatic full Kobo sync disabled; "
+        "reports use fast date-filtered Kobo reads."
+    )
 
 
 async def _post_shutdown(app: Application) -> None:
@@ -154,6 +155,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
+    app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
     app.add_handler(CommandHandler("dashboard", dashboard_cmd))

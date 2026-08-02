@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date
+from functools import lru_cache
 from typing import Any
 
 
@@ -141,15 +142,84 @@ def normalize_report_type(value: Any) -> str | None:
     return str(value).strip().upper()
 
 
-def flatten_dict(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+class FlatFieldMap(dict[str, Any]):
+    """Flattened Kobo row with indexes built once per submission.
+
+    A single survey row is queried hundreds of times while product metrics are
+    created.  The previous code rebuilt three dictionaries on every lookup,
+    which made a 1,600-row date take minutes.  This class preserves normal dict
+    behaviour while reusing its exact/case/label indexes.
+    """
+
+    __slots__ = ("_lower", "_full_norm", "_leaf", "_strong")
+
+    def __init__(self, values: dict[str, Any] | None = None):
+        super().__init__(values or {})
+        self._lower = {str(key).strip().lower(): key for key in self}
+        self._full_norm = {_key_norm(key): key for key in self}
+        self._leaf = {_last_part(key): key for key in self}
+        self._strong = {
+            "".join(
+                char
+                for char in str(key).strip().lower().split("/")[-1]
+                if char.isalnum()
+            ): key
+            for key in self
+        }
+
+    @staticmethod
+    def _non_empty(value: Any) -> bool:
+        return value not in (None, "")
+
+    def parser_value(self, keys: list[str], default=None):
+        exact, full_norm, leaf = _compiled_parser_keys(tuple(keys))
+        for key in exact:
+            if key in self and self._non_empty(self[key]):
+                return self[key]
+        for normalized in full_norm:
+            real_key = self._full_norm.get(normalized)
+            if real_key is not None and self._non_empty(self.get(real_key)):
+                return self.get(real_key)
+        for normalized in leaf:
+            real_key = self._leaf.get(normalized)
+            if real_key is not None and self._non_empty(self.get(real_key)):
+                return self.get(real_key)
+        return default
+
+    def first_value(self, keys: list[str]):
+        """Fast equivalent of reports.aggregator.first_value()."""
+        exact, lower, strong, leaf = _compiled_first_keys(tuple(keys))
+        for key in exact:
+            if key in self and self._non_empty(self[key]):
+                return self[key]
+        for normalized in lower:
+            real_key = self._lower.get(normalized)
+            if real_key is not None and self._non_empty(self.get(real_key)):
+                return self.get(real_key)
+        for normalized in strong:
+            real_key = self._strong.get(normalized)
+            if real_key is not None and self._non_empty(self.get(real_key)):
+                return self.get(real_key)
+        for normalized in leaf:
+            real_key = self._leaf.get(normalized)
+            if real_key is not None and self._non_empty(self.get(real_key)):
+                return self.get(real_key)
+        return None
+
+
+def flatten_dict(data: dict[str, Any], prefix: str = "") -> FlatFieldMap:
     out: dict[str, Any] = {}
-    for key, value in (data or {}).items():
-        full_key = f"{prefix}/{key}" if prefix else str(key)
-        if isinstance(value, dict):
-            out.update(flatten_dict(value, full_key))
-        else:
-            out[full_key] = value
-    return out
+
+    def visit(values: dict[str, Any], current_prefix: str) -> None:
+        for key, value in (values or {}).items():
+            full_key = f"{current_prefix}/{key}" if current_prefix else str(key)
+            if isinstance(value, dict):
+                visit(value, full_key)
+            else:
+                out[full_key] = value
+
+    visit(data or {}, prefix)
+    return FlatFieldMap(out)
 
 
 def _key_norm(key: str) -> str:
@@ -160,24 +230,36 @@ def _last_part(key: str) -> str:
     return _key_norm(str(key).split("/")[-1])
 
 
+@lru_cache(maxsize=4096)
+def _compiled_parser_keys(keys: tuple[str, ...]):
+    """Compile aliases once instead of once per field per submission."""
+    return (
+        keys,
+        tuple(_key_norm(key) for key in keys),
+        tuple(_last_part(key) for key in keys),
+    )
+
+
+@lru_cache(maxsize=4096)
+def _compiled_first_keys(keys: tuple[str, ...]):
+    return (
+        keys,
+        tuple(str(key).strip().lower() for key in keys),
+        tuple(
+            "".join(
+                char
+                for char in str(key).strip().lower().split("/")[-1]
+                if char.isalnum()
+            )
+            for key in keys
+        ),
+        tuple(_last_part(key) for key in keys),
+    )
+
+
 def get_any(row: dict, keys: list[str], default=None):
-    flat = flatten_dict(row)
-    for k in keys:
-        if k in flat and flat[k] not in (None, ""):
-            return flat[k]
-
-    normalized = {_key_norm(k): k for k in flat.keys()}
-    for k in keys:
-        real_key = normalized.get(_key_norm(k))
-        if real_key and flat.get(real_key) not in (None, ""):
-            return flat.get(real_key)
-
-    last_map = {_last_part(k): k for k in flat.keys()}
-    for k in keys:
-        real_key = last_map.get(_last_part(k))
-        if real_key and flat.get(real_key) not in (None, ""):
-            return flat.get(real_key)
-    return default
+    flat = row if isinstance(row, FlatFieldMap) else flatten_dict(row)
+    return flat.parser_value(keys, default)
 
 
 def parse_date(value: Any) -> date | None:
@@ -276,8 +358,13 @@ def yes_value(value: Any) -> bool:
     return s in {"1", "yes", "y", "true", "new", "ថ្មី", "មាន", "មានលក់", "លក់ដាច់", "sale", "fast_sale"}
 
 
-def normalize_submission(row: dict) -> dict:
-    flat = flatten_dict(row)
+def normalize_submission(
+    row: dict,
+    *,
+    flat: FlatFieldMap | None = None,
+) -> dict:
+    """Normalize a Kobo submission using one shared flattened/indexed row."""
+    flat = flat if isinstance(flat, FlatFieldMap) else flatten_dict(row)
     sub_id = str(
         row.get("_id")
         or row.get("_uuid")
@@ -287,28 +374,29 @@ def normalize_submission(row: dict) -> dict:
         or ""
     )
     submitted_at = parse_datetime(row.get("_submission_time") or row.get("submission_time") or row.get("end"))
-    rdate = parse_date(get_any(row, ALIASES["report_date"])) or (submitted_at.date() if submitted_at else None)
+    value = flat.parser_value
+    rdate = parse_date(value(ALIASES["report_date"])) or (submitted_at.date() if submitted_at else None)
 
     return {
         "submission_id": sub_id,
         "submission_time": submitted_at,
         "report_date": rdate,
-        "region": normalize_region(get_any(row, ALIASES["region"])),
-        "dealer": normalize_dealer(get_any(row, ALIASES["dealer"], "")),
-        "group_no": to_int(get_any(row, ALIASES["group_no"])),
-        "member_no": to_int(get_any(row, ALIASES["member_no"])),
-        "total_outlet_visit_target": to_int(get_any(row, ALIASES["total_outlet_visit_target"])),
-        "outlet_name": get_any(row, ALIASES["outlet_name"]),
-        "outlet_type": normalize_outlet_type(get_any(row, ALIASES["outlet_type"])),
-        "report_type": normalize_report_type(get_any(row, ALIASES["report_type"])),
-        "is_new_outlet": yes_value(get_any(row, ALIASES["is_new_outlet"])),
-        "submitter_name": get_any(row, ALIASES["submitter_name"]),
-        "phone_number": str(get_any(row, ALIASES["phone_number"], "") or "") or None,
-        "location_text": get_any(row, ALIASES["location_text"]),
-        "gps_text": str(get_any(row, ALIASES["gps_text"], "") or "") or None,
-        "gps_latitude": to_float(get_any(row, ALIASES["gps_latitude"])),
-        "gps_longitude": to_float(get_any(row, ALIASES["gps_longitude"])),
-        "key_issue_text": get_any(row, ALIASES["key_issue_text"]),
-        "suggestion_text": get_any(row, ALIASES["suggestion_text"]),
+        "region": normalize_region(value(ALIASES["region"])),
+        "dealer": normalize_dealer(value(ALIASES["dealer"], "")),
+        "group_no": to_int(value(ALIASES["group_no"])),
+        "member_no": to_int(value(ALIASES["member_no"])),
+        "total_outlet_visit_target": to_int(value(ALIASES["total_outlet_visit_target"])),
+        "outlet_name": value(ALIASES["outlet_name"]),
+        "outlet_type": normalize_outlet_type(value(ALIASES["outlet_type"])),
+        "report_type": normalize_report_type(value(ALIASES["report_type"])),
+        "is_new_outlet": yes_value(value(ALIASES["is_new_outlet"])),
+        "submitter_name": value(ALIASES["submitter_name"]),
+        "phone_number": str(value(ALIASES["phone_number"], "") or "") or None,
+        "location_text": value(ALIASES["location_text"]),
+        "gps_text": str(value(ALIASES["gps_text"], "") or "") or None,
+        "gps_latitude": to_float(value(ALIASES["gps_latitude"])),
+        "gps_longitude": to_float(value(ALIASES["gps_longitude"])),
+        "key_issue_text": value(ALIASES["key_issue_text"]),
+        "suggestion_text": value(ALIASES["suggestion_text"]),
         "_flat": flat,  # transient only; sync.py converts it to SQL metric rows, not DB JSON.
     }

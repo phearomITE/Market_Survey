@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 import difflib
+from functools import lru_cache
 import re
+import unicodedata
 from typing import Any
 
 from sqlalchemy import text
@@ -276,6 +278,12 @@ def first_value(payload: dict, keys: list[str]):
     if not payload:
         return None
 
+    # Kobo's direct report path supplies FlatFieldMap, which builds all lookup
+    # indexes once per submission. Keep normal dict support for DB/legacy rows.
+    fast_reader = getattr(payload, "first_value", None)
+    if callable(fast_reader):
+        return fast_reader(keys)
+
     # 1) Exact match.
     for key in keys:
         if key in payload and payload[key] not in (None, ""):
@@ -535,7 +543,10 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
 
 def _clean_location_piece(text: Any) -> str:
     """Clean one user-entered location phrase without destroying meaning."""
-    value = str(text or "").replace("\r", " ").replace("\n", " ")
+    value = unicodedata.normalize("NFC", str(text or ""))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        value = value.replace(hidden, "")
+    value = value.replace("\r", " ").replace("\n", " ")
     value = re.sub(r"\s+", " ", value).strip(" ,;|/\\")
     return value
 
@@ -721,6 +732,7 @@ def stock_summary(values: list[Any]) -> str | None:
 
 
 
+@lru_cache(maxsize=None)
 def _field_label_aliases(product: str, field: str) -> list[str]:
     """Return label aliases for current and legacy Kobo product names."""
     labels: list[str] = []
@@ -777,6 +789,7 @@ def _field_label_aliases(product: str, field: str) -> list[str]:
     return list(dict.fromkeys(labels + more))
 
 
+@lru_cache(maxsize=None)
 def product_field(product: str, field: str) -> list[str]:
     codes = PRODUCT_CODES.get(product, [slug(product)])
     keys: list[str] = []
@@ -811,6 +824,7 @@ def product_field(product: str, field: str) -> list[str]:
     return keys
 
 
+@lru_cache(maxsize=None)
 def competitor_field(product: str, field: str) -> list[str]:
     codes = COMPETITOR_CODES.get(product, [slug(product)])
     keys: list[str] = []
@@ -863,7 +877,10 @@ def is_available(payload: dict, product: str) -> bool:
 def _clean_text(value: Any) -> str:
     if value in (None, ""):
         return ""
-    return str(value).replace("\r", "\n").strip()
+    text = unicodedata.normalize("NFC", str(value))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        text = text.replace(hidden, "")
+    return text.replace("\r", "\n").strip()
 
 
 FINAL_SUMMARY_KEYWORDS = (
@@ -1309,6 +1326,11 @@ def _available_from_wide_or_metric(
 def aggregate_submissions(
     submissions: list,
     wide_map: dict[str, dict[str, Any]] | None = None,
+    *,
+    own_product_names: list[str] | tuple[str, ...] | None = None,
+    competitor_product_names: list[str] | tuple[str, ...] | None = None,
+    include_ring_pull: bool = True,
+    include_manual_summary: bool = True,
 ) -> dict:
     all_submissions = list(submissions or [])
 
@@ -1337,9 +1359,15 @@ def aggregate_submissions(
         "summary_control_count": summary_control_count,
         "total_outlets": total_outlets,
         "outlet_types": outlet_types,
-        "group_no": to_int(mode([s.group_no for s in header_submissions])) or 2,
-        "member_no": to_int(mode([s.member_no for s in header_submissions])),
-        "location_text": combine_location_visit([s.location_text for s in data_submissions]),
+        "group_no": to_int(
+            mode([getattr(s, "group_no", None) for s in header_submissions])
+        ) or 2,
+        "member_no": to_int(
+            mode([getattr(s, "member_no", None) for s in header_submissions])
+        ),
+        "location_text": combine_location_visit(
+            [getattr(s, "location_text", None) for s in data_submissions]
+        ),
         "products": {},
         "competitors": {},
         "ring_pull": {},
@@ -1357,7 +1385,18 @@ def aggregate_submissions(
     if wide_map is None:
         wide_map = load_wide_payloads(submissions)
 
-    for product in ALL_OWN_PRODUCTS:
+    selected_own_products = (
+        list(own_product_names)
+        if own_product_names is not None
+        else ALL_OWN_PRODUCTS
+    )
+    selected_competitor_products = (
+        list(competitor_product_names)
+        if competitor_product_names is not None
+        else ALL_COMPETITOR_PRODUCTS
+    )
+
+    for product in selected_own_products:
         metrics = [pm.get(product) or pm.get(_product_lookup_key(product)) for pm in product_maps]
 
         movement_values = [
@@ -1404,7 +1443,7 @@ def aggregate_submissions(
         pdata["availability"] = counts
         result["products"][product] = pdata
 
-    for product in ALL_COMPETITOR_PRODUCTS:
+    for product in selected_competitor_products:
         metrics = [cm.get(product) or cm.get(_product_lookup_key(product)) for cm in competitor_maps]
         movement_values = [
             v
@@ -1472,26 +1511,21 @@ def aggregate_submissions(
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
             result["competitors"][alias] = gb
 
-        print(
-            "✅ AGG GB Original final:",
-            "values=", gb_values,
-            "avg=", gb.get("_mov_avg"),
-            "mov=", gb.get("mov"),
-        )
-
     # Apply the comparison-row normalization after every raw average and
     # rounded movement is ready. Each row gets exactly one movement 10.
     _apply_offtake_comparison_goal(result)
 
-    for product in RING_PRODUCTS:
-        aliases = RING_PRODUCT_ALIASES.get(product, [product])
-        metrics = [next((rm.get(alias) for alias in aliases if rm.get(alias) is not None), None) for rm in ring_maps]
-        qtys = [to_int(_value(m, "qty_ctn")) or 0 for m in metrics]
-        result["ring_pull"][product] = {"total_outlets": sum(1 for q in qtys if q > 0), "qty": sum(qtys)}
+    if include_ring_pull:
+        for product in RING_PRODUCTS:
+            aliases = RING_PRODUCT_ALIASES.get(product, [product])
+            metrics = [next((rm.get(alias) for alias in aliases if rm.get(alias) is not None), None) for rm in ring_maps]
+            qtys = [to_int(_value(m, "qty_ctn")) or 0 for m in metrics]
+            result["ring_pull"][product] = {"total_outlets": sum(1 for q in qtys if q > 0), "qty": sum(qtys)}
 
-    key_issues, suggestions = _latest_manual_summary(all_submissions)
-    result["key_issues"] = key_issues[:4]
-    result["suggestions"] = suggestions[:4]
+    if include_manual_summary:
+        key_issues, suggestions = _latest_manual_summary(all_submissions)
+        result["key_issues"] = key_issues[:4]
+        result["suggestions"] = suggestions[:4]
     while len(result["key_issues"]) < 4:
         result["key_issues"].append("")
     while len(result["suggestions"]) < 4:

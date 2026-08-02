@@ -12,13 +12,18 @@ from app.core.config import settings
 
 @lru_cache(maxsize=1)
 def _khmer_font_match() -> tuple[bool, str]:
-    """Return the exact Khmer font that headless LibreOffice will see."""
+    """Return the actual fontconfig match used by headless LibreOffice."""
     fc_match = shutil.which("fc-match")
     if not fc_match:
         return False, "fontconfig fc-match is unavailable"
     try:
         process = subprocess.run(
-            [fc_match, "-f", "%{family}|%{file}", "Noto Sans Khmer:lang=km"],
+            [
+                fc_match,
+                "-f",
+                "%{family}|%{file}",
+                "Noto Sans Khmer",
+            ],
             check=False,
             timeout=5,
             stdout=subprocess.PIPE,
@@ -26,7 +31,7 @@ def _khmer_font_match() -> tuple[bool, str]:
             text=True,
         )
         detail = " ".join((process.stdout or process.stderr or "").split())
-        ready = process.returncode == 0 and "noto sans khmer" in detail.casefold()
+        ready = process.returncode == 0 and "noto sans khmer" in detail.lower()
         return ready, detail or f"fc-match exit={process.returncode}"
     except Exception as exc:
         return False, str(exc)
@@ -57,12 +62,7 @@ def _find_soffice() -> str | None:
 
 
 def excel_to_pdf(xlsx_path: Path) -> Path | None:
-    """Convert Excel in an isolated true-headless LibreOffice process.
-
-    The private profile prevents concurrent Telegram reports from sharing a
-    locked LibreOffice process. The ``svp`` backend avoids Railway X11 errors,
-    and the verified fontconfig environment preserves Khmer shaping.
-    """
+    """Convert Excel in a private true-headless LibreOffice profile."""
     xlsx_path = Path(xlsx_path).resolve()
     soffice = _find_soffice()
     if not soffice or not xlsx_path.exists():
@@ -72,27 +72,22 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
         if font_ready:
             print(f"✅ Khmer PNG font: {font_detail}")
         else:
-            # Continue so the Excel file is still delivered, but keep the exact
-            # reason in Railway logs instead of silently producing a bad PNG.
             print(f"⚠️ Khmer PNG font not matched: {font_detail}")
-
         with tempfile.TemporaryDirectory(prefix="kb-lo-") as temporary:
             root = Path(temporary)
             output = root / "output"
             profile = root / "profile"
             output.mkdir()
             profile.mkdir()
-
             environment = os.environ.copy()
             environment["HOME"] = str(root)
             environment["TMPDIR"] = str(root)
             environment["SAL_USE_VCLPLUGIN"] = "svp"
             environment["LANG"] = "C.UTF-8"
             environment["LC_ALL"] = "C.UTF-8"
-            environment["FONTCONFIG_FILE"] = "/etc/fonts/fonts.conf"
-            environment["FONTCONFIG_PATH"] = "/etc/fonts"
+            if Path("/etc/fonts/fonts.conf").exists():
+                environment["FONTCONFIG_FILE"] = "/etc/fonts/fonts.conf"
             environment.pop("DISPLAY", None)
-
             command = [
                 soffice,
                 f"-env:UserInstallation={profile.resolve().as_uri()}",
@@ -120,17 +115,24 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
             )
             converted = output / f"{xlsx_path.stem}.pdf"
             if process.returncode != 0 or not converted.is_file():
-                detail = " ".join(f"{process.stdout or ''} {process.stderr or ''}".split())
-                print(f"⚠️ PNG conversion failed: exit={process.returncode}; {detail[-800:]}")
+                detail = " ".join(
+                    f"{process.stdout or ''} {process.stderr or ''}".split()
+                )
+                print(
+                    f"⚠️ PNG conversion failed: exit={process.returncode}; "
+                    f"{detail[-800:]}"
+                )
                 return None
-
             final_pdf = xlsx_path.with_suffix(".pdf")
             temporary_pdf = final_pdf.with_name(f".{final_pdf.name}.tmp")
             shutil.copyfile(converted, temporary_pdf)
             os.replace(temporary_pdf, final_pdf)
             return final_pdf if final_pdf.stat().st_size > 20 else None
     except subprocess.TimeoutExpired:
-        print(f"⚠️ PNG conversion stopped after {settings.png_render_timeout_seconds}s")
+        print(
+            f"⚠️ PNG conversion stopped after "
+            f"{settings.png_render_timeout_seconds}s"
+        )
         return None
     except Exception as exc:
         print(f"⚠️ PNG conversion failed: {exc}")
