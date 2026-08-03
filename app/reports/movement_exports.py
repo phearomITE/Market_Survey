@@ -97,14 +97,7 @@ def _products_for_submission(submission) -> list[str]:
 
 
 def _member_mode(submissions: list) -> int | str:
-    """Return one final Member value for a dealer's daily export.
-
-    The Kobo form can contain a different member count on individual outlet
-    submissions.  Summary_Data must show the value submitted most often, not
-    a comma-separated list of every distinct value.  A numeric ascending
-    tie-break keeps the result deterministic when two values occur equally
-    often.
-    """
+    """Return the most frequently submitted Member value for one dealer."""
     counts: Counter[int] = Counter()
     for item in submissions:
         value = getattr(item, "member_no", None)
@@ -205,7 +198,14 @@ def create_daily_export(
 
     location_ws = wb.create_sheet("Location_Outlet")
     location_ws.append(BASE_HEADERS)
-    for submission in sorted(rows, key=lambda item: (
+    location_rows = [
+        submission
+        for submission in rows
+        if not is_final_summary_outlet_name(
+            getattr(submission, "outlet_name", None)
+        )
+    ]
+    for submission in sorted(location_rows, key=lambda item: (
         getattr(item, "report_date", None) or date.min,
         _clean(getattr(item, "region", None)),
         _clean(getattr(item, "dealer", None)),

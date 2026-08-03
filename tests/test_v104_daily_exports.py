@@ -79,7 +79,7 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertEqual(summary[-1], 10)
             wb.close()
 
-    def test_daily_export_member_is_dealer_mode_not_distinct_list(self):
+    def test_daily_export_uses_member_mode_and_excludes_summary_location(self):
         member_values = [4, 6, 7, 5, 4, 4, 4, 4, 5, 4, 4, 4, 5, 5, 6]
         submissions = []
         for index, member_value in enumerate(member_values, start=1):
@@ -88,30 +88,43 @@ class V104DailyExportTests(unittest.TestCase):
             submission.outlet_name = f"Outlet {index}"
             submissions.append(submission)
 
+        final_summary = SimpleNamespace(**vars(self.submission))
+        final_summary.member_no = 9
+        final_summary.outlet_name = "បូកសរុបរួម"
+        final_summary.outlet_type = None
+        final_summary.phone_number = None
+        final_summary.gps_latitude = None
+        final_summary.gps_longitude = None
+        submissions.append(final_summary)
+
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "daily_member_mode.xlsx"
+            output = Path(directory) / "daily_clean_location.xlsx"
             self.exports.create_daily_export(
                 submissions,
                 date(2026, 8, 1),
                 output,
             )
             wb = load_workbook(output, read_only=True, data_only=True)
-            member_column_values = {
+
+            member_values_in_export = {
                 row[3]
                 for row in wb["Summary_Data"].iter_rows(
                     min_row=2,
                     values_only=True,
                 )
             }
-            self.assertEqual(member_column_values, {4})
-            wb.close()
+            self.assertEqual(member_values_in_export, {4})
 
-    def test_member_mode_tie_uses_lower_member_number(self):
-        rows = [
-            SimpleNamespace(member_no=6),
-            SimpleNamespace(member_no=4),
-        ]
-        self.assertEqual(self.exports._member_mode(rows), 4)
+            exported_outlet_names = {
+                row[5]
+                for row in wb["Location_Outlet"].iter_rows(
+                    min_row=2,
+                    values_only=True,
+                )
+            }
+            self.assertNotIn("បូកសរុបរួម", exported_outlet_names)
+            self.assertEqual(len(exported_outlet_names), len(member_values))
+            wb.close()
 
     def test_raw_export_has_six_columns_including_outlet_type(self):
         with tempfile.TemporaryDirectory() as directory:
