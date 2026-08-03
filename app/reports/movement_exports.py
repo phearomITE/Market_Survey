@@ -96,16 +96,30 @@ def _products_for_submission(submission) -> list[str]:
     return list(dict.fromkeys(OWN_PRODUCTS + COMPETITOR_PRODUCTS))
 
 
-def _members_text(submissions: list) -> str:
-    values: set[int] = set()
+def _member_mode(submissions: list) -> int | str:
+    """Return one final Member value for a dealer's daily export.
+
+    The Kobo form can contain a different member count on individual outlet
+    submissions.  Summary_Data must show the value submitted most often, not
+    a comma-separated list of every distinct value.  A numeric ascending
+    tie-break keeps the result deterministic when two values occur equally
+    often.
+    """
+    counts: Counter[int] = Counter()
     for item in submissions:
         value = getattr(item, "member_no", None)
         if value not in (None, ""):
             try:
-                values.add(int(value))
+                counts[int(value)] += 1
             except (TypeError, ValueError):
                 pass
-    return ", ".join(str(value) for value in sorted(values))
+    if not counts:
+        return ""
+    highest_frequency = max(counts.values())
+    return min(
+        member for member, frequency in counts.items()
+        if frequency == highest_frequency
+    )
 
 
 def _summary_product_data(agg: dict, product: str) -> dict:
@@ -170,7 +184,7 @@ def create_daily_export(
             agg.get("region") or key[0],
             agg.get("dealer") or key[1],
             agg.get("location_text") or "",
-            _members_text(dealer_rows),
+            _member_mode(dealer_rows),
             agg.get("total_outlets") or 0,
             *[int(outlet_types.get(name, 0) or 0) for name in outlet_keys],
         ]

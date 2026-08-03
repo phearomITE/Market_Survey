@@ -79,6 +79,40 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertEqual(summary[-1], 10)
             wb.close()
 
+    def test_daily_export_member_is_dealer_mode_not_distinct_list(self):
+        member_values = [4, 6, 7, 5, 4, 4, 4, 4, 5, 4, 4, 4, 5, 5, 6]
+        submissions = []
+        for index, member_value in enumerate(member_values, start=1):
+            submission = SimpleNamespace(**vars(self.submission))
+            submission.member_no = member_value
+            submission.outlet_name = f"Outlet {index}"
+            submissions.append(submission)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "daily_member_mode.xlsx"
+            self.exports.create_daily_export(
+                submissions,
+                date(2026, 8, 1),
+                output,
+            )
+            wb = load_workbook(output, read_only=True, data_only=True)
+            member_column_values = {
+                row[3]
+                for row in wb["Summary_Data"].iter_rows(
+                    min_row=2,
+                    values_only=True,
+                )
+            }
+            self.assertEqual(member_column_values, {4})
+            wb.close()
+
+    def test_member_mode_tie_uses_lower_member_number(self):
+        rows = [
+            SimpleNamespace(member_no=6),
+            SimpleNamespace(member_no=4),
+        ]
+        self.assertEqual(self.exports._member_mode(rows), 4)
+
     def test_raw_export_has_six_columns_including_outlet_type(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "raw.xlsx"
