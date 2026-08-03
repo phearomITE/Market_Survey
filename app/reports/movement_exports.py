@@ -11,6 +11,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.core.config import settings
+from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import (
     ALL_COMPETITOR_PRODUCTS,
     ALL_OWN_PRODUCTS,
@@ -62,6 +63,7 @@ SUMMARY_HEADERS = [
 RAW_HEADERS = [
     "Date", "Region", "Dealer", "Outlet Type", "Product", "Movement Rate"
 ]
+DEALER_STATUS_HEADERS = ["Date", "Region", "Dealer", "Status"]
 HORECA_OUTLET_TYPES = {
     "Local Eat", "Coffee,Bakery", "Canteen", "Sport Club", "Motor Shop", "Local Drink",
 }
@@ -97,22 +99,22 @@ def _products_for_submission(submission) -> list[str]:
 
 
 def _member_mode(submissions: list) -> int | str:
-    """Return the most frequently submitted Member value for one dealer."""
-    counts: Counter[int] = Counter()
+    """Return the most common submitted Member value for a dealer.
+
+    Invalid/blank values are ignored. A frequency tie is resolved with the
+    lower member number so the result is deterministic.
+    """
+    values: Counter[int] = Counter()
     for item in submissions:
         value = getattr(item, "member_no", None)
         if value not in (None, ""):
             try:
-                counts[int(value)] += 1
+                values[int(value)] += 1
             except (TypeError, ValueError):
                 pass
-    if not counts:
+    if not values:
         return ""
-    highest_frequency = max(counts.values())
-    return min(
-        member for member, frequency in counts.items()
-        if frequency == highest_frequency
-    )
+    return min(values, key=lambda value: (-values[value], value))
 
 
 def _summary_product_data(agg: dict, product: str) -> dict:
@@ -199,8 +201,7 @@ def create_daily_export(
     location_ws = wb.create_sheet("Location_Outlet")
     location_ws.append(BASE_HEADERS)
     location_rows = [
-        submission
-        for submission in rows
+        submission for submission in rows
         if not is_final_summary_outlet_name(
             getattr(submission, "outlet_name", None)
         )
@@ -231,6 +232,59 @@ def create_daily_export(
 
     settings.export_path.mkdir(parents=True, exist_ok=True)
     output_path = output_path or settings.export_path / f"Market_Survey_Data_{report_date}.xlsx"
+    wb.save(output_path)
+    return output_path
+
+
+def create_dealer_summary_status_export(
+    submissions: Iterable,
+    report_date: date,
+    output_path: Path | None = None,
+) -> Path:
+    """Export completion status for every official dealer on one date.
+
+    A dealer is submitted only when its Outlet Name contains the normalized
+    final-summary marker handled by is_final_summary_outlet_name(). Normal
+    outlet visits never count as the dealer's final summary.
+    """
+    submitted = {
+        (
+            _clean(getattr(row, "region", None)).upper(),
+            _clean(getattr(row, "dealer", None)).upper(),
+        )
+        for row in submissions
+        if is_final_summary_outlet_name(getattr(row, "outlet_name", None))
+    }
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Dealer_Status"
+    ws.append(DEALER_STATUS_HEADERS)
+
+    submitted_fill = PatternFill("solid", fgColor="C6EFCE")
+    missing_fill = PatternFill("solid", fgColor="FFC7CE")
+    for region, dealers in REGION_DEALERS.items():
+        for dealer in dealers:
+            status = (
+                "Submitted Summary"
+                if (region.upper(), dealer.upper()) in submitted
+                else "Missing Summary"
+            )
+            ws.append([report_date, region, dealer, status])
+            ws.cell(ws.max_row, 4).fill = (
+                submitted_fill if status == "Submitted Summary" else missing_fill
+            )
+
+    for cell in ws["A"][1:]:
+        cell.number_format = "yyyy-mm-dd"
+    _apply_header_style(ws, DEALER_STATUS_HEADERS)
+    for index, width in enumerate([14, 12, 14, 22], start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+
+    settings.export_path.mkdir(parents=True, exist_ok=True)
+    output_path = output_path or (
+        settings.export_path / f"Dealer_Summary_Status_{report_date}.xlsx"
+    )
     wb.save(output_path)
     return output_path
 

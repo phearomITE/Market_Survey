@@ -11,11 +11,12 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import fetch_report_submissions_fast, sync_kobo
-from app.reports.aggregator import aggregate_submissions
+from app.reports.aggregator import aggregate_submissions, is_final_summary_outlet_name
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
 from app.reports.movement_exports import (
+    create_dealer_summary_status_export,
     create_daily_export,
     create_movement_export,
     create_raw_movement_long_export,
@@ -361,7 +362,27 @@ def generate_daily_data_export(report_date_str: str):
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
     path = create_daily_export(submissions, d)
-    return path, f"Generated three-sheet market survey export for {d}: {len(submissions)} submissions"
+    return path, f"Generated two-sheet market survey export for {d}: {len(submissions)} outlet submissions"
+
+
+def generate_dealer_summary_status_export(report_date_str: str):
+    """Export final-summary completion for all 65 official dealers."""
+    d = parse_report_date(report_date_str)
+    submissions = fetch_report_submissions_fast(None, d)
+    path = create_dealer_summary_status_export(submissions, d)
+    submitted = {
+        (
+            str(getattr(row, "region", "") or "").strip().upper(),
+            str(getattr(row, "dealer", "") or "").strip().upper(),
+        )
+        for row in submissions
+        if is_final_summary_outlet_name(getattr(row, "outlet_name", None))
+    }
+    return (
+        path,
+        f"Generated dealer summary status for {d}: "
+        f"{len(submitted)}/{len(ALL_DEALERS)} dealers submitted final summary",
+    )
 
 
 def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ...]):

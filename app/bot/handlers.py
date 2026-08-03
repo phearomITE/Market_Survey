@@ -19,6 +19,7 @@ from app.services.report_service import (
     generate_region_dealer_summary,
     generate_raw_movement_export,
     generate_daily_data_export,
+    generate_dealer_summary_status_export,
     generate_movement_multi_export,
     parse_multi_report_command_args,
     parse_report_command_args,
@@ -43,6 +44,7 @@ Commands:
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
 /export 2026-07-25
+/export_status 2026-08-01
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /alert_submit 10
 /alert_submit 20
@@ -56,6 +58,7 @@ Commands:
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
+/export_status = check all 65 dealers for the final-summary Outlet Name and export Date, Region, Dealer, Status.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -475,7 +478,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) == 1:
         report_date = args[0]
         wait = await update.effective_message.reply_text(
-            f"📦 Generating market survey data and dealer status for {report_date}..."
+            f"📦 Generating two-sheet market survey export for {report_date}..."
         )
         try:
             path, text = await _run_fast(
@@ -515,3 +518,30 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Movement export failed: {exc}")
+
+
+async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = [str(value).strip() for value in context.args if str(value).strip()]
+    if len(args) != 1:
+        await update.effective_message.reply_text(
+            "Usage:\n/export_status 2026-08-01"
+        )
+        return
+
+    report_date = args[0]
+    wait = await update.effective_message.reply_text(
+        f"🔎 Checking final-summary status for all dealers on {report_date}..."
+    )
+    try:
+        path, status_text = await _run_fast(
+            generate_dealer_summary_status_export,
+            report_date,
+            timeout_seconds=50,
+        )
+        await wait.edit_text(f"✅ {status_text}\n📎 Uploading Excel...")
+        with path.open("rb") as file_handle:
+            await update.effective_message.reply_document(
+                document=InputFile(file_handle, filename=path.name)
+            )
+    except Exception as exc:
+        await wait.edit_text(f"❌ Dealer status export failed: {exc}")

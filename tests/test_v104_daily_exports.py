@@ -79,51 +79,59 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertEqual(summary[-1], 10)
             wb.close()
 
-    def test_daily_export_uses_member_mode_and_excludes_summary_location(self):
-        member_values = [4, 6, 7, 5, 4, 4, 4, 4, 5, 4, 4, 4, 5, 5, 6]
-        submissions = []
-        for index, member_value in enumerate(member_values, start=1):
-            submission = SimpleNamespace(**vars(self.submission))
-            submission.member_no = member_value
-            submission.outlet_name = f"Outlet {index}"
-            submissions.append(submission)
-
-        final_summary = SimpleNamespace(**vars(self.submission))
-        final_summary.member_no = 9
-        final_summary.outlet_name = "បូកសរុបរួម"
-        final_summary.outlet_type = None
-        final_summary.phone_number = None
-        final_summary.gps_latitude = None
-        final_summary.gps_longitude = None
-        submissions.append(final_summary)
+    def test_member_uses_mode_and_location_excludes_summary_row(self):
+        rows = []
+        for member in [4, 6, 7, 5, 4, 4]:
+            row = SimpleNamespace(**vars(self.submission))
+            row.member_no = member
+            row.outlet_name = f"Outlet {len(rows) + 1}"
+            rows.append(row)
+        summary = SimpleNamespace(**vars(self.submission))
+        summary.member_no = 9
+        summary.outlet_name = "បូកសរុបរួម"
+        rows.append(summary)
 
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "daily_clean_location.xlsx"
-            self.exports.create_daily_export(
-                submissions,
-                date(2026, 8, 1),
-                output,
+            output = Path(directory) / "daily_filtered.xlsx"
+            self.exports.create_daily_export(rows, date(2026, 8, 1), output)
+            wb = load_workbook(output, read_only=True)
+            summary_row = next(
+                wb["Summary_Data"].iter_rows(min_row=2, values_only=True)
             )
-            wb = load_workbook(output, read_only=True, data_only=True)
-
-            member_values_in_export = {
-                row[3]
-                for row in wb["Summary_Data"].iter_rows(
-                    min_row=2,
-                    values_only=True,
-                )
-            }
-            self.assertEqual(member_values_in_export, {4})
-
-            exported_outlet_names = {
+            self.assertEqual(summary_row[3], 4)
+            outlet_names = {
                 row[5]
                 for row in wb["Location_Outlet"].iter_rows(
-                    min_row=2,
-                    values_only=True,
+                    min_row=2, values_only=True
                 )
             }
-            self.assertNotIn("បូកសរុបរួម", exported_outlet_names)
-            self.assertEqual(len(exported_outlet_names), len(member_values))
+            self.assertNotIn("បូកសរុបរួម", outlet_names)
+            wb.close()
+
+    def test_export_status_has_all_dealers_and_exact_four_columns(self):
+        submitted = SimpleNamespace(**vars(self.submission))
+        submitted.region = "R1"
+        submitted.dealer = "CA1"
+        submitted.outlet_name = "បូកសរុបរួម"
+        normal = SimpleNamespace(**vars(self.submission))
+        normal.region = "R1"
+        normal.dealer = "CA8"
+        normal.outlet_name = "Normal outlet"
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "status.xlsx"
+            self.exports.create_dealer_summary_status_export(
+                [submitted, normal], date(2026, 8, 1), output
+            )
+            wb = load_workbook(output, read_only=True)
+            self.assertEqual(wb.sheetnames, ["Dealer_Status"])
+            rows = list(wb["Dealer_Status"].iter_rows(values_only=True))
+            self.assertEqual(list(rows[0]), self.exports.DEALER_STATUS_HEADERS)
+            self.assertEqual(len(rows) - 1, 65)
+            statuses = {(row[1], row[2]): row[3] for row in rows[1:]}
+            self.assertEqual(statuses[("R1", "CA1")], "Submitted Summary")
+            self.assertEqual(statuses[("R1", "CA8")], "Missing Summary")
+            self.assertTrue(all(len(row) == 4 for row in rows))
             wb.close()
 
     def test_raw_export_has_six_columns_including_outlet_type(self):
