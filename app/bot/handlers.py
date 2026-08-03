@@ -26,8 +26,8 @@ from app.services.report_service import (
 from app.services.render_service import excel_to_png
 from app.services.submission_alert_service import (
     format_submission_alert,
+    generate_submission_status_export,
     local_today,
-    parse_alert_submit_args,
 )
 
 HELP_TEXT = """
@@ -48,8 +48,10 @@ Commands:
 /raw_movement 2026-07-25
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
-/alert_submit 10 [YYYY-MM-DD]
-/alert_submit 20 [YYYY-MM-DD]
+/alert_submit 10
+/alert_submit 20
+/alert_submit 10 2026-08-01
+/export_status 2026-08-01
 /map
 /dashboard
 /help
@@ -445,11 +447,29 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        threshold, report_date = parse_alert_submit_args(context.args)
-    except ValueError as exc:
-        await update.effective_message.reply_text(f"❌ {exc}")
+    if len(context.args) not in {1, 2}:
+        await update.effective_message.reply_text(
+            "Usage:\n/alert_submit 10\n/alert_submit 20\n"
+            "/alert_submit 10 2026-08-01"
+        )
         return
+    try:
+        threshold = int(context.args[0])
+    except (TypeError, ValueError):
+        threshold = 0
+    if threshold not in {10, 20}:
+        await update.effective_message.reply_text("Threshold must be 10 or 20.")
+        return
+    if len(context.args) == 2:
+        try:
+            report_date = datetime.strptime(context.args[1], "%Y-%m-%d").date()
+        except ValueError:
+            await update.effective_message.reply_text(
+                "Date must use YYYY-MM-DD, for example 2026-08-01."
+            )
+            return
+    else:
+        report_date = local_today()
     wait = await update.effective_message.reply_text(
         f"📊 Checking dealers below {threshold} reports for "
         f"{report_date:%d/%m/%Y}..."
@@ -464,6 +484,31 @@ async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(message)
     except Exception as exc:
         await wait.edit_text(f"❌ Submission alert failed: {exc}")
+
+
+async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.effective_message.reply_text(
+            "Usage: /export_status 2026-08-01"
+        )
+        return
+    report_date = str(context.args[0]).strip()
+    wait = await update.effective_message.reply_text(
+        f"📋 Checking dealer summary status for {report_date}..."
+    )
+    try:
+        path, text = await _run_fast(
+            generate_submission_status_export,
+            report_date,
+            timeout_seconds=50,
+        )
+        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
+        with path.open("rb") as file_handle:
+            await update.effective_message.reply_document(
+                document=InputFile(file_handle, filename=path.name)
+            )
+    except Exception as exc:
+        await wait.edit_text(f"❌ Status export failed: {exc}")
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

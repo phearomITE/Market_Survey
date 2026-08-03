@@ -4,11 +4,10 @@ from collections import Counter
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from app.data.dealers import ALL_DEALERS
+from app.data.dealers import ALL_DEALERS, DEALER_REGION
 from app.kobo.sync import fetch_report_submissions_fast
-
-
-SUMMARY_NAMES = {"បូកសរុបរួម", "បូកសរុបរូម", "សរុបរួម", "បួកសរុបរួម"}
+from app.reports.submission_status_export import create_submission_status_export
+from app.services.summary_marker import is_final_summary_outlet_name
 
 
 def _clean(value) -> str:
@@ -23,58 +22,17 @@ def local_today() -> date:
         return datetime.now(ZoneInfo("Asia/Phnom_Penh")).date()
 
 
-def parse_alert_submit_args(
-    args: list[str] | tuple[str, ...],
-    *,
-    today: date | None = None,
-) -> tuple[int, date]:
-    """Parse /alert_submit THRESHOLD [YYYY-MM-DD].
-
-    The date remains optional for backward compatibility. When omitted, the
-    command checks the current Cambodia date.
-    """
-    parts = [str(value).strip() for value in args if str(value).strip()]
-    if len(parts) not in {1, 2}:
-        raise ValueError(
-            "Usage:\n"
-            "/alert_submit 10\n"
-            "/alert_submit 20\n"
-            "/alert_submit 10 2026-08-01\n"
-            "/alert_submit 20 2026-08-01"
-        )
-
-    try:
-        threshold = int(parts[0])
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Threshold must be 10 or 20.") from exc
-    if threshold not in {10, 20}:
-        raise ValueError("Threshold must be 10 or 20.")
-
-    if len(parts) == 1:
-        return threshold, today or local_today()
-
-    try:
-        report_date = date.fromisoformat(parts[1])
-    except ValueError as exc:
-        raise ValueError(
-            "Invalid date. Use YYYY-MM-DD, for example 2026-08-01."
-        ) from exc
-    return threshold, report_date
-
-
 def dealer_submission_counts(report_date: date) -> dict[str, int]:
     counts: Counter[str] = Counter()
     official = set(ALL_DEALERS)
-    summary_names = {value.replace(" ", "") for value in SUMMARY_NAMES}
     submissions = fetch_report_submissions_fast(
         None, report_date, metadata_only=True
     )
     for submission in submissions:
         dealer = _clean(getattr(submission, "dealer", None)).upper()
-        outlet_name = _clean(
+        if dealer in official and not is_final_summary_outlet_name(
             getattr(submission, "outlet_name", None)
-        ).replace(" ", "")
-        if dealer in official and outlet_name not in summary_names:
+        ):
             counts[dealer] += 1
     return {dealer: int(counts.get(dealer, 0)) for dealer in ALL_DEALERS}
 
@@ -107,3 +65,36 @@ def format_submission_alert(
     )
     lines.extend(["", f"សរុប Dealer: {len(rows)}"])
     return "\n".join(lines)
+
+
+def generate_submission_status_export(report_date_value: str):
+    """Export summary-submission status using live, date-filtered Kobo rows."""
+    try:
+        report_date = datetime.strptime(report_date_value, "%Y-%m-%d").date()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Date must use YYYY-MM-DD, for example 2026-08-01.") from exc
+
+    submissions = fetch_report_submissions_fast(
+        None, report_date, metadata_only=True
+    )
+    submitted = {
+        _clean(getattr(row, "dealer", None)).upper()
+        for row in submissions
+        if is_final_summary_outlet_name(getattr(row, "outlet_name", None))
+    }
+    rows = [
+        {
+            "date": report_date,
+            "region": DEALER_REGION[dealer],
+            "dealer": dealer,
+            "status": (
+                "Summary Submitted" if dealer in submitted else "Missing Summary"
+            ),
+        }
+        for dealer in ALL_DEALERS
+    ]
+    path = create_submission_status_export(rows, report_date)
+    return path, (
+        f"Summary status for {report_date}: "
+        f"{len(submitted & set(ALL_DEALERS))}/{len(ALL_DEALERS)} dealers submitted"
+    )

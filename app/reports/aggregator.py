@@ -13,6 +13,10 @@ from typing import Any
 from sqlalchemy import text
 
 from app.db.database import SessionLocal
+from app.services.summary_marker import (
+    FINAL_SUMMARY_KEYWORDS,
+    is_final_summary_outlet_name,
+)
 
 OWN_PRODUCTS = [
     "CB LITE ORD",
@@ -881,24 +885,6 @@ def _clean_text(value: Any) -> str:
     for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
         text = text.replace(hidden, "")
     return text.replace("\r", "\n").strip()
-
-
-FINAL_SUMMARY_KEYWORDS = (
-    "បូកសរុបរួម",
-    "បូកសរុបរូម",
-    "សរុបរួម",
-    "បួកសរុបរួម",
-)
-
-
-def is_final_summary_outlet_name(value: Any) -> bool:
-    """Return True only when Outlet Name is one of the four summary markers.
-
-    The marker is matched exactly after trimming whitespace. It is no longer
-    searched inside Key Issues or Initiative/Suggestion text.
-    """
-    normalized = _clean_text(value).replace(" ", "")
-    return normalized in {keyword.replace(" ", "") for keyword in FINAL_SUMMARY_KEYWORDS}
 
 
 def _is_summary_submission(submission: Any) -> bool:

@@ -1,0 +1,56 @@
+V151 Summary Status Unicode Fix
+================================
+
+Cause
+-----
+Kobo can store invisible Unicode controls or non-ASCII spaces inside the
+Khmer Outlet Name marker. The previous exact string comparison displayed
+BTI6 as Missing Summary even though Kobo visibly showed បូកសរុបរួម.
+
+Fixes
+-----
+- One shared Unicode-safe summary marker detector.
+- /export_status YYYY-MM-DD restored and registered cumulatively.
+- Status workbook columns: Date, Region, Dealer, Status.
+- Summary Submitted rows are green; Missing Summary rows are red.
+- /alert_submit supports both today and historical dates.
+- BTI6-style hidden Unicode regression test included.
+
+Apply
+-----
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V151_SUMMARY_STATUS_FIX.zip \
+  -d .
+
+python -m py_compile \
+  app/services/summary_marker.py \
+  app/reports/aggregator.py \
+  app/reports/submission_status_export.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+python -m pytest -q tests/test_v151_summary_status_unicode.py
+
+git add \
+  app/services/summary_marker.py \
+  app/reports/aggregator.py \
+  app/reports/submission_status_export.py \
+  app/services/submission_alert_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  tests/test_v151_summary_status_unicode.py \
+  V151_SUMMARY_STATUS_FIX.txt
+
+git commit -m "Fix Unicode summary status detection"
+git push origin main
+
+Test after Railway is Active
+----------------------------
+/export_status 2026-08-01
+/alert_submit 10 2026-08-01
+/alert_submit 20 2026-08-01
+
+Expected for BTI6: Summary Submitted.
