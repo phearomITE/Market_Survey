@@ -5,7 +5,6 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from app.core.config import settings
 
@@ -43,10 +42,8 @@ def create_submission_status_export(rows: list[dict], report_date: date) -> Path
     sheet.column_dimensions["D"].width = 22
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
-    table = Table(displayName="DealerSummaryStatus", ref=sheet.dimensions)
-    table.tableStyleInfo = TableStyleInfo(
-        name="TableStyleMedium2", showRowStripes=True, showColumnStripes=False
-    )
-    sheet.add_table(table)
+    # Use the worksheet AutoFilter only. Combining a generated Table object
+    # with a second overlapping filter caused desktop Excel to repair/remove
+    # xl/tables/table1.xml. The normal filter arrows remain fully functional.
     workbook.save(output)
     return output
