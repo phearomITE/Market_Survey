@@ -4,11 +4,21 @@ from types import SimpleNamespace
 from openpyxl import load_workbook
 
 from app.reports.movement_exports import create_movement_export
-from app.reports.summary_report import create_summary_report
+from app.reports.summary_report import _movement_band_counts, create_summary_report
 
 
 def _metric(name: str, score: int | None):
     return SimpleNamespace(product_name=name, movement_score=score)
+
+
+def test_region_movement_band_counts_include_explicit_zero():
+    # R1 example: 4 dealers in 5-8 and 6 dealers in 9-10.
+    scores = [9, 9, 10, 10, 8, 7, 6, 10, 10, 8]
+    assert _movement_band_counts(scores) == (0, 4, 6)
+
+
+def test_region_movement_band_counts_exclude_missing_dealers():
+    assert _movement_band_counts([None, 4, 5, 8, 9, 10]) == (1, 2, 2)
 
 
 def test_movement_export_writes_every_product_and_preserves_zero(tmp_path):
