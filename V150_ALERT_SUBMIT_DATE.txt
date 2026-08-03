@@ -1,0 +1,23 @@
+V150 - Historical Date Support for /alert_submit
+=================================================
+
+Supported commands:
+  /alert_submit 10
+  /alert_submit 20
+  /alert_submit 10 2026-08-01
+  /alert_submit 20 2026-08-01
+
+Rules:
+  - Without a date, the command checks today in Asia/Phnom_Penh time.
+  - With a date, it checks that exact historical report date.
+  - Date format must be YYYY-MM-DD.
+  - Threshold must be exactly 10 or 20.
+  - Dealers with counts strictly below the threshold are displayed.
+  - Final-summary control rows remain excluded from report counts.
+
+Validate and deploy:
+  python -m py_compile app/services/submission_alert_service.py app/bot/handlers.py app/bot/run_bot.py tests/test_v150_alert_submit_date.py
+  python -m unittest tests.test_v150_alert_submit_date -v
+  git add app/services/submission_alert_service.py app/bot/handlers.py tests/test_v150_alert_submit_date.py V150_ALERT_SUBMIT_DATE.txt
+  git commit -m "Support historical dates in submission alerts"
+  git push origin main

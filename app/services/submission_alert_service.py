@@ -23,6 +23,45 @@ def local_today() -> date:
         return datetime.now(ZoneInfo("Asia/Phnom_Penh")).date()
 
 
+def parse_alert_submit_args(
+    args: list[str] | tuple[str, ...],
+    *,
+    today: date | None = None,
+) -> tuple[int, date]:
+    """Parse /alert_submit THRESHOLD [YYYY-MM-DD].
+
+    The date remains optional for backward compatibility. When omitted, the
+    command checks the current Cambodia date.
+    """
+    parts = [str(value).strip() for value in args if str(value).strip()]
+    if len(parts) not in {1, 2}:
+        raise ValueError(
+            "Usage:\n"
+            "/alert_submit 10\n"
+            "/alert_submit 20\n"
+            "/alert_submit 10 2026-08-01\n"
+            "/alert_submit 20 2026-08-01"
+        )
+
+    try:
+        threshold = int(parts[0])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Threshold must be 10 or 20.") from exc
+    if threshold not in {10, 20}:
+        raise ValueError("Threshold must be 10 or 20.")
+
+    if len(parts) == 1:
+        return threshold, today or local_today()
+
+    try:
+        report_date = date.fromisoformat(parts[1])
+    except ValueError as exc:
+        raise ValueError(
+            "Invalid date. Use YYYY-MM-DD, for example 2026-08-01."
+        ) from exc
+    return threshold, report_date
+
+
 def dealer_submission_counts(report_date: date) -> dict[str, int]:
     counts: Counter[str] = Counter()
     official = set(ALL_DEALERS)
