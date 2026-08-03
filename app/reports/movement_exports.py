@@ -11,7 +11,6 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.core.config import settings
-from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import (
     ALL_COMPETITOR_PRODUCTS,
     ALL_OWN_PRODUCTS,
@@ -63,7 +62,6 @@ SUMMARY_HEADERS = [
 RAW_HEADERS = [
     "Date", "Region", "Dealer", "Outlet Type", "Product", "Movement Rate"
 ]
-DEALER_STATUS_HEADERS = ["Date", "Region", "Dealer", "Status"]
 HORECA_OUTLET_TYPES = {
     "Local Eat", "Coffee,Bakery", "Canteen", "Sport Club", "Motor Shop", "Local Drink",
 }
@@ -141,7 +139,7 @@ def create_daily_export(
     report_date: date,
     output_path: Path | None = None,
 ) -> Path:
-    """Create Summary_Data + Location_Outlet + Dealer_Status for /export DATE.
+    """Create Summary_Data + Location_Outlet for /export DATE.
 
     Movement comes from aggregate_submissions(), exactly like /report.
     """
@@ -230,33 +228,6 @@ def create_daily_export(
     _apply_header_style(location_ws, BASE_HEADERS)
     for index, width in enumerate([13, 10, 12, 13, 13, 25, 18, 22], start=1):
         location_ws.column_dimensions[get_column_letter(index)].width = width
-
-    dealer_status_ws = wb.create_sheet("Dealer_Status")
-    dealer_status_ws.append(DEALER_STATUS_HEADERS)
-    submitted_summary_dealers = {
-        (
-            _clean(getattr(submission, "region", None)).upper(),
-            _clean(getattr(submission, "dealer", None)).upper(),
-        )
-        for submission in rows
-        if is_final_summary_outlet_name(
-            getattr(submission, "outlet_name", None)
-        )
-    }
-    for region, dealers in REGION_DEALERS.items():
-        for dealer in dealers:
-            has_final_summary = (region.upper(), dealer.upper()) in submitted_summary_dealers
-            dealer_status_ws.append([
-                report_date,
-                region,
-                dealer,
-                "Submitted Summary" if has_final_summary else "Missing Summary",
-            ])
-    for cell in dealer_status_ws["A"][1:]:
-        cell.number_format = "yyyy-mm-dd"
-    _apply_header_style(dealer_status_ws, DEALER_STATUS_HEADERS)
-    for index, width in enumerate([13, 12, 14, 22], start=1):
-        dealer_status_ws.column_dimensions[get_column_letter(index)].width = width
 
     settings.export_path.mkdir(parents=True, exist_ok=True)
     output_path = output_path or settings.export_path / f"Market_Survey_Data_{report_date}.xlsx"
