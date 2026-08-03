@@ -361,7 +361,7 @@ def generate_daily_data_export(report_date_str: str):
     if not submissions:
         raise ValueError(f"No submissions found for {d}.")
     path = create_daily_export(submissions, d)
-    return path, f"Generated two-sheet market survey export for {d}: {len(submissions)} outlet submissions"
+    return path, f"Generated three-sheet market survey export for {d}: {len(submissions)} submissions"
 
 
 def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ...]):

@@ -1,0 +1,53 @@
+KB Market Survey V148 - Dealer Final Summary Status
+===================================================
+
+/export YYYY-MM-DD now produces three sheets:
+
+1. Summary_Data
+2. Location_Outlet
+3. Dealer_Status
+
+Dealer_Status columns
+---------------------
+Date | Region | Dealer | Status
+
+Status rules
+------------
+- Submitted Summary: the dealer has a submission whose Outlet Name matches
+  the configured final-summary name, including "បូកសរុបរួម" variants.
+- Missing Summary: the dealer does not have that final-summary submission on
+  the requested report date.
+- All 65 official dealers are included, even dealers with no submissions.
+
+Cumulative export fixes
+-----------------------
+- Summary_Data Member is the most frequent Member value per Region + Dealer.
+- Location_Outlet excludes final-summary control rows.
+
+Apply and deploy
+----------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V148_DAILY_EXPORT_DEALER_SUMMARY_STATUS.zip \
+  -d .
+
+python -m py_compile \
+  app/reports/movement_exports.py \
+  app/services/report_service.py \
+  app/bot/handlers.py
+
+python -m unittest tests.test_v104_daily_exports -v
+
+git add \
+  app/reports/movement_exports.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  tests/test_v104_daily_exports.py \
+  V148_DAILY_EXPORT_DEALER_SUMMARY_STATUS.txt
+
+git commit -m "Add dealer final summary status export"
+git push origin main
+
+After Railway becomes Active, test:
+/export 2026-08-01

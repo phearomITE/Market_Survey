@@ -475,7 +475,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) == 1:
         report_date = args[0]
         wait = await update.effective_message.reply_text(
-            f"📦 Generating two-sheet market survey export for {report_date}..."
+            f"📦 Generating market survey data and dealer status for {report_date}..."
         )
         try:
             path, text = await _run_fast(

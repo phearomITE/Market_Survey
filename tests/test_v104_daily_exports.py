@@ -66,7 +66,10 @@ class V104DailyExportTests(unittest.TestCase):
             output = Path(directory) / "daily.xlsx"
             self.exports.create_daily_export([self.submission], date(2026, 7, 25), output)
             wb = load_workbook(output, read_only=True)
-            self.assertEqual(wb.sheetnames, ["Summary_Data", "Location_Outlet"])
+            self.assertEqual(
+                wb.sheetnames,
+                ["Summary_Data", "Location_Outlet", "Dealer_Status"],
+            )
             self.assertEqual(
                 [cell.value for cell in next(wb["Summary_Data"].iter_rows(max_row=1))],
                 self.exports.SUMMARY_HEADERS,
@@ -79,26 +82,30 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertEqual(summary[-1], 10)
             wb.close()
 
-    def test_daily_export_uses_member_mode_and_excludes_summary_location(self):
+    def test_daily_export_member_cleanup_and_dealer_summary_status(self):
         member_values = [4, 6, 7, 5, 4, 4, 4, 4, 5, 4, 4, 4, 5, 5, 6]
         submissions = []
         for index, member_value in enumerate(member_values, start=1):
             submission = SimpleNamespace(**vars(self.submission))
+            submission.region = "R1"
+            submission.dealer = "CA1"
             submission.member_no = member_value
             submission.outlet_name = f"Outlet {index}"
             submissions.append(submission)
 
-        final_summary = SimpleNamespace(**vars(self.submission))
-        final_summary.member_no = 9
-        final_summary.outlet_name = "បូកសរុបរួម"
-        final_summary.outlet_type = None
-        final_summary.phone_number = None
-        final_summary.gps_latitude = None
-        final_summary.gps_longitude = None
-        submissions.append(final_summary)
+        ca1_summary = SimpleNamespace(**vars(self.submission))
+        ca1_summary.region = "R1"
+        ca1_summary.dealer = "CA1"
+        ca1_summary.member_no = 9
+        ca1_summary.outlet_name = "បូកសរុបរួម"
+        ca1_summary.outlet_type = None
+        ca1_summary.phone_number = None
+        ca1_summary.gps_latitude = None
+        ca1_summary.gps_longitude = None
+        submissions.append(ca1_summary)
 
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "daily_clean_location.xlsx"
+            output = Path(directory) / "daily_status.xlsx"
             self.exports.create_daily_export(
                 submissions,
                 date(2026, 8, 1),
@@ -106,24 +113,25 @@ class V104DailyExportTests(unittest.TestCase):
             )
             wb = load_workbook(output, read_only=True, data_only=True)
 
-            member_values_in_export = {
+            exported_members = {
                 row[3]
-                for row in wb["Summary_Data"].iter_rows(
-                    min_row=2,
-                    values_only=True,
-                )
+                for row in wb["Summary_Data"].iter_rows(min_row=2, values_only=True)
             }
-            self.assertEqual(member_values_in_export, {4})
+            self.assertEqual(exported_members, {4})
 
-            exported_outlet_names = {
+            location_names = {
                 row[5]
-                for row in wb["Location_Outlet"].iter_rows(
-                    min_row=2,
-                    values_only=True,
-                )
+                for row in wb["Location_Outlet"].iter_rows(min_row=2, values_only=True)
             }
-            self.assertNotIn("បូកសរុបរួម", exported_outlet_names)
-            self.assertEqual(len(exported_outlet_names), len(member_values))
+            self.assertNotIn("បូកសរុបរួម", location_names)
+
+            status_rows = {
+                (row[1], row[2]): row[3]
+                for row in wb["Dealer_Status"].iter_rows(min_row=2, values_only=True)
+            }
+            self.assertEqual(status_rows[("R1", "CA1")], "Submitted Summary")
+            self.assertEqual(status_rows[("R1", "CA8")], "Missing Summary")
+            self.assertEqual(len(status_rows), 65)
             wb.close()
 
     def test_raw_export_has_six_columns_including_outlet_type(self):
