@@ -138,20 +138,14 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
 def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
     """Resolve old, new GT, and HORECA template row coordinates safely."""
     if _is_channel_specialist_report(agg):
-        # Current HORECA template (CAMBODIA ED removed):
-        # - freshness products are rows 7-23
-        # - movement header is row 25 and products are rows 26-39
-        # - Ring Pull / issue section starts at row 41
-        # Keep this separate from GT because removing one HORECA product shifts
-        # every section below it by one row.
         return {
-            "freshness_end": 23,
-            "movement_header": 25,
-            "movement_start": 26,
-            "movement_end": 39,
-            "ring_start": 42,
-            "issue_start": 42,
-            "print_end": 45,
+            "freshness_end": 24,
+            "movement_header": 26,
+            "movement_start": 27,
+            "movement_end": 41,
+            "ring_start": 44,
+            "issue_start": 44,
+            "print_end": 48,
         }
 
     # Updated template: EXPREZ Can 330ml was inserted as freshness product 14,

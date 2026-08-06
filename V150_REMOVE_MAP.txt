@@ -1,0 +1,14 @@
+V150 removes the movement map feature from the project.
+
+Removed:
+- Telegram /map command and help entry
+- Map URL and token settings
+- FastAPI map router mounting
+- Map HTML, CSS, JavaScript and API routes
+- Obsolete map-only tests
+
+Preserved:
+- Kobo synchronization
+- PostgreSQL storage
+- Telegram reports, summaries and exports
+- Existing report API endpoints

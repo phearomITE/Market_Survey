@@ -1,85 +1,105 @@
-# KB Market Survey Bot — GT + HORECA
+# KB Market Survey Bot V39
 
-Railway-ready Telegram bot for one Kobo asset with two report routes:
+Railway-ready Telegram bot for:
 
-- **GT** uses the existing General Trade template and product flow.
-- **HORECA** uses `templates/template_horeca.xlsx` and the new HORECA product flow.
-- Kobo submissions are stored in PostgreSQL with `report_type = GT` or `HORECA`.
-- `/report` and `/summary` filter by the selected report type before calculating results.
+- KoboToolbox synchronization
+- PostgreSQL storage
+- Dealer Excel reports
+- LibreOffice PDF/PNG rendering
+- Single-dealer and selected multi-dealer Telegram reports
+- Manual final summary selected by the four Outlet Name markers
 
-## Telegram commands
+## Commands
 
 ```text
 /start
 /status
 /sync_kobo
 /debug_kobo
-
-/report CA3 GT 2026-07-18
-/report CA3 HORECA 2026-07-18
-
-/summary GT 2026-07-25
-/summary HORECA 2026-07-25
-
+/report CPH2 2026-07-14
 /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
+/report5 CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today 2026-07-14
+/summary 2026-07-14
 ```
 
-Backward-compatible commands remain valid:
+## Local Windows run
 
-```text
-/report CA3 2026-07-18       # defaults to GT
-/summary 2026-07-25          # defaults to GT
+1. Copy `.env.example` to `.env`.
+2. Set local PostgreSQL and secret values.
+3. Start PostgreSQL:
+
+```powershell
+docker compose up -d postgres
 ```
 
-## Report routing
+4. Install and run:
 
-The Kobo question `final_summary_report_type` is normalized to:
-
-```text
-gt      -> GT
-horeca  -> HORECA
+```powershell
+python -m pip install -r requirements.txt
+python -m app.bot.run_bot
 ```
 
-Old records without the selector fall back to their outlet type. HORECA outlet types are Local Eat, Coffee/Bakery, Canteen, Sport Club, Motor Shop and Local Drink.
+For Windows, set:
 
-## Templates
-
-```text
-templates/template_general.xlsx   # GT
-templates/template_horeca.xlsx    # HORECA
-templates/KB_Market_Improvement_XLSForm.xlsx
+```env
+LIBREOFFICE_PATH=C:/Program Files/LibreOffice/program/soffice.exe
 ```
 
-The HORECA report generator uses the uploaded HORECA template without changing its worksheet dimensions, merged layout, widths or row positions.
+## Railway deployment
 
-## First synchronization after
+See `RAILWAY_DEPLOYMENT.md`.
 
-changes the stored metric schema. Run this once after Railway becomes active:
-
-```text
-/sync_kobo
-```
-
-The first sync may take longer because product and competitor metric rows are rebuilt once for the GT/HORECA form. Later syncs return to normal hash-based incremental updates.
-
-## Local validation
-
-```bash
-python -m py_compile \
-  app/bot/handlers.py \
-  app/db/database.py \
-  app/db/models.py \
-  app/kobo/parser.py \
-  app/kobo/sync.py \
-  app/reports/aggregator.py \
-  app/reports/excel_report.py \
-  app/reports/summary_report.py \
-  app/services/report_service.py
-
-py -3.12 -m pytest -q
-```
+The Dockerfile installs LibreOffice and Noto fonts for Linux report rendering. Railway's normal `postgresql://` database URL is automatically converted to SQLAlchemy's psycopg v3 URL.
 
 ## Security
 
-Never commit `.env`. Keep Kobo, Telegram, PostgreSQL and map tokens only in Railway Variables or a local ignored `.env` file.
+Never commit `.env`. Store Kobo, Telegram and PostgreSQL credentials only in Railway Variables or a local ignored `.env`.
+
+Yes, the updated code is now correctly inside the real Git repository.
+
+This confirms it:
+
+```text
+modified: app/reports/excel_report.py
+```
+
+The diff also shows the new spacing values:
+
+```python
+SUMMARY_MIN_ROW_HEIGHT = 32
+SUMMARY_LINE_HEIGHT = 22
+SUMMARY_MAX_ROW_HEIGHT = 140
+```
+
+You are currently inside the `git diff` viewer. Press:
+
+```text
+q
+```
+
+Then commit and push:
+
+```bash
+git add app/reports/excel_report.py
+git commit -m "Improve four-line Khmer summary spacing"
+git push origin main
+```
+
+Verify the latest commit:
+
+```bash
+git log -1 --oneline
+```
+
+You should see a new commit such as:
+
+```text
+xxxxxxx Improve four-line Khmer summary spacing
+```
+
+Railway should then automatically build and deploy the new GitHub commit. After the deployment becomes active, test:
+
+```text
+/report CPH2 2026-07-14
+```

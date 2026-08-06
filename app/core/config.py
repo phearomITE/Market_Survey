@@ -23,11 +23,6 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
-    public_app_url: str = ""
-    map_public_view_enabled: bool = True
-    map_viewer_token: str = ""
-    map_editor_token: str = ""
-
     template_path: str = "templates/template_by_dealer.xlsx"
     horeca_template_path: str = "templates/template_horeca_products.xlsx"
     gt_summary_template_path: str = "templates/template_gt_summary.xlsx"

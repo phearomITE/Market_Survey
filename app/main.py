@@ -1,13 +1,9 @@
 from fastapi import FastAPI
-from fastapi.middleware.gzip import GZipMiddleware
 from app.db.database import init_db
 from app.kobo.sync import sync_kobo
 from app.services.report_service import generate_dealer_report, generate_today_all_dealers
-from app.web.router import router as web_router
 
 app = FastAPI(title='KB Market Survey')
-app.add_middleware(GZipMiddleware, minimum_size=800, compresslevel=5)
-app.include_router(web_router)
 
 @app.on_event('startup')
 def startup():

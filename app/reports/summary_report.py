@@ -123,21 +123,6 @@ def _normal_round(value: float | None) -> int | None:
     return max(0, min(10, int(value + 0.5)))
 
 
-def _movement_band_counts(values: Iterable[int | float | None]) -> tuple[int, int, int]:
-    """Count dealer final movements in the three management bands.
-
-    Only dealers with a calculated final movement are counted.  The returned
-    values always include zeroes so Region Total rows never show ambiguous
-    blank cells.
-    """
-    scores = [float(value) for value in values if value is not None]
-    return (
-        sum(score < 5 for score in scores),
-        sum(5 <= score <= 8 for score in scores),
-        sum(9 <= score <= 10 for score in scores),
-    )
-
-
 def _dealer_movement(
     submissions: Iterable,
     report_type: str = "GT",
@@ -294,12 +279,9 @@ def _create_gt_template_report(
     ws["C5"] = submitted_dealers
     ws["D5"] = total_dealers - submitted_dealers
     ws["E5"] = total_submissions
-    overall_low, overall_medium, overall_strong = _movement_band_counts(
-        own_display_scores
-    )
-    ws["F5"] = overall_low
-    ws["G5"] = overall_medium
-    ws["H5"] = overall_strong
+    ws["F5"] = sum(score < 5 for score in own_display_scores)
+    ws["G5"] = sum(5 <= score <= 8 for score in own_display_scores)
+    ws["H5"] = sum(score >= 9 for score in own_display_scores)
     ws["I5"] = competitor_counts[config["competitors"][0]]
     ws["J5"] = competitor_counts[config["competitors"][1]]
     ws["K5"] = competitor_counts[config["competitors"][2]]
@@ -358,15 +340,8 @@ def _create_gt_template_report(
         ws.cell(current_row, 5).value = sum(row["total_outlets"] for row in region_summary_rows)
         submitted = sum(row["total_submissions"] > 0 for row in region_summary_rows)
         ws.cell(current_row, 6).value = f"{submitted}/{len(dealers)} dealers submitted"
-        region_low, region_medium, region_strong = _movement_band_counts(
-            (movements.get(dealer) or {}).get("own_display")
-            for dealer in dealers
-        )
-        ws.cell(current_row, 7).value = region_low
-        ws.cell(current_row, 8).value = region_medium
-        ws.cell(current_row, 9).value = region_strong
-        ws.cell(current_row, 10).value = None
-        ws.cell(current_row, 11).value = None
+        for column in range(7, 12):
+            ws.cell(current_row, column).value = None
         for column in range(1, 12):
             ws.cell(current_row, column).fill = PatternFill("solid", fgColor=REGION_FILL)
             ws.cell(current_row, column).font = copy(ws.cell(current_row, column).font)

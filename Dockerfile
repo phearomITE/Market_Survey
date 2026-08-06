@@ -11,22 +11,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     LIBREOFFICE_PATH=/usr/bin/libreoffice \
     PNG_RENDER_TIMEOUT_SECONDS=18
 
-COPY docker/fontconfig-khmer.conf /etc/fonts/conf.avail/99-kb-khmer.conf
-
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
         fonts-noto-core \
         fontconfig \
-        libharfbuzz0b \
-        libgraphite2-3 \
-        libfribidi0 \
         ca-certificates \
-    && ln -sf /etc/fonts/conf.avail/99-kb-khmer.conf \
-        /etc/fonts/conf.d/99-kb-khmer.conf \
     && fc-cache -f -v \
-    && fc-match -f '%{family}|%{file}\n' ':lang=km' \
+    && fc-match -f '%{family}|%{file}\n' "Noto Sans Khmer" \
         | grep -i "Noto Sans Khmer" \
     && rm -rf /var/lib/apt/lists/*
 
