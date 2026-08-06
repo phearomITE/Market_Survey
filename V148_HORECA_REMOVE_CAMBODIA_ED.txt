@@ -1,0 +1,17 @@
+V148 - Remove CAMBODIA ED from HORECA
+
+Changes
+- Kobo XLSForm: CAMBODIA ED is shown for GT only and is hidden for HORECA.
+- HORECA report template: uses the approved template without CAMBODIA ED.
+- HORECA report row coordinates were updated after the removed product shifted
+  the freshness, movement, Ring Pull, issue, and print sections.
+- GT continues to include CAMBODIA ED.
+
+Validate
+python -m py_compile app/reports/excel_report.py
+pytest -q tests/test_v148_horeca_cambodia_ed_removed.py
+
+Deploy
+git add app/reports/excel_report.py templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx templates/template_horeca_products.xlsx tests/test_v148_horeca_cambodia_ed_removed.py V148_HORECA_REMOVE_CAMBODIA_ED.txt
+git commit -m "Remove CAMBODIA ED from HORECA form and report"
+git push origin main
