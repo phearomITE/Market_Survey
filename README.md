@@ -1,4 +1,4 @@
-# KB Market Survey Bot V84 — GT + HORECA
+# KB Market Survey Bot — GT + HORECA
 
 Railway-ready Telegram bot for one Kobo asset with two report routes:
 
@@ -53,9 +53,9 @@ templates/KB_Market_Improvement_XLSForm.xlsx
 
 The HORECA report generator uses the uploaded HORECA template without changing its worksheet dimensions, merged layout, widths or row positions.
 
-## First synchronization after V84
+## First synchronization after
 
-V84 changes the stored metric schema. Run this once after Railway becomes active:
+changes the stored metric schema. Run this once after Railway becomes active:
 
 ```text
 /sync_kobo
