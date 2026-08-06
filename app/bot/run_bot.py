@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime
+from threading import Thread
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
@@ -11,6 +13,7 @@ from app.bot.handlers import (
     debug_kobo_cmd,
     help_cmd,
     export_cmd,
+    export_status_cmd,
     map_cmd,
     report_cmd,
     report_multi_cmd,
@@ -130,6 +133,19 @@ def _safe_database_target() -> str:
         return "configured database"
 
 
+def _run_web_server(port: int) -> None:
+    """Bind FastAPI to Railway's public port in a background thread."""
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        access_log=False,
+    )
+
+
 def _build_application() -> Application:
     """Build the Telegram application and register commands."""
     app = (
@@ -156,6 +172,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("export_status", export_status_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
 
     return app
@@ -175,6 +192,12 @@ def main() -> None:
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
+
+    # Railway sends public HTTP traffic to PORT. Run FastAPI beside the bot so
+    # /map and /api/map/data remain available while Telegram uses polling.
+    port = int(os.getenv("PORT", "8080"))
+    Thread(target=_run_web_server, args=(port,), daemon=True, name="map-web").start()
+    print(f"🌐 Movement map web server starting on PORT={port}")
 
     app = _build_application()
 

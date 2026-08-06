@@ -1,0 +1,25 @@
+V150 EXPORT STATUS + RAILWAY MAP FIX
+
+1. Copy this package over the Git repository.
+2. Validate:
+   python -m py_compile app/bot/run_bot.py app/bot/handlers.py app/services/report_service.py app/reports/status_export.py app/web/router.py app/main.py
+   python -m unittest tests.test_v150_export_status_map_runtime
+3. Commit and deploy:
+   git add app/bot/run_bot.py app/bot/handlers.py app/services/report_service.py app/reports/status_export.py app/web/map.js tests/test_v150_export_status_map_runtime.py V150_EXPORT_STATUS_MAP_FIX.txt
+   git commit -m "Restore export status and Railway movement map"
+   git push origin main
+
+Telegram command:
+  /export_status 2026-08-01
+
+Rules:
+- Checks every official dealer in app/data/dealers.py (65 total).
+- Submitted Summary only when Outlet Name contains បូកសរុបរួម.
+- Normal outlet submissions do not count.
+- A date with no submissions exports all dealers as Missing Summary.
+
+Map URL:
+  https://YOUR-RAILWAY-DOMAIN/map?access=YOUR_MAP_VIEWER_TOKEN
+
+Railway must have MAP_PUBLIC_VIEW_ENABLED=true, MAP_VIEWER_TOKEN, PUBLIC_APP_URL,
+DATABASE_URL, TELEGRAM_BOT_TOKEN, KOBO_TOKEN and KOBO_ASSET_UID configured.

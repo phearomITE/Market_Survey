@@ -11,16 +11,16 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import fetch_report_submissions_fast, sync_kobo
-from app.reports.aggregator import aggregate_submissions, is_final_summary_outlet_name
+from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
 from app.reports.movement_exports import (
-    create_dealer_summary_status_export,
     create_daily_export,
     create_movement_export,
     create_raw_movement_long_export,
 )
+from app.reports.status_export import create_summary_status_export, is_summary_submission
 
 ReportType = Literal["GT", "HORECA"]
 
@@ -365,26 +365,6 @@ def generate_daily_data_export(report_date_str: str):
     return path, f"Generated two-sheet market survey export for {d}: {len(submissions)} outlet submissions"
 
 
-def generate_dealer_summary_status_export(report_date_str: str):
-    """Export final-summary completion for all 65 official dealers."""
-    d = parse_report_date(report_date_str)
-    submissions = fetch_report_submissions_fast(None, d)
-    path = create_dealer_summary_status_export(submissions, d)
-    submitted = {
-        (
-            str(getattr(row, "region", "") or "").strip().upper(),
-            str(getattr(row, "dealer", "") or "").strip().upper(),
-        )
-        for row in submissions
-        if is_final_summary_outlet_name(getattr(row, "outlet_name", None))
-    }
-    return (
-        path,
-        f"Generated dealer summary status for {d}: "
-        f"{len(submitted)}/{len(ALL_DEALERS)} dealers submitted final summary",
-    )
-
-
 def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ...]):
     """Export Beer movement for multiple requested dates in one workbook."""
     dates = list(dict.fromkeys(parse_report_date(value) for value in report_date_values))
@@ -410,4 +390,21 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
         path,
         f"Generated Beer movement export for {len(dates)} date(s): "
         f"{len(submissions)} outlet submissions",
+    )
+
+
+def generate_summary_status_export(report_date_str: str):
+    """Export summary-submission status for all 65 official dealers."""
+    report_date = parse_report_date(report_date_str)
+    submissions = fetch_report_submissions_fast(None, report_date)
+    path = create_summary_status_export(submissions, report_date)
+    submitted = {
+        str(row.dealer or "").strip().upper()
+        for row in submissions
+        if is_summary_submission(row.outlet_name)
+    } & set(ALL_DEALERS)
+    return (
+        path,
+        f"Summary status for {report_date}: {len(submitted)}/65 submitted, "
+        f"{65 - len(submitted)} missing",
     )

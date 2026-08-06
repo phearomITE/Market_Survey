@@ -2,6 +2,14 @@
 const query=new URLSearchParams(location.search),access=query.get("access")||"",isPhone=matchMedia("(max-width: 900px)").matches;
 const $=id=>document.getElementById(id),esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
 const state={data:null,selected:null,aborter:null};
+// Draw score text in the same canvas as each circle. Avoiding hundreds of
+// permanent HTML tooltips makes pinch-zoom and panning much smoother on phones.
+const updateCircle=L.Canvas.prototype._updateCircle;
+L.Canvas.include({_updateCircle(layer){
+  updateCircle.call(this,layer);const label=layer.options.scoreLabel;
+  if(label===undefined||label===null||!layer._point)return;
+  const ctx=this._ctx;ctx.save();ctx.font=`700 ${isPhone?11:12}px system-ui,sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.lineWidth=2;ctx.strokeStyle="rgba(0,0,0,.45)";ctx.fillStyle="#fff";ctx.strokeText(String(label),layer._point.x,layer._point.y);ctx.fillText(String(label),layer._point.x,layer._point.y);ctx.restore();
+}});
 const map=L.map("map",{zoomControl:false,preferCanvas:true,zoomAnimation:!isPhone,fadeAnimation:false,markerZoomAnimation:false,inertia:!isPhone,wheelDebounceTime:35,wheelPxPerZoomLevel:90}).setView([12.5657,104.991],7);
 L.control.zoom({position:"bottomright"}).addTo(map);
 const satellite=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Imagery © Esri",updateWhenIdle:true,updateWhenZooming:false,keepBuffer:isPhone?1:2,detectRetina:false}).addTo(map);
@@ -12,8 +20,7 @@ const scoreColor=score=>score<=4?"#e42431":score<=8?"#f4ae00":"#138b48";
 
 // Canvas circles are much faster than hundreds of HTML markers during pan/zoom.
 function addMarker(row){
-  const marker=L.circleMarker([row.latitude,row.longitude],{renderer:markerRenderer,radius:isPhone?12:13,color:"#fff",weight:3,fillColor:scoreColor(row.movement),fillOpacity:.98,bubblingMouseEvents:false});
-  marker.bindTooltip(String(row.movement),{permanent:true,direction:"center",className:"score-label",opacity:1});
+  const marker=L.circleMarker([row.latitude,row.longitude],{renderer:markerRenderer,radius:isPhone?12:13,color:"#fff",weight:3,fillColor:scoreColor(row.movement),fillOpacity:.98,bubblingMouseEvents:false,scoreLabel:row.movement});
   marker.on("click",()=>showDetail(row)); marker.addTo(movementGroup);
 }
 function selected(id){const element=$(id);return element&&element.value?[element.value]:[]}
