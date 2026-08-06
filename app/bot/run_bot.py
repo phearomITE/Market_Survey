@@ -8,11 +8,9 @@ from telegram.ext import Application, CommandHandler
 
 from app.bot.handlers import (
     alert_submit_cmd,
-    dashboard_cmd,
     debug_kobo_cmd,
     help_cmd,
     export_cmd,
-    export_status_cmd,
     map_cmd,
     report_cmd,
     report_multi_cmd,
@@ -158,9 +156,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
-    app.add_handler(CommandHandler("export_status", export_status_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
-    app.add_handler(CommandHandler("dashboard", dashboard_cmd))
 
     return app
 

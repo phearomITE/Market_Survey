@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from functools import partial
 from threading import Lock
 from time import monotonic
@@ -25,11 +24,7 @@ from app.services.report_service import (
     parse_report_command_args,
 )
 from app.services.render_service import excel_to_png
-from app.services.submission_alert_service import (
-    format_submission_alert,
-    generate_submission_status_export,
-    local_today,
-)
+from app.services.submission_alert_service import format_submission_alert, local_today
 
 HELP_TEXT = """
 ✅ KB Market Survey Bot
@@ -51,10 +46,7 @@ Commands:
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /alert_submit 10
 /alert_submit 20
-/alert_submit 10 2026-08-01
-/export_status 2026-08-01
 /map
-/dashboard
 /help
 
 /report = send Excel first, then create one quick PNG preview.
@@ -120,8 +112,8 @@ async def _run_fast(
         ) from exc
 
 
-def _viewer_url(view: str) -> str:
-    """Build a valid secure Railway map/dashboard URL."""
+def _viewer_url(view: str = "map") -> str:
+    """Build the valid secure Railway movement-map URL."""
     base = str(getattr(settings, "public_app_url", "") or "").strip().rstrip("/")
     token = str(getattr(settings, "map_viewer_token", "") or "").strip()
     if not base.startswith("https://"):
@@ -131,8 +123,7 @@ def _viewer_url(view: str) -> str:
         )
     if not token:
         raise ValueError("MAP_VIEWER_TOKEN is missing.")
-    path = "/dashboard" if view == "dashboard" else "/map"
-    return f"{base}{path}?{urlencode({'access': token})}"
+    return f"{base}/map?{urlencode({'access': token})}"
 
 
 async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -146,21 +137,6 @@ async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.effective_message.reply_text(
         "🗺 Open the read-only movement map:",
-        reply_markup=keyboard,
-    )
-
-
-async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        url = _viewer_url("dashboard")
-    except ValueError as exc:
-        await update.effective_message.reply_text(f"❌ Dashboard configuration error: {exc}")
-        return
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("📊 Open Movement Dashboard", url=url)]]
-    )
-    await update.effective_message.reply_text(
-        "📊 Open the read-only movement dashboard:",
         reply_markup=keyboard,
     )
 
@@ -448,10 +424,9 @@ async def raw_movement_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) not in {1, 2}:
+    if len(context.args) != 1:
         await update.effective_message.reply_text(
-            "Usage:\n/alert_submit 10\n/alert_submit 20\n"
-            "/alert_submit 10 2026-08-01"
+            "Usage:\n/alert_submit 10\n/alert_submit 20"
         )
         return
     try:
@@ -461,16 +436,7 @@ async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if threshold not in {10, 20}:
         await update.effective_message.reply_text("Threshold must be 10 or 20.")
         return
-    if len(context.args) == 2:
-        try:
-            report_date = datetime.strptime(context.args[1], "%Y-%m-%d").date()
-        except ValueError:
-            await update.effective_message.reply_text(
-                "Date must use YYYY-MM-DD, for example 2026-08-01."
-            )
-            return
-    else:
-        report_date = local_today()
+    report_date = local_today()
     wait = await update.effective_message.reply_text(
         f"📊 Checking dealers below {threshold} reports for "
         f"{report_date:%d/%m/%Y}..."
@@ -485,31 +451,6 @@ async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(message)
     except Exception as exc:
         await wait.edit_text(f"❌ Submission alert failed: {exc}")
-
-
-async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
-        await update.effective_message.reply_text(
-            "Usage: /export_status 2026-08-01"
-        )
-        return
-    report_date = str(context.args[0]).strip()
-    wait = await update.effective_message.reply_text(
-        f"📋 Checking dealer summary status for {report_date}..."
-    )
-    try:
-        path, text = await _run_fast(
-            generate_submission_status_export,
-            report_date,
-            timeout_seconds=50,
-        )
-        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
-        with path.open("rb") as file_handle:
-            await update.effective_message.reply_document(
-                document=InputFile(file_handle, filename=path.name)
-            )
-    except Exception as exc:
-        await wait.edit_text(f"❌ Status export failed: {exc}")
 
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

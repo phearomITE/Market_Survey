@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -15,19 +14,11 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import KoboSubmission
 from app.db.models import KoboCompetitorMetric, KoboProductMetric
-from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS, OWN_PRODUCTS
+from app.reports.aggregator import OFFTAKE_COMPARE_GROUPS
 
 
 router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent
-OWN_PRODUCT_SET = set(OWN_PRODUCTS)
-APPROVED_REPORT_DATES = (
-    date(2026, 7, 4),
-    date(2026, 7, 18),
-    date(2026, 7, 25),
-)
-
-
 PRODUCT_CATEGORIES = {
     "CB LITE ORD": "Beer",
     "CBC 4.4 NCP": "Beer",
@@ -89,19 +80,14 @@ def map_page():
     return FileResponse(WEB_DIR / "map.html")
 
 
-@router.get("/dashboard", dependencies=[Depends(_authorize)])
-def dashboard_page():
-    return FileResponse(WEB_DIR / "map.html")
-
-
 @router.get("/web/map.css")
 def map_css():
-    return FileResponse(WEB_DIR / "map.css", media_type="text/css")
+    return FileResponse(WEB_DIR / "map.css", media_type="text/css", headers={"Cache-Control": "public, max-age=3600"})
 
 
 @router.get("/web/map.js")
 def map_js():
-    return FileResponse(WEB_DIR / "map.js", media_type="application/javascript")
+    return FileResponse(WEB_DIR / "map.js", media_type="application/javascript", headers={"Cache-Control": "public, max-age=3600"})
 
 
 def _score_band(score: int) -> str:
@@ -171,7 +157,6 @@ def map_data(
         .where(
             KoboSubmission.gps_latitude.is_not(None),
             KoboSubmission.gps_longitude.is_not(None),
-            KoboSubmission.report_date.in_(APPROVED_REPORT_DATES),
         )
         .order_by(KoboSubmission.report_date.desc(), KoboSubmission.id.desc())
     )
@@ -242,10 +227,6 @@ def map_data(
     outlet_count = len({row["submission_id"] for row in rows})
     own_scores = [row for row in rows if row["product_type"] == "Own"]
     competitor_scores = [row for row in rows if row["product_type"] == "Competitor"]
-    by_region = Counter(row["region"] or "Unknown" for row in rows)
-    by_dealer = Counter(row["dealer"] or "Unknown" for row in rows)
-    by_product = Counter(row["product"] for row in rows)
-
     # Never send every product row and a marker for every product to the
     # browser. A large Kobo dataset can contain hundreds of thousands of
     # ratings and will freeze Chrome/Telegram WebView. Keep all calculations
@@ -259,7 +240,9 @@ def map_data(
             marker_by_submission[row["submission_id"]] = row
 
     markers = []
-    marker_limit = 60 if mobile else 700
+    # Bounded canvas-rendered markers keep pan/zoom fluid in Telegram WebView.
+    # All summary totals above still use the complete filtered dataset.
+    marker_limit = 250 if mobile else 1200
     for submission_id, representative in marker_by_submission.items():
         marker = dict(representative)
         markers.append(marker)
@@ -289,11 +272,6 @@ def map_data(
             "medium": sum(1 for row in rows if 5 <= row["movement"] <= 8),
             "very_strong": sum(1 for row in rows if row["movement"] >= 9),
             "key_issues": len({row["submission_id"] for row in rows if row["key_issue"].strip()}),
-        },
-        "charts": {
-            "regions": by_region.most_common(8),
-            "dealers": by_dealer.most_common(8),
-            "products": by_product.most_common(10),
         },
     }
 
