@@ -59,7 +59,11 @@ SUMMARY_MAX_ROW_HEIGHT = 140
 
 # Noto Sans Khmer is installed by the Railway Dockerfile. It prevents Khmer
 # glyphs and diacritics from colliding when LibreOffice renders Excel to PNG.
-SUMMARY_FONT_NAME = "Noto Sans Khmer"
+# Khmer OS System is deliberately used for the rendered report.  It is a
+# mature Khmer font with reliable coeng/subscript shaping in LibreOffice's
+# headless PDF renderer.  Excel can display Noto Sans Khmer correctly while an
+# older headless LibreOffice build separates clusters such as គ្រប់.
+SUMMARY_FONT_NAME = "Khmer OS System"
 SUMMARY_FONT_SIZE = 17
 
 # Template label differences -> aggregation product names.
@@ -123,7 +127,14 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
             if isinstance(cell, MergedCell) or not isinstance(cell.value, str):
                 continue
             value = unicodedata.normalize("NFC", cell.value)
-            for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+            for hidden in (
+                "\u00ad",  # soft hyphen
+                "\u200b",  # zero-width space
+                "\u200c",  # zero-width non-joiner
+                "\u200d",  # zero-width joiner
+                "\u2060",  # word joiner
+                "\ufeff",  # byte-order/zero-width no-break mark
+            ):
                 value = value.replace(hidden, "")
             cell.value = value
             if any("\u1780" <= char <= "\u17ff" for char in value):
@@ -138,20 +149,14 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
 def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
     """Resolve old, new GT, and HORECA template row coordinates safely."""
     if _is_channel_specialist_report(agg):
-        # Current HORECA template (CAMBODIA ED removed):
-        # - freshness products are rows 7-23
-        # - movement header is row 25 and products are rows 26-39
-        # - Ring Pull / issue section starts at row 41
-        # Keep this separate from GT because removing one HORECA product shifts
-        # every section below it by one row.
         return {
-            "freshness_end": 23,
-            "movement_header": 25,
-            "movement_start": 26,
-            "movement_end": 39,
-            "ring_start": 42,
-            "issue_start": 42,
-            "print_end": 45,
+            "freshness_end": 24,
+            "movement_header": 26,
+            "movement_start": 27,
+            "movement_end": 41,
+            "ring_start": 44,
+            "issue_start": 44,
+            "print_end": 48,
         }
 
     # Updated template: EXPREZ Can 330ml was inserted as freshness product 14,

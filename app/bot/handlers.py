@@ -20,7 +20,6 @@ from app.services.report_service import (
     generate_raw_movement_export,
     generate_daily_data_export,
     generate_movement_multi_export,
-    generate_summary_status_export,
     parse_multi_report_command_args,
     parse_report_command_args,
 )
@@ -44,7 +43,6 @@ Commands:
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
 /export 2026-07-25
-/export_status 2026-08-01
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /alert_submit 10
 /alert_submit 20
@@ -57,7 +55,6 @@ Commands:
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
-/export_status = check all 65 dealers; only Outlet Name containing បូកសរុបរួម counts.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -501,26 +498,3 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Movement export failed: {exc}")
-
-
-async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
-        await update.effective_message.reply_text("Usage: /export_status 2026-08-01")
-        return
-    report_date = str(context.args[0]).strip()
-    wait = await update.effective_message.reply_text(
-        f"📋 Checking summary submissions for all 65 dealers on {report_date}..."
-    )
-    try:
-        path, message = await _run_fast(
-            generate_summary_status_export,
-            report_date,
-            timeout_seconds=50,
-        )
-        await wait.edit_text(f"✅ {message}\n📎 Uploading Excel...")
-        with path.open("rb") as file_handle:
-            await update.effective_message.reply_document(
-                document=InputFile(file_handle, filename=path.name)
-            )
-    except Exception as exc:
-        await wait.edit_text(f"❌ Summary status export failed: {exc}")

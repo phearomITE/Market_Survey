@@ -340,7 +340,18 @@ def _create_gt_template_report(
         ws.cell(current_row, 5).value = sum(row["total_outlets"] for row in region_summary_rows)
         submitted = sum(row["total_submissions"] > 0 for row in region_summary_rows)
         ws.cell(current_row, 6).value = f"{submitted}/{len(dealers)} dealers submitted"
-        for column in range(7, 12):
+        region_scores = [
+            movements[dealer]["own_display"]
+            for dealer in dealers
+            if dealer in movements and movements[dealer]["own_display"] is not None
+        ]
+        # Region totals are dealer counts by movement band, not averages or
+        # sums of movement values.  Example: four dealers at 5-8 and six at
+        # 9-10 displays 4 and 6 in the subtotal row.
+        ws.cell(current_row, 7).value = sum(score < 5 for score in region_scores) or None
+        ws.cell(current_row, 8).value = sum(5 <= score <= 8 for score in region_scores) or None
+        ws.cell(current_row, 9).value = sum(score >= 9 for score in region_scores) or None
+        for column in range(10, 12):
             ws.cell(current_row, column).value = None
         for column in range(1, 12):
             ws.cell(current_row, column).fill = PatternFill("solid", fgColor=REGION_FILL)

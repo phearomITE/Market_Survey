@@ -25,16 +25,9 @@ function requestParams(){
 async function loadData({preserveOptions=false,preserveView=false}={}){
   if(state.aborter)state.aborter.abort(); state.aborter=new AbortController(); $("loading").classList.remove("hidden"); $("emptyState").classList.add("hidden");
   try{
-    const params=requestParams(),cacheKey=`kb-map:${params.toString()}`;
-    try{
-      const cached=JSON.parse(sessionStorage.getItem(cacheKey)||"null");
-      if(cached&&Date.now()-cached.saved<120000){state.data=cached.data;if(!preserveOptions)populateOptions(state.data.options);renderMap(true);renderStats()}
-    }catch(_){}
-    const response=await fetch(`/api/map/data?${params}`,{signal:state.aborter.signal,headers:{Accept:"application/json"}});
+    const response=await fetch(`/api/map/data?${requestParams()}`,{signal:state.aborter.signal,headers:{Accept:"application/json"}});
     if(!response.ok)throw new Error(response.status===401?"Invalid or expired map link.":"Unable to load movement data.");
-    state.data=await response.json();
-    try{sessionStorage.setItem(cacheKey,JSON.stringify({saved:Date.now(),data:state.data}))}catch(_){}
-    if(!preserveOptions)populateOptions(state.data.options); renderMap(preserveView); renderStats();
+    state.data=await response.json(); if(!preserveOptions)populateOptions(state.data.options); renderMap(preserveView); renderStats();
     const now=new Date(); $("syncStatus").innerHTML=`<i></i><span>Synced ${now.toLocaleDateString()} · ${now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>`;
   }catch(error){if(error.name==="AbortError")return;$("emptyState").classList.remove("hidden");$("emptyState").innerHTML=`<strong>${esc(error.message)}</strong><span>Check the link or try again.</span>`}
   finally{$("loading").classList.add("hidden")}

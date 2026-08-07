@@ -1,0 +1,55 @@
+KB Market Survey V153 - Khmer PNG, Region Summary, and Map Route Fix
+====================================================================
+
+Fixes
+-----
+1. Uses Khmer OS System for headless LibreOffice PNG rendering and removes
+   hidden Unicode separators that split Khmer clusters such as គ្រប់.
+2. Region Total rows now count dealers in <5, 5-8, and 9-10 bands for both:
+      /summary GT 2026-08-01
+      /summary HORECA 2026-08-01
+3. Starts the FastAPI map server on Railway PORT beside Telegram polling, so
+   /map?access=... is registered and served.
+
+Apply in Git Bash
+-----------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V153_KHMER_SUMMARY_MAP_FIX.zip \
+  -d .
+
+python -m py_compile \
+  app/reports/excel_report.py \
+  app/reports/summary_report.py \
+  app/services/render_service.py \
+  app/main.py \
+  app/web/router.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py
+
+git add \
+  Dockerfile \
+  app \
+  tests/test_v153_khmer_region_map.py \
+  V153_KHMER_SUMMARY_MAP_FIX.txt
+
+git commit -m "Fix Khmer PNG region totals and Railway map route"
+git push origin main
+
+Railway verification
+--------------------
+After the new deployment becomes Active, the log must contain:
+  Movement map web server starting on PORT=8080
+  Uvicorn running on http://0.0.0.0:8080
+
+Open:
+  https://YOUR-DOMAIN.up.railway.app/map?access=YOUR_MAP_VIEWER_TOKEN
+
+Telegram checks:
+  /summary GT 2026-08-01
+  /summary HORECA 2026-08-01
+
+Security
+--------
+Do not put MAP_VIEWER_TOKEN or TELEGRAM_BOT_TOKEN in Git.
