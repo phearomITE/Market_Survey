@@ -1,0 +1,36 @@
+V157 Railway Debian Khmer font build fix
+=========================================
+
+Cause
+-----
+Railway is building from python:3.12-slim-bookworm (Debian Bookworm).
+The package fonts-khmeros-core is an Ubuntu package name and is unavailable
+in this Debian image, so apt exits with code 100 before deployment starts.
+
+Fix
+---
+The Dockerfile now installs fonts-noto-core. Debian Bookworm provides this
+package and it contains Noto Sans Khmer. The build also verifies the font with
+fontconfig before continuing.
+
+Apply from Git Bash
+-------------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V157_RAILWAY_DEBIAN_KHMER_FONT_BUILD_FIX.zip \
+  -d .
+
+Confirm the invalid package is gone:
+grep -n "fonts-khmeros-core\|fonts-noto-core\|Noto Sans Khmer" Dockerfile
+
+The output must contain fonts-noto-core and Noto Sans Khmer, and must not
+contain fonts-khmeros-core.
+
+Commit and deploy:
+git add Dockerfile tests/test_v157_debian_khmer_font_build.py V157_RAILWAY_DEBIAN_KHMER_FONT_BUILD_FIX.txt
+git commit -m "Fix Railway Debian Khmer font package"
+git push origin main
+
+Railway should rebuild automatically. In the new build log, confirm that the
+apt installation passes and that fc-match reports Noto Sans Khmer.
