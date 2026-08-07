@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     map_public_view_enabled: bool = True
     map_viewer_token: str = ""
     map_editor_token: str = ""
+    reverse_geocoding_enabled: bool = True
+    reverse_geocoding_url: str = "https://api.bigdatacloud.net/data/reverse-geocode-client"
+    reverse_geocoding_timeout_seconds: int = 5
 
     template_path: str = "templates/template_by_dealer.xlsx"
     horeca_template_path: str = "templates/template_horeca_products.xlsx"

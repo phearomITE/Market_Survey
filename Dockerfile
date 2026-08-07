@@ -15,7 +15,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
-        fonts-khmeros \
+        fonts-khmeros-core \
         fonts-noto-core \
         fontconfig \
         ca-certificates \

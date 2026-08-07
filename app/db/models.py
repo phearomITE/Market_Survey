@@ -47,14 +47,10 @@ class KoboSubmission(Base):
     gps_text: Mapped[str | None] = mapped_column(Text)
     gps_latitude: Mapped[float | None] = mapped_column(Float)
     gps_longitude: Mapped[float | None] = mapped_column(Float)
-
-    # Cached administrative names resolved from the pinned Kobo GPS point.
-    # These columns are nullable so existing Railway databases remain valid
-    # while the background/backfill process fills them progressively.
     province: Mapped[str | None] = mapped_column(String(160), index=True)
     district: Mapped[str | None] = mapped_column(String(160), index=True)
     commune: Mapped[str | None] = mapped_column(String(160), index=True)
-    village: Mapped[str | None] = mapped_column(String(160), index=True)
+    village: Mapped[str | None] = mapped_column(String(160))
 
     key_issue_text: Mapped[str | None] = mapped_column(Text)
     suggestion_text: Mapped[str | None] = mapped_column(Text)
@@ -85,7 +81,7 @@ class KoboProductMetric(Base):
 
     status: Mapped[str | None] = mapped_column(String(80))
     available: Mapped[bool] = mapped_column(Boolean, default=False)
-    movement_score: Mapped[int | None] = mapped_column(Integer)
+    movement_score: Mapped[int | None] = mapped_column(Integer, index=True)
     stock_status: Mapped[str | None] = mapped_column(String(80))
     bbe_date: Mapped[str | None] = mapped_column(String(80))
     buy_in_price: Mapped[float | None] = mapped_column(Float)
@@ -106,7 +102,7 @@ class KoboCompetitorMetric(Base):
     product_name: Mapped[str] = mapped_column(String(255), index=True)
 
     status: Mapped[str | None] = mapped_column(String(80))
-    movement_score: Mapped[int | None] = mapped_column(Integer)
+    movement_score: Mapped[int | None] = mapped_column(Integer, index=True)
     stock_status: Mapped[str | None] = mapped_column(String(80))
     buy_in_price: Mapped[float | None] = mapped_column(Float)
     sell_out_price: Mapped[float | None] = mapped_column(Float)

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import threading
 from datetime import datetime
+from threading import Thread
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
@@ -13,6 +13,7 @@ from app.bot.handlers import (
     debug_kobo_cmd,
     help_cmd,
     export_cmd,
+    export_status_cmd,
     map_cmd,
     report_cmd,
     report_multi_cmd,
@@ -30,35 +31,40 @@ from app.kobo.sync import sync_kobo
 
 _auto_sync_task: asyncio.Task | None = None
 _last_auto_sync: dict | None = None
-_web_server_thread: threading.Thread | None = None
+_web_server_thread: Thread | None = None
+
+
+def _run_web_server() -> None:
+    """Serve the public movement map beside the Telegram polling bot.
+
+    Railway starts this module as the single container process.  Starting
+    Uvicorn here makes ``/map`` and ``/api/map/data`` available without a
+    second service or a different Railway start command.
+    """
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8080"))
+    print(f"🌐 Movement map web server starting on PORT={port}")
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        loop="asyncio",
+        access_log=False,
+    )
 
 
 def _start_web_server() -> None:
-    """Serve the public map beside Telegram polling in the same container."""
     global _web_server_thread
     if _web_server_thread is not None and _web_server_thread.is_alive():
         return
-
-    port = int(os.getenv("PORT", "8080"))
-
-    def run() -> None:
-        import uvicorn
-
-        uvicorn.run(
-            "app.main:app",
-            host="0.0.0.0",
-            port=port,
-            log_level="info",
-            access_log=False,
-        )
-
-    _web_server_thread = threading.Thread(
-        target=run,
+    _web_server_thread = Thread(
+        target=_run_web_server,
         name="movement-map-web",
         daemon=True,
     )
     _web_server_thread.start()
-    print(f"🌐 Movement map web server starting on PORT={port}")
 
 
 async def _auto_sync_loop() -> None:
@@ -187,6 +193,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("export_status", export_status_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
 
     return app
@@ -207,6 +214,8 @@ def main() -> None:
 
     init_db()
 
+    # Railway exposes only one process/PORT.  Run FastAPI in a daemon thread
+    # and keep Telegram polling on the main thread (required by PTB signals).
     _start_web_server()
 
     app = _build_application()

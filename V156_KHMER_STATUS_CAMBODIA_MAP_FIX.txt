@@ -1,0 +1,115 @@
+KB Market Survey V156 - Khmer PNG, Status Export, and Cambodia Map Fix
+=====================================================================
+
+What this patch fixes
+---------------------
+1. Khmer PNG rendering
+   - Installs Khmer OS System and Noto fonts in the Railway image.
+   - Normalizes Khmer cell text to Unicode NFC.
+   - Removes hidden zero-width characters that split joined Khmer clusters.
+   - Removes Excel theme-font overrides and explicitly applies Khmer OS System.
+   - Uses an isolated LibreOffice profile and verifies the font with fc-match.
+   - Joined words such as គ្រប់ are kept as one shaped Khmer cluster.
+
+2. Restores /export_status YYYY-MM-DD
+   - Workbook columns: Date, Region, Dealer, Status.
+   - Always lists all 65 official dealers from R1-R8.
+   - Submitted Summary only when Outlet Name contains បូកសរុបរួម.
+   - Normal outlet submissions do not count.
+   - If a date has no matching summary rows, all 65 dealers are Missing Summary.
+
+3. Restores the public movement map
+   - Railway starts FastAPI/Uvicorn beside the Telegram polling bot.
+   - /map and /api/map/data are available from the same Railway service.
+   - Map data is restricted to Cambodia GPS bounds.
+   - Numeric score markers, filters, mobile drawer, satellite/street layers,
+     outlet details, key issue, and Navigate are retained.
+   - Canvas markers and a smaller phone payload keep zoom/pan responsive.
+   - Dashboard and outlet table are not included.
+
+Apply the patch in Git Bash
+---------------------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V156_KHMER_STATUS_CAMBODIA_MAP_FIX.zip \
+  -d .
+
+Validate
+--------
+python -m py_compile \
+  app/main.py \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/kobo/parser.py \
+  app/kobo/sync.py \
+  app/web/geocode.py \
+  app/web/router.py \
+  app/reports/excel_report.py \
+  app/services/render_service.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  scripts/backfill_map_locations.py
+
+python -c "from app.bot.handlers import map_cmd, export_status_cmd; print('commands OK')"
+
+Commit and deploy
+-----------------
+git add \
+  Dockerfile \
+  app/main.py \
+  app/core/config.py \
+  app/db/models.py \
+  app/db/database.py \
+  app/kobo/parser.py \
+  app/kobo/sync.py \
+  app/web \
+  app/reports/excel_report.py \
+  app/services/render_service.py \
+  app/services/report_service.py \
+  app/bot/handlers.py \
+  app/bot/run_bot.py \
+  scripts/backfill_map_locations.py \
+  tests/test_v156_khmer_status_map.py \
+  V156_KHMER_STATUS_CAMBODIA_MAP_FIX.txt
+
+git commit -m "Fix Khmer PNG status export and Cambodia map"
+git push origin main
+
+Railway variables
+-----------------
+PUBLIC_APP_URL=https://marketsurvey-production.up.railway.app
+MAP_PUBLIC_VIEW_ENABLED=true
+MAP_VIEWER_TOKEN=YOUR_LONG_RANDOM_VIEWER_TOKEN
+MAP_EDITOR_TOKEN=YOUR_DIFFERENT_LONG_RANDOM_EDITOR_TOKEN
+
+Keep the existing DATABASE_URL, TELEGRAM_BOT_TOKEN, KOBO_TOKEN,
+KOBO_ASSET_UID, TEMPLATE_PATH, and other working report variables.
+
+Security: tokens have appeared in screenshots and chat. Rotate the Telegram
+bot token, MAP_VIEWER_TOKEN, and MAP_EDITOR_TOKEN before production use.
+
+Test after Railway is Active
+----------------------------
+Telegram:
+/export_status 2026-08-01
+/map
+
+Browser:
+https://marketsurvey-production.up.railway.app/map?access=YOUR_LONG_RANDOM_VIEWER_TOKEN
+
+API check:
+https://marketsurvey-production.up.railway.app/api/map/data?access=YOUR_LONG_RANDOM_VIEWER_TOKEN
+
+Expected deployment log:
+  Movement map web server starting on PORT=8080
+  Uvicorn running on http://0.0.0.0:8080
+  KB Market Survey Bot running...
+
+Important Railway step
+----------------------
+The Dockerfile changed to install Khmer shaping fonts. Deploy the new commit
+and use Railway Redeploy/Clear build cache if the font layer is reused. A new
+PNG must be generated after deployment; old Telegram PNG files will not change.

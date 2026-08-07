@@ -57,9 +57,9 @@ SUMMARY_MIN_ROW_HEIGHT = 32
 SUMMARY_LINE_HEIGHT = 22
 SUMMARY_MAX_ROW_HEIGHT = 140
 
-# Khmer OS System is deliberately used for generated report cells.  In
-# headless LibreOffice it provides more reliable Khmer coeng/RO shaping than
-# the generic Noto fallback (for example the joined word "គ្រប់").
+# Khmer OS System is installed by the Railway Dockerfile.  Its OpenType Khmer
+# shaping is stable in headless LibreOffice, including coeng clusters in words
+# such as "គ្រប់".  The Excel workbook remains editable in Microsoft Excel.
 SUMMARY_FONT_NAME = "Khmer OS System"
 SUMMARY_FONT_SIZE = 17
 
