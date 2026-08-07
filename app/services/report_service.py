@@ -20,6 +20,7 @@ from app.reports.movement_exports import (
     create_movement_export,
     create_raw_movement_long_export,
 )
+from app.reports.status_export import create_summary_status_export, is_summary_submission
 
 ReportType = Literal["GT", "HORECA"]
 
@@ -389,4 +390,21 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
         path,
         f"Generated Beer movement export for {len(dates)} date(s): "
         f"{len(submissions)} outlet submissions",
+    )
+
+
+def generate_summary_status_export(report_date_str: str):
+    """Export summary-submission status for all 65 official dealers."""
+    report_date = parse_report_date(report_date_str)
+    submissions = fetch_report_submissions_fast(None, report_date)
+    path = create_summary_status_export(submissions, report_date)
+    submitted = {
+        str(row.dealer or "").strip().upper()
+        for row in submissions
+        if is_summary_submission(row.outlet_name)
+    } & set(ALL_DEALERS)
+    return (
+        path,
+        f"Summary status for {report_date}: {len(submitted)}/65 submitted, "
+        f"{65 - len(submitted)} missing",
     )

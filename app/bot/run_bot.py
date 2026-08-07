@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+import os
 from datetime import datetime
+from threading import Thread
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
-from telegram.error import Conflict, NetworkError, TimedOut
-from telegram.request import HTTPXRequest
 
 from app.bot.handlers import (
     alert_submit_cmd,
     debug_kobo_cmd,
     help_cmd,
     export_cmd,
+    export_status_cmd,
     map_cmd,
     report_cmd,
     report_multi_cmd,
@@ -133,22 +133,24 @@ def _safe_database_target() -> str:
         return "configured database"
 
 
+def _run_web_server(port: int) -> None:
+    """Bind FastAPI to Railway's public port in a background thread."""
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        access_log=False,
+    )
+
+
 def _build_application() -> Application:
     """Build the Telegram application and register commands."""
-    # Telegram occasionally returns a transient 502 Bad Gateway. Longer
-    # polling timeouts and PTB's built-in retry keep the bot alive; the error
-    # handler below avoids printing a frightening full traceback for it.
-    updates_request = HTTPXRequest(
-        connect_timeout=15,
-        read_timeout=45,
-        write_timeout=20,
-        pool_timeout=10,
-        connection_pool_size=8,
-    )
     app = (
         Application.builder()
         .token(settings.telegram_bot_token)
-        .get_updates_request(updates_request)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()
@@ -170,24 +172,10 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("export_status", export_status_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
-    app.add_error_handler(_telegram_error_handler)
 
     return app
-
-
-async def _telegram_error_handler(update, context) -> None:
-    error = context.error
-    if isinstance(error, (NetworkError, TimedOut)):
-        print(f"⚠️ Temporary Telegram network error; polling will retry: {error}")
-        return
-    if isinstance(error, Conflict):
-        print(
-            "❌ Telegram polling conflict: another process is using this bot "
-            "token. Stop the duplicate local/Railway instance."
-        )
-        return
-    logging.getLogger(__name__).error("Unhandled Telegram update error: %r", error)
 
 
 def main() -> None:
@@ -204,6 +192,12 @@ def main() -> None:
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
+
+    # Railway sends public HTTP traffic to PORT. Run FastAPI beside the bot so
+    # /map and /api/map/data remain available while Telegram uses polling.
+    port = int(os.getenv("PORT", "8080"))
+    Thread(target=_run_web_server, args=(port,), daemon=True, name="map-web").start()
+    print(f"🌐 Movement map web server starting on PORT={port}")
 
     app = _build_application()
 

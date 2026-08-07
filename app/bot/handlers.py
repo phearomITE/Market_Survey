@@ -4,7 +4,9 @@ import asyncio
 from functools import partial
 from threading import Lock
 from time import monotonic
-from telegram import Update, InputFile
+from urllib.parse import urlencode
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputFile
 from telegram.ext import ContextTypes
 
 from app.core.config import settings
@@ -18,6 +20,7 @@ from app.services.report_service import (
     generate_raw_movement_export,
     generate_daily_data_export,
     generate_movement_multi_export,
+    generate_summary_status_export,
     parse_multi_report_command_args,
     parse_report_command_args,
 )
@@ -41,9 +44,11 @@ Commands:
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
 /export 2026-07-25
+/export_status 2026-08-01
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /alert_submit 10
 /alert_submit 20
+/map
 /help
 
 /report = send Excel first, then create one quick PNG preview.
@@ -52,6 +57,7 @@ Commands:
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
+/export_status = check all 65 dealers; only Outlet Name containing បូកសរុបរួម counts.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -107,6 +113,35 @@ async def _run_fast(
             "The worker is protected from duplicate jobs; retry once after "
             "a few seconds."
         ) from exc
+
+
+def _viewer_url(view: str = "map") -> str:
+    """Build the valid secure Railway movement-map URL."""
+    base = str(getattr(settings, "public_app_url", "") or "").strip().rstrip("/")
+    token = str(getattr(settings, "map_viewer_token", "") or "").strip()
+    if not base.startswith("https://"):
+        raise ValueError(
+            "PUBLIC_APP_URL must start with https://, for example "
+            "https://marketsurvey-production.up.railway.app"
+        )
+    if not token:
+        raise ValueError("MAP_VIEWER_TOKEN is missing.")
+    return f"{base}/map?{urlencode({'access': token})}"
+
+
+async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        url = _viewer_url("map")
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ Map configuration error: {exc}")
+        return
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🗺 Open Movement Map", url=url)]]
+    )
+    await update.effective_message.reply_text(
+        "🗺 Open the read-only movement map:",
+        reply_markup=keyboard,
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -466,3 +501,26 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Movement export failed: {exc}")
+
+
+async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.effective_message.reply_text("Usage: /export_status 2026-08-01")
+        return
+    report_date = str(context.args[0]).strip()
+    wait = await update.effective_message.reply_text(
+        f"📋 Checking summary submissions for all 65 dealers on {report_date}..."
+    )
+    try:
+        path, message = await _run_fast(
+            generate_summary_status_export,
+            report_date,
+            timeout_seconds=50,
+        )
+        await wait.edit_text(f"✅ {message}\n📎 Uploading Excel...")
+        with path.open("rb") as file_handle:
+            await update.effective_message.reply_document(
+                document=InputFile(file_handle, filename=path.name)
+            )
+    except Exception as exc:
+        await wait.edit_text(f"❌ Summary status export failed: {exc}")
