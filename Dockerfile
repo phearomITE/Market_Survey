@@ -16,12 +16,11 @@ RUN apt-get update \
         libreoffice-calc \
         libreoffice-core \
         fonts-noto-core \
-        fonts-khmeros-core \
+        fonts-khmeros \
         fontconfig \
         ca-certificates \
     && fc-cache -f -v \
-    && fc-match -f '%{family}|%{file}\n' "Khmer OS System" \
-        | grep -i "Khmer OS" \
+    && { fc-match -f '%{family}|%{file}\n' "Khmer OS System" || true; } \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

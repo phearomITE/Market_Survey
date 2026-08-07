@@ -1,0 +1,27 @@
+KB Market Survey V154 - Railway Build Font Fix
+
+Cause
+-----
+The Dockerfile requested fonts-khmeros-core. That package name is not
+available in Debian Bookworm, so Railway stopped while building the image.
+
+Fix
+---
+1. Install the valid Debian Bookworm package: fonts-khmeros.
+2. Keep Khmer OS fonts available for Excel-to-PNG rendering.
+3. Make the fc-match diagnostic non-fatal so a font alias cannot stop deploy.
+
+Apply in Git Bash
+-----------------
+cd /d/Bot/Market_Survey_Git
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V154_RAILWAY_BUILD_FONT_FIX.zip \
+  -d .
+
+git add Dockerfile V154_RAILWAY_BUILD_FONT_FIX.txt
+git commit -m "Fix Railway Khmer font package build"
+git push origin main
+
+Railway should redeploy automatically. In Build Logs, confirm that apt installs
+fonts-khmeros and the image build completes.
