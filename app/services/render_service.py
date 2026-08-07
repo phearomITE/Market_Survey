@@ -31,7 +31,7 @@ def _khmer_font_match() -> tuple[bool, str]:
             text=True,
         )
         detail = " ".join((process.stdout or process.stderr or "").split())
-        ready = process.returncode == 0 and "khmer os" in detail.lower()
+        ready = process.returncode == 0 and "khmer os system" in detail.lower()
         return ready, detail or f"fc-match exit={process.returncode}"
     except Exception as exc:
         return False, str(exc)

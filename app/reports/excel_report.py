@@ -57,12 +57,9 @@ SUMMARY_MIN_ROW_HEIGHT = 32
 SUMMARY_LINE_HEIGHT = 22
 SUMMARY_MAX_ROW_HEIGHT = 140
 
-# Noto Sans Khmer is installed by the Railway Dockerfile. It prevents Khmer
-# glyphs and diacritics from colliding when LibreOffice renders Excel to PNG.
-# Khmer OS System is deliberately used for the rendered report.  It is a
-# mature Khmer font with reliable coeng/subscript shaping in LibreOffice's
-# headless PDF renderer.  Excel can display Noto Sans Khmer correctly while an
-# older headless LibreOffice build separates clusters such as គ្រប់.
+# Khmer OS System is deliberately used for generated report cells.  In
+# headless LibreOffice it provides more reliable Khmer coeng/RO shaping than
+# the generic Noto fallback (for example the joined word "គ្រប់").
 SUMMARY_FONT_NAME = "Khmer OS System"
 SUMMARY_FONT_SIZE = 17
 
@@ -127,14 +124,7 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
             if isinstance(cell, MergedCell) or not isinstance(cell.value, str):
                 continue
             value = unicodedata.normalize("NFC", cell.value)
-            for hidden in (
-                "\u00ad",  # soft hyphen
-                "\u200b",  # zero-width space
-                "\u200c",  # zero-width non-joiner
-                "\u200d",  # zero-width joiner
-                "\u2060",  # word joiner
-                "\ufeff",  # byte-order/zero-width no-break mark
-            ):
+            for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
                 value = value.replace(hidden, "")
             cell.value = value
             if any("\u1780" <= char <= "\u17ff" for char in value):

@@ -48,6 +48,14 @@ class KoboSubmission(Base):
     gps_latitude: Mapped[float | None] = mapped_column(Float)
     gps_longitude: Mapped[float | None] = mapped_column(Float)
 
+    # Cached administrative names resolved from the pinned Kobo GPS point.
+    # These columns are nullable so existing Railway databases remain valid
+    # while the background/backfill process fills them progressively.
+    province: Mapped[str | None] = mapped_column(String(160), index=True)
+    district: Mapped[str | None] = mapped_column(String(160), index=True)
+    commune: Mapped[str | None] = mapped_column(String(160), index=True)
+    village: Mapped[str | None] = mapped_column(String(160), index=True)
+
     key_issue_text: Mapped[str | None] = mapped_column(Text)
     suggestion_text: Mapped[str | None] = mapped_column(Text)
 

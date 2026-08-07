@@ -15,12 +15,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
-        fonts-noto-core \
         fonts-khmeros \
+        fonts-noto-core \
         fontconfig \
         ca-certificates \
     && fc-cache -f -v \
-    && { fc-match -f '%{family}|%{file}\n' "Khmer OS System" || true; } \
+    && fc-match -f '%{family}|%{file}\n' "Khmer OS System" \
+        | grep -i "Khmer OS System" \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
