@@ -57,11 +57,24 @@ SUMMARY_MIN_ROW_HEIGHT = 32
 SUMMARY_LINE_HEIGHT = 22
 SUMMARY_MAX_ROW_HEIGHT = 140
 
-# Khmer OS System is installed by the Railway Dockerfile.  Its OpenType Khmer
-# shaping is stable in headless LibreOffice, including coeng clusters in words
-# such as "គ្រប់".  The Excel workbook remains editable in Microsoft Excel.
-SUMMARY_FONT_NAME = "Khmer OS System"
+# Noto Sans Khmer is installed by the Railway Dockerfile. It prevents Khmer
+# glyphs and diacritics from colliding when LibreOffice renders Excel to PNG.
+SUMMARY_FONT_NAME = "Noto Sans Khmer"
 SUMMARY_FONT_SIZE = 17
+
+# Characters that are commonly introduced by copied Kobo/Telegram text but
+# must not be allowed to split a Khmer shaping cluster in LibreOffice.
+_KHMER_HIDDEN_SEPARATORS = frozenset(
+    {
+        "\u180e",  # Mongolian vowel separator (seen in copied mobile text)
+        "\u200b",  # zero-width space
+        "\u200c",  # zero-width non-joiner
+        "\u200d",  # zero-width joiner
+        "\u2060",  # word joiner
+        "\ufeff",  # zero-width no-break space / BOM
+    }
+)
+_KHMER_SPACE_CHARACTERS = frozenset({"\u00a0", "\u202f"})
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
@@ -104,11 +117,51 @@ PRODUCT_NAME_MAP = {
 }
 
 
+def _normalize_khmer_text(value: object) -> str:
+    """Return one NFC Khmer shaping run without accidental cluster breaks.
+
+    Khmer subscript consonants use COENG (U+17D2). A hidden separator, NBSP,
+    or ordinary space between COENG and the following consonant makes a PDF
+    renderer shape separate pieces (for example ``គ្ ប់`` instead of
+    ``គ្រប់``). Combining signs can be broken in the same way. This routine
+    removes only whitespace that is invalid *inside* a Khmer cluster; normal
+    spaces between words remain unchanged.
+    """
+    text = unicodedata.normalize("NFC", str(value or ""))
+    text = "".join(
+        " " if char in _KHMER_SPACE_CHARACTERS else char
+        for char in text
+        if char not in _KHMER_HIDDEN_SEPARATORS
+    )
+
+    repaired: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char.isspace():
+            next_index = index
+            while next_index < len(text) and text[next_index].isspace():
+                next_index += 1
+            previous = repaired[-1] if repaired else ""
+            following = text[next_index] if next_index < len(text) else ""
+            follows_coeng = previous == "\u17d2" and "\u1780" <= following <= "\u17ff"
+            precedes_khmer_mark = (
+                "\u1780" <= previous <= "\u17ff"
+                and following
+                and unicodedata.combining(following) != 0
+            )
+            if not (follows_coeng or precedes_khmer_mark):
+                repaired.append(" ")
+            index = next_index
+            continue
+        repaired.append(char)
+        index += 1
+
+    return unicodedata.normalize("NFC", "".join(repaired))
+
+
 def _clean(v) -> str:
-    value = unicodedata.normalize("NFC", str(v or ""))
-    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
-        value = value.replace(hidden, "")
-    return " ".join(value.split()).strip()
+    return " ".join(_normalize_khmer_text(v).split()).strip()
 
 
 def _normalize_khmer_cells(ws: Worksheet) -> None:
@@ -123,9 +176,7 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
         for cell in row:
             if isinstance(cell, MergedCell) or not isinstance(cell.value, str):
                 continue
-            value = unicodedata.normalize("NFC", cell.value)
-            for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
-                value = value.replace(hidden, "")
+            value = _normalize_khmer_text(cell.value)
             cell.value = value
             if any("\u1780" <= char <= "\u17ff" for char in value):
                 font = copy(cell.font)
@@ -767,9 +818,7 @@ def _estimate_summary_lines(text: str) -> int:
 
 def _clean_summary_text(text: str) -> str:
     """Clean summary text without forcing artificial line breaks."""
-    text = unicodedata.normalize("NFC", str(text or ""))
-    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
-        text = text.replace(hidden, "")
+    text = _normalize_khmer_text(text)
     text = text.strip()
     # Keep explicit user/AI paragraph breaks, but remove excessive spacing.
     cleaned_lines: list[str] = []

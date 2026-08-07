@@ -10,6 +10,30 @@ import zipfile
 from app.core.config import settings
 
 
+def _workbook_contains_khmer(xlsx_path: Path) -> bool:
+    """Return True when a workbook contains Khmer text that needs shaping."""
+    try:
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(xlsx_path, read_only=True, data_only=False)
+        try:
+            for sheet in workbook.worksheets:
+                for row in sheet.iter_rows():
+                    for cell in row:
+                        value = cell.value
+                        if isinstance(value, str) and any(
+                            "\u1780" <= char <= "\u17ff" for char in value
+                        ):
+                            return True
+        finally:
+            workbook.close()
+    except Exception as exc:
+        # Do not block a report merely because this defensive preflight could
+        # not inspect it. LibreOffice conversion still performs its own checks.
+        print(f"⚠️ Khmer workbook preflight skipped: {exc}")
+    return False
+
+
 @lru_cache(maxsize=1)
 def _khmer_font_match() -> tuple[bool, str]:
     """Return the actual fontconfig match used by headless LibreOffice."""
@@ -22,7 +46,7 @@ def _khmer_font_match() -> tuple[bool, str]:
                 fc_match,
                 "-f",
                 "%{family}|%{file}",
-                "Khmer OS System",
+                "Noto Sans Khmer",
             ],
             check=False,
             timeout=5,
@@ -31,7 +55,7 @@ def _khmer_font_match() -> tuple[bool, str]:
             text=True,
         )
         detail = " ".join((process.stdout or process.stderr or "").split())
-        ready = process.returncode == 0 and "khmer os system" in detail.lower()
+        ready = process.returncode == 0 and "noto sans khmer" in detail.lower()
         return ready, detail or f"fc-match exit={process.returncode}"
     except Exception as exc:
         return False, str(exc)
@@ -69,10 +93,21 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
         return None
     try:
         font_ready, font_detail = _khmer_font_match()
+        contains_khmer = _workbook_contains_khmer(xlsx_path)
         if font_ready:
             print(f"✅ Khmer PNG font: {font_detail}")
         else:
             print(f"⚠️ Khmer PNG font not matched: {font_detail}")
+            if contains_khmer:
+                # Producing a PNG with a fallback Latin font silently breaks
+                # Khmer coeng shaping (for example គ្រប់). Fail safely so the
+                # Excel file remains correct and the deployment log identifies
+                # the missing production dependency.
+                print(
+                    "❌ Khmer PNG stopped: Noto Sans Khmer is required; "
+                    "rebuild the Docker image with the bundled font packages."
+                )
+                return None
         with tempfile.TemporaryDirectory(prefix="kb-lo-") as temporary:
             root = Path(temporary)
             output = root / "output"
@@ -85,6 +120,9 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
             environment["SAL_USE_VCLPLUGIN"] = "svp"
             environment["LANG"] = "C.UTF-8"
             environment["LC_ALL"] = "C.UTF-8"
+            environment["LC_CTYPE"] = "C.UTF-8"
+            environment["FONTCONFIG_PATH"] = "/etc/fonts"
+            environment["SAL_DISABLE_OPENCL"] = "1"
             if Path("/etc/fonts/fonts.conf").exists():
                 environment["FONTCONFIG_FILE"] = "/etc/fonts/fonts.conf"
             environment.pop("DISPLAY", None)

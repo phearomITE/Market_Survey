@@ -11,17 +11,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     LIBREOFFICE_PATH=/usr/bin/libreoffice \
     PNG_RENDER_TIMEOUT_SECONDS=18
 
-# Railway builds this image from Debian Bookworm. Use Bookworm's Noto package,
-# which contains Noto Sans Khmer and the shaping data required for joined
-# Khmer words such as "គ្រប់".
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
         fonts-noto-core \
         fontconfig \
+        libharfbuzz0b \
+        libfribidi0 \
         ca-certificates \
-    && fc-cache -f \
+    && fc-cache -f -v \
     && fc-match -f '%{family}|%{file}\n' "Noto Sans Khmer" \
         | grep -i "Noto Sans Khmer" \
     && rm -rf /var/lib/apt/lists/*
