@@ -1,0 +1,28 @@
+V150 MAP-ONLY FAST GPS FIX
+
+What changed
+- Keeps /map only. No Dashboard and no Outlet List.
+- Database-side marker selection replaces loading every metric into Python.
+- Mobile responses are limited to 220 canvas markers; desktop to 900.
+- Numeric scores remain visible and marker details load only after a tap.
+- API JSON is gzip-compressed and briefly cached.
+- Province, District, Commune and Village are stored from the Kobo GPS pin.
+- No REVERSE_GEOCODING_USER_AGENT variable is required.
+- Telegram 502/Bad Gateway errors are treated as temporary and polling retries.
+
+Railway variables
+MAP_PUBLIC_VIEW_ENABLED=true
+MAP_VIEWER_TOKEN=<your-long-view-token>
+PUBLIC_APP_URL=https://YOUR-SERVICE.up.railway.app
+REVERSE_GEOCODING_ENABLED=true
+
+Open map
+https://YOUR-SERVICE.up.railway.app/map?access=YOUR_LONG_VIEW_TOKEN
+
+Backfill old GPS records
+Run this repeatedly from a Railway shell until updated=0:
+python -m scripts.backfill_map_locations --limit 250
+
+Important Telegram note
+Only one process may poll one TELEGRAM_BOT_TOKEN. Stop any local copy before
+starting Railway, otherwise Telegram returns a getUpdates Conflict.

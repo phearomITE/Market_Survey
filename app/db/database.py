@@ -47,8 +47,22 @@ def _ensure_light_migrations() -> None:
             ("updated_at", "TIMESTAMP"),
             ("source_hash", "VARCHAR(64)"),
             ("report_type", "VARCHAR(20)"),
+            ("province", "VARCHAR(160)"),
+            ("district", "VARCHAR(160)"),
+            ("commune", "VARCHAR(160)"),
+            ("village", "VARCHAR(160)"),
         ]:
             _safe_exec(conn, f"ALTER TABLE IF EXISTS kobo_submissions ADD COLUMN IF NOT EXISTS {col} {ddl}")
+
+        # Map filters and marker selection must stay fast as the survey grows.
+        for sql in [
+            "CREATE INDEX IF NOT EXISTS ix_kobo_submissions_province ON kobo_submissions (province)",
+            "CREATE INDEX IF NOT EXISTS ix_kobo_submissions_district ON kobo_submissions (district)",
+            "CREATE INDEX IF NOT EXISTS ix_kobo_submissions_commune ON kobo_submissions (commune)",
+            "CREATE INDEX IF NOT EXISTS ix_kobo_product_movement ON kobo_product_metrics (movement_score)",
+            "CREATE INDEX IF NOT EXISTS ix_kobo_competitor_movement ON kobo_competitor_metrics (movement_score)",
+        ]:
+            _safe_exec(conn, sql)
 
         _safe_exec(conn, """
             UPDATE kobo_submissions

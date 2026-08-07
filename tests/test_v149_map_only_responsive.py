@@ -24,7 +24,7 @@ def test_map_uses_fast_mobile_rendering():
     assert "L.circleMarker" in javascript
     assert "updateWhenZooming:false" in javascript
     assert "zoomAnimation:!isPhone" in javascript
-    assert "marker_limit = 250 if mobile else 1200" in router
+    assert "marker_limit = 220 if mobile else 900" in router
 
 
 def test_map_has_responsive_controls_and_score_details():

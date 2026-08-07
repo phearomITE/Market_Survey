@@ -31,6 +31,7 @@ from app.kobo.parser import (
 )
 from app.db.kobo_wide import upsert_wide_submission
 from app.core.config import settings
+from app.web.geocode import enrich_admin_location
 _SYNC_LOCK = Lock()
 _SYNC_FINISHED = Event()
 _SYNC_FINISHED.set()
@@ -484,6 +485,10 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 unchanged += 1
                 continue
 
+            # Convert the Kobo map pin once while importing. Map requests read
+            # stored fields and therefore never wait for reverse geocoding.
+            enrich_admin_location(data)
+
             # V37 first-run optimization: old DB rows have no source_hash yet.
             # Backfill their hash without deleting/recreating 57 child metric rows.
             # New rows are still imported fully, and future Kobo edits are detected.
@@ -491,7 +496,14 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 db.execute(
                     update(KoboSubmission)
                     .where(KoboSubmission.submission_id == data["submission_id"])
-                    .values(source_hash=source_hash, report_type=data.get("report_type"))
+                    .values(
+                        source_hash=source_hash,
+                        report_type=data.get("report_type"),
+                        province=data.get("province"),
+                        district=data.get("district"),
+                        commune=data.get("commune"),
+                        village=data.get("village"),
+                    )
                 )
                 existing_hashes[data["submission_id"]] = source_hash
                 hash_backfilled += 1

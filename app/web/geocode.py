@@ -1,55 +1,76 @@
 from __future__ import annotations
-import time
-import requests
-from sqlalchemy import or_, select
+
+import json
+from functools import lru_cache
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
 from app.core.config import settings
-from app.db.database import SessionLocal
-from app.db.models import KoboSubmission
 
-def _pick(a: dict, *names: str) -> str:
-    for name in names:
-        if a.get(name):
-            return str(a[name]).strip()
-    return ""
 
-def enrich_missing_administrative_locations() -> int:
-    """Cache a throttled batch of GPS reverse-geocoding results."""
+def _clean(value) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+@lru_cache(maxsize=4096)
+def _reverse_cached(latitude: float, longitude: float) -> tuple[str | None, ...]:
+    """Resolve a Kobo GPS pin without adding work to map page requests."""
+    params = urlencode(
+        {
+            "latitude": f"{latitude:.6f}",
+            "longitude": f"{longitude:.6f}",
+            "localityLanguage": "en",
+        }
+    )
+    request = Request(
+        f"{settings.reverse_geocoding_url}?{params}",
+        headers={"Accept": "application/json"},
+    )
+    with urlopen(request, timeout=settings.reverse_geocoding_timeout_seconds) as response:
+        payload = json.load(response)
+
+    province = _clean(payload.get("principalSubdivision"))
+    district = _clean(payload.get("locality") or payload.get("city"))
+    informative = payload.get("localityInfo", {}).get("informative", []) or []
+    commune = _clean(informative[0].get("name")) if informative else None
+    village = _clean(informative[-1].get("name")) if informative else None
+
+    # The provider may expose better administrative levels in this ordered list.
+    administrative = payload.get("localityInfo", {}).get("administrative", []) or []
+    names = [_clean(item.get("name")) for item in administrative]
+    names = [name for name in names if name and name.lower() != "cambodia"]
+    if names:
+        province = province or names[0]
+        district = district or (names[1] if len(names) > 1 else None)
+        commune = commune or (names[2] if len(names) > 2 else None)
+        village = village or (names[3] if len(names) > 3 else None)
+    return province, district, commune, village
+
+
+def enrich_admin_location(data: dict) -> dict:
+    """Fill missing administrative fields from a submitted GPS pin.
+
+    Failures are intentionally non-fatal: Kobo synchronization and reports must
+    continue when the external geocoder is temporarily unavailable.
+    """
     if not settings.reverse_geocoding_enabled:
-        return 0
-    with SessionLocal() as db:
-        rows = db.execute(
-            select(KoboSubmission).where(
-                KoboSubmission.gps_latitude.is_not(None),
-                KoboSubmission.gps_longitude.is_not(None),
-                or_(
-                    KoboSubmission.province.is_(None),
-                    KoboSubmission.province == "",
-                    KoboSubmission.district.is_(None),
-                    KoboSubmission.district == "",
-                ),
-            ).limit(max(1, min(settings.reverse_geocoding_batch_size, 100)))
-        ).scalars().all()
-        done = 0
-        app_url = settings.public_url or "https://marketsurvey-production.up.railway.app"
-        user_agent = f"KBMarketSurvey/1.0 (+{app_url})"
-        for row in rows:
-            try:
-                response = requests.get(
-                    settings.reverse_geocoding_url,
-                    params={"lat": row.gps_latitude, "lon": row.gps_longitude, "format": "jsonv2", "addressdetails": 1, "accept-language": "en"},
-                    headers={"User-Agent": user_agent},
-                    timeout=12,
-                )
-                response.raise_for_status()
-                address = response.json().get("address") or {}
-                row.province = _pick(address, "state", "province", "city")
-                row.district = _pick(address, "county", "city_district", "district")
-                row.commune = _pick(address, "municipality", "town", "suburb", "quarter")
-                row.village = _pick(address, "village", "hamlet", "neighbourhood")
-                done += 1
-                db.commit()
-            except Exception as exc:
-                db.rollback()
-                print(f"⚠️ Reverse geocoding skipped submission {row.id}: {exc}")
-            time.sleep(1.05)
-        return done
+        return data
+    if data.get("province") and data.get("district") and data.get("commune"):
+        return data
+    latitude, longitude = data.get("gps_latitude"), data.get("gps_longitude")
+    if latitude is None or longitude is None:
+        return data
+    try:
+        province, district, commune, village = _reverse_cached(
+            round(float(latitude), 5), round(float(longitude), 5)
+        )
+        for key, value in zip(
+            ("province", "district", "commune", "village"),
+            (province, district, commune, village),
+        ):
+            if not data.get(key) and value:
+                data[key] = value
+    except Exception as exc:
+        print(f"⚠️ GPS administrative lookup skipped: {exc}")
+    return data

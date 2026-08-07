@@ -2,14 +2,6 @@
 const query=new URLSearchParams(location.search),access=query.get("access")||"",isPhone=matchMedia("(max-width: 900px)").matches;
 const $=id=>document.getElementById(id),esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
 const state={data:null,selected:null,aborter:null};
-// Draw score text in the same canvas as each circle. Avoiding hundreds of
-// permanent HTML tooltips makes pinch-zoom and panning much smoother on phones.
-const updateCircle=L.Canvas.prototype._updateCircle;
-L.Canvas.include({_updateCircle(layer){
-  updateCircle.call(this,layer);const label=layer.options.scoreLabel;
-  if(label===undefined||label===null||!layer._point)return;
-  const ctx=this._ctx;ctx.save();ctx.font=`700 ${isPhone?11:12}px system-ui,sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.lineWidth=2;ctx.strokeStyle="rgba(0,0,0,.45)";ctx.fillStyle="#fff";ctx.strokeText(String(label),layer._point.x,layer._point.y);ctx.fillText(String(label),layer._point.x,layer._point.y);ctx.restore();
-}});
 const map=L.map("map",{zoomControl:false,preferCanvas:true,zoomAnimation:!isPhone,fadeAnimation:false,markerZoomAnimation:false,inertia:!isPhone,wheelDebounceTime:35,wheelPxPerZoomLevel:90}).setView([12.5657,104.991],7);
 L.control.zoom({position:"bottomright"}).addTo(map);
 const satellite=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Imagery © Esri",updateWhenIdle:true,updateWhenZooming:false,keepBuffer:isPhone?1:2,detectRetina:false}).addTo(map);
@@ -20,7 +12,8 @@ const scoreColor=score=>score<=4?"#e42431":score<=8?"#f4ae00":"#138b48";
 
 // Canvas circles are much faster than hundreds of HTML markers during pan/zoom.
 function addMarker(row){
-  const marker=L.circleMarker([row.latitude,row.longitude],{renderer:markerRenderer,radius:isPhone?12:13,color:"#fff",weight:3,fillColor:scoreColor(row.movement),fillOpacity:.98,bubblingMouseEvents:false,scoreLabel:row.movement});
+  const marker=L.circleMarker([row.latitude,row.longitude],{renderer:markerRenderer,radius:isPhone?12:13,color:"#fff",weight:3,fillColor:scoreColor(row.movement),fillOpacity:.98,bubblingMouseEvents:false});
+  marker.bindTooltip(String(row.movement),{permanent:true,direction:"center",className:"score-label",opacity:1});
   marker.on("click",()=>showDetail(row)); marker.addTo(movementGroup);
 }
 function selected(id){const element=$(id);return element&&element.value?[element.value]:[]}
@@ -32,9 +25,16 @@ function requestParams(){
 async function loadData({preserveOptions=false,preserveView=false}={}){
   if(state.aborter)state.aborter.abort(); state.aborter=new AbortController(); $("loading").classList.remove("hidden"); $("emptyState").classList.add("hidden");
   try{
-    const response=await fetch(`/api/map/data?${requestParams()}`,{signal:state.aborter.signal,headers:{Accept:"application/json"}});
+    const params=requestParams(),cacheKey=`kb-map:${params.toString()}`;
+    try{
+      const cached=JSON.parse(sessionStorage.getItem(cacheKey)||"null");
+      if(cached&&Date.now()-cached.saved<120000){state.data=cached.data;if(!preserveOptions)populateOptions(state.data.options);renderMap(true);renderStats()}
+    }catch(_){}
+    const response=await fetch(`/api/map/data?${params}`,{signal:state.aborter.signal,headers:{Accept:"application/json"}});
     if(!response.ok)throw new Error(response.status===401?"Invalid or expired map link.":"Unable to load movement data.");
-    state.data=await response.json(); if(!preserveOptions)populateOptions(state.data.options); renderMap(preserveView); renderStats();
+    state.data=await response.json();
+    try{sessionStorage.setItem(cacheKey,JSON.stringify({saved:Date.now(),data:state.data}))}catch(_){}
+    if(!preserveOptions)populateOptions(state.data.options); renderMap(preserveView); renderStats();
     const now=new Date(); $("syncStatus").innerHTML=`<i></i><span>Synced ${now.toLocaleDateString()} · ${now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>`;
   }catch(error){if(error.name==="AbortError")return;$("emptyState").classList.remove("hidden");$("emptyState").innerHTML=`<strong>${esc(error.message)}</strong><span>Check the link or try again.</span>`}
   finally{$("loading").classList.add("hidden")}

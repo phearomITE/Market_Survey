@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from threading import Lock
+from time import monotonic
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import case, func, literal, select, union_all
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -40,6 +42,8 @@ PRODUCT_CATEGORIES = {
     "CAMBODIA WATER 500mL": "Water",
     "CAMBODIA WATER 1500mL": "Water",
 }
+_OPTIONS_CACHE: tuple[float, dict[str, Any]] | None = None
+_OPTIONS_LOCK = Lock()
 
 # Competitor products inherit the category of the own product at the start of
 # their comparison group. This prevents beer competitors appearing under the
@@ -133,8 +137,76 @@ def _metric_row(submission: KoboSubmission, metric: Any, product_type: str) -> d
     }
 
 
+def _category_expression(product_column, type_column):
+    clauses = [
+        (product_column == name, category)
+        for name, category in PRODUCT_CATEGORIES.items()
+    ]
+    return case(
+        *clauses,
+        else_=case((type_column == "Competitor", "Competitor"), else_="Other"),
+    )
+
+
+def _map_options(db: Session) -> dict[str, Any]:
+    """Return compact filter metadata without loading child ORM collections."""
+    global _OPTIONS_CACHE
+    now = monotonic()
+    with _OPTIONS_LOCK:
+        if _OPTIONS_CACHE and now - _OPTIONS_CACHE[0] < 120:
+            return _OPTIONS_CACHE[1]
+
+    submission_values = db.execute(
+        select(
+            KoboSubmission.region,
+            KoboSubmission.dealer,
+            KoboSubmission.report_date,
+            KoboSubmission.province,
+            KoboSubmission.district,
+            KoboSubmission.commune,
+        ).distinct()
+    ).all()
+    product_names = set(
+        db.scalars(
+            select(KoboProductMetric.product_name)
+            .where(KoboProductMetric.movement_score.between(1, 10))
+            .distinct()
+        ).all()
+    )
+    product_names.update(
+        db.scalars(
+            select(KoboCompetitorMetric.product_name)
+            .where(KoboCompetitorMetric.movement_score.between(1, 10))
+            .distinct()
+        ).all()
+    )
+    products = sorted(name for name in product_names if name)
+    products_by_category: dict[str, list[str]] = {}
+    for name in products:
+        category = PRODUCT_CATEGORIES.get(name, "Other")
+        products_by_category.setdefault(category, []).append(name)
+    options = {
+        "regions": sorted({row.region for row in submission_values if row.region}),
+        "dealers": sorted({row.dealer for row in submission_values if row.dealer}),
+        "dates": sorted(
+            {row.report_date.isoformat() for row in submission_values if row.report_date},
+            reverse=True,
+        ),
+        "provinces": sorted({row.province for row in submission_values if row.province}),
+        "districts": sorted({row.district for row in submission_values if row.district}),
+        "communes": sorted({row.commune for row in submission_values if row.commune}),
+        "products": products,
+        "categories": sorted(products_by_category),
+        "products_by_category": products_by_category,
+    }
+    with _OPTIONS_LOCK:
+        _OPTIONS_CACHE = (now, options)
+    return options
+
+
 @router.get("/api/map/data")
 def map_data(
+    response: Response,
     access: str = Depends(_authorize),
     region: list[str] = Query(default=[]),
     dealer: list[str] = Query(default=[]),
@@ -148,17 +220,58 @@ def map_data(
     mobile: bool = False,
     db: Session = Depends(_db),
 ):
-    stmt = (
-        select(KoboSubmission)
-        .options(
-            selectinload(KoboSubmission.product_metrics),
-            selectinload(KoboSubmission.competitor_metrics),
-        )
-        .where(
-            KoboSubmission.gps_latitude.is_not(None),
-            KoboSubmission.gps_longitude.is_not(None),
-        )
-        .order_by(KoboSubmission.report_date.desc(), KoboSubmission.id.desc())
+    response.headers["Cache-Control"] = "private, max-age=30, stale-while-revalidate=120"
+    metrics = union_all(
+        select(
+            KoboProductMetric.submission_id.label("submission_id"),
+            KoboProductMetric.id.label("metric_id"),
+            KoboProductMetric.product_name.label("product"),
+            KoboProductMetric.movement_score.label("movement"),
+            KoboProductMetric.stock_status.label("stock_status"),
+            KoboProductMetric.status.label("sales_status"),
+            literal("Own").label("product_type"),
+        ),
+        select(
+            KoboCompetitorMetric.submission_id.label("submission_id"),
+            KoboCompetitorMetric.id.label("metric_id"),
+            KoboCompetitorMetric.product_name.label("product"),
+            KoboCompetitorMetric.movement_score.label("movement"),
+            KoboCompetitorMetric.stock_status.label("stock_status"),
+            KoboCompetitorMetric.status.label("sales_status"),
+            literal("Competitor").label("product_type"),
+        ),
+    ).subquery("map_metrics")
+    category_expr = _category_expression(metrics.c.product, metrics.c.product_type)
+    stmt = select(
+        KoboSubmission.id.label("submission_id"),
+        KoboSubmission.submission_id.label("submission_uid"),
+        KoboSubmission.outlet_name,
+        KoboSubmission.outlet_type,
+        KoboSubmission.phone_number.label("phone"),
+        KoboSubmission.submitter_name.label("submitter"),
+        KoboSubmission.region,
+        KoboSubmission.dealer,
+        KoboSubmission.report_date,
+        KoboSubmission.submission_time.label("submitted_at"),
+        KoboSubmission.gps_latitude.label("latitude"),
+        KoboSubmission.gps_longitude.label("longitude"),
+        KoboSubmission.location_text.label("location"),
+        KoboSubmission.province,
+        KoboSubmission.district,
+        KoboSubmission.commune,
+        KoboSubmission.village,
+        KoboSubmission.key_issue_text.label("key_issue"),
+        metrics.c.metric_id,
+        metrics.c.product,
+        metrics.c.product_type,
+        metrics.c.movement,
+        metrics.c.stock_status,
+        metrics.c.sales_status,
+        category_expr.label("category"),
+    ).join(metrics, metrics.c.submission_id == KoboSubmission.id).where(
+        KoboSubmission.gps_latitude.is_not(None),
+        KoboSubmission.gps_longitude.is_not(None),
+        metrics.c.movement.between(1, 10),
     )
     if region:
         stmt = stmt.where(KoboSubmission.region.in_(region))
@@ -177,101 +290,87 @@ def map_data(
     if commune:
         stmt = stmt.where(KoboSubmission.commune.in_(commune))
 
-    submissions = db.execute(stmt).scalars().unique().all()
-    all_rows: list[dict[str, Any]] = []
-    for submission in submissions:
-        for metric in submission.product_metrics:
-            row = _metric_row(submission, metric, "Own")
-            if row:
-                all_rows.append(row)
-        for metric in submission.competitor_metrics:
-            row = _metric_row(submission, metric, "Competitor")
-            if row:
-                all_rows.append(row)
-
-    options = {
-        "regions": sorted({row["region"] for row in all_rows if row["region"]}),
-        "dealers": sorted({row["dealer"] for row in all_rows if row["dealer"]}),
-        "dates": sorted({row["report_date"] for row in all_rows if row["report_date"]}, reverse=True),
-        "categories": sorted({row["category"] for row in all_rows if row["category"]}),
-        "products": sorted({row["product"] for row in all_rows if row["product"]}),
-        "products_by_category": {
-            category_name: sorted({
-                row["product"] for row in all_rows
-                if row["category"] == category_name and row["product"]
-            })
-            for category_name in sorted({row["category"] for row in all_rows if row["category"]})
-        },
-        "provinces": sorted({row["province"] for row in all_rows if row["province"]}),
-        "districts": sorted({row["district"] for row in all_rows if row["district"]}),
-        "communes": sorted({row["commune"] for row in all_rows if row["commune"]}),
-    }
-    rows = all_rows
     if category:
-        rows = [row for row in rows if row["category"] in category]
+        stmt = stmt.where(category_expr.in_(category))
     if product:
-        rows = [row for row in rows if row["product"] in product]
+        stmt = stmt.where(metrics.c.product.in_(product))
     if movement:
         try:
             ranges = [
                 tuple(int(value) for value in selected_range.split("-", 1))
                 for selected_range in movement
             ]
-            rows = [
-                row for row in rows
-                if any(low <= row["movement"] <= high for low, high in ranges)
-            ]
+            stmt = stmt.where(
+                *[
+                    metrics.c.movement.between(low, high)
+                    for low, high in ranges
+                ]
+            ) if len(ranges) == 1 else stmt.where(
+                metrics.c.movement.in_(
+                    [score for low, high in ranges for score in range(low, high + 1)]
+                )
+            )
         except (ValueError, TypeError):
             raise HTTPException(status_code=422, detail="Invalid movement range")
-
-    outlet_count = len({row["submission_id"] for row in rows})
-    own_scores = [row for row in rows if row["product_type"] == "Own"]
-    competitor_scores = [row for row in rows if row["product_type"] == "Competitor"]
-    # Never send every product row and a marker for every product to the
-    # browser. A large Kobo dataset can contain hundreds of thousands of
-    # ratings and will freeze Chrome/Telegram WebView. Keep all calculations
-    # above exact, but return a bounded table page and one representative
-    # marker per outlet. The marker uses the lowest score at that outlet so
-    # operational problems remain visible without calculating an average.
-    marker_by_submission: dict[int, dict[str, Any]] = {}
-    for row in rows:
-        current = marker_by_submission.get(row["submission_id"])
-        if current is None or row["movement"] < current["movement"]:
-            marker_by_submission[row["submission_id"]] = row
-
+    filtered = stmt.subquery("filtered_map_rows")
+    summary_row = db.execute(
+        select(
+            func.count(func.distinct(filtered.c.submission_id)).label("outlets"),
+            func.count().label("ratings"),
+            func.count(func.distinct(filtered.c.region)).label("regions"),
+            func.count(func.distinct(filtered.c.dealer)).label("dealers"),
+            func.count(func.distinct(filtered.c.province)).label("provinces"),
+            func.sum(case((filtered.c.movement <= 4, 1), else_=0)).label("very_low"),
+            func.sum(case((filtered.c.movement.between(5, 8), 1), else_=0)).label("medium"),
+            func.sum(case((filtered.c.movement >= 9, 1), else_=0)).label("very_strong"),
+        )
+    ).mappings().one()
+    ranked = select(
+        *filtered.c,
+        func.row_number().over(
+            partition_by=filtered.c.submission_id,
+            order_by=(filtered.c.movement.asc(), filtered.c.metric_id.asc()),
+        ).label("marker_rank"),
+    ).subquery("ranked_map_rows")
+    marker_limit = 220 if mobile else 900
+    marker_rows = db.execute(
+        select(ranked)
+        .where(ranked.c.marker_rank == 1)
+        .order_by(ranked.c.report_date.desc(), ranked.c.submission_id.desc())
+        .limit(marker_limit)
+    ).mappings().all()
     markers = []
-    # Bounded canvas-rendered markers keep pan/zoom fluid in Telegram WebView.
-    # All summary totals above still use the complete filtered dataset.
-    marker_limit = 250 if mobile else 1200
-    for submission_id, representative in marker_by_submission.items():
-        marker = dict(representative)
-        markers.append(marker)
-        if len(markers) >= marker_limit:
-            break
+    for result in marker_rows:
+        row = dict(result)
+        row.pop("marker_rank", None)
+        row["id"] = f'{row["submission_id"]}-{row["product_type"]}-{row["metric_id"]}'
+        row["outlet_name"] = row.get("outlet_name") or "Unnamed outlet"
+        row["report_date"] = row["report_date"].isoformat() if row.get("report_date") else ""
+        row["submitted_at"] = row["submitted_at"].isoformat() if row.get("submitted_at") else ""
+        row["band"] = _score_band(int(row["movement"]))
+        for key in ("outlet_type", "phone", "submitter", "region", "dealer", "location", "province", "district", "commune", "village", "stock_status", "sales_status", "key_issue"):
+            row[key] = row.get(key) or ""
+        markers.append(row)
+    outlet_count = int(summary_row["outlets"] or 0)
     return {
         # The table was removed. Product details are fetched only after a user
         # taps a marker, keeping the first mobile response small.
         "rows": [],
         "markers": markers,
-        "total_ratings": len(rows),
+        "total_ratings": int(summary_row["ratings"] or 0),
         "rows_truncated": False,
         "markers_truncated": outlet_count > len(markers),
         "can_edit": bool(settings.map_editor_token.strip() and access == settings.map_editor_token.strip()),
-        "options": options,
+        "options": _map_options(db),
         "summary": {
             "outlets": outlet_count,
-            "ratings": len(rows),
-            "regions": len({row["region"] for row in rows if row["region"]}),
-            "dealers": len({row["dealer"] for row in rows if row["dealer"]}),
-            "provinces": len({row["province"] for row in rows if row["province"]}),
-            "own_products": len(own_scores),
-            "competitor_products": len(competitor_scores),
-            "own_wins": sum(1 for row in own_scores if row["movement"] == 10),
-            "competitor_wins": sum(1 for row in competitor_scores if row["movement"] == 10),
-            "very_low": sum(1 for row in rows if row["movement"] <= 4),
-            "medium": sum(1 for row in rows if 5 <= row["movement"] <= 8),
-            "very_strong": sum(1 for row in rows if row["movement"] >= 9),
-            "key_issues": len({row["submission_id"] for row in rows if row["key_issue"].strip()}),
+            "ratings": int(summary_row["ratings"] or 0),
+            "regions": int(summary_row["regions"] or 0),
+            "dealers": int(summary_row["dealers"] or 0),
+            "provinces": int(summary_row["provinces"] or 0),
+            "very_low": int(summary_row["very_low"] or 0),
+            "medium": int(summary_row["medium"] or 0),
+            "very_strong": int(summary_row["very_strong"] or 0),
         },
     }
 
