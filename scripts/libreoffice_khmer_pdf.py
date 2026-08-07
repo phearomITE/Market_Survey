@@ -1,15 +1,9 @@
-"""Export an XLSX workbook to PDF with correct Khmer complex-text shaping.
+"""Export XLSX to PDF with Khmer complex-text shaping enabled.
 
-Run this helper with LibreOffice's system Python environment (normally
-``/usr/bin/python3`` on Debian/Ubuntu). The helper starts an isolated headless
-LibreOffice process, assigns the Khmer font to the complex-script font property
-for every used sheet range, and exports the workbook to PDF.
-
-Why this is needed:
-LibreOffice may use an unrelated default CTL font when importing XLSX files.
-The Excel workbook still looks correct in Microsoft Excel, but Khmer combining
-marks can be detached in the PDF/PNG. Setting ``CharFontNameComplex`` through
-UNO fixes the PDF before PyMuPDF creates the PNG.
+This script is intentionally run with Debian's ``/usr/bin/python3`` because
+the ``python3-uno`` package installs LibreOffice's UNO module for that Python.
+It sets the Khmer CTL font on used cells before PDF export.  The workbook on
+disk is never overwritten.
 """
 
 from __future__ import annotations
@@ -55,7 +49,7 @@ def _connect(port: int, timeout_seconds: float = 15.0):
                 f"uno:socket,host=127.0.0.1,port={port};urp;"
                 "StarOffice.ComponentContext"
             )
-        except Exception as exc:  # LibreOffice may still be starting.
+        except Exception as exc:
             last_error = exc
             time.sleep(0.15)
     raise RuntimeError(f"Could not connect to LibreOffice UNO: {last_error}")
@@ -69,15 +63,14 @@ def export_pdf(
 ) -> None:
     xlsx_path = xlsx_path.resolve()
     pdf_path = pdf_path.resolve()
-    if not xlsx_path.exists():
+    if not xlsx_path.is_file():
         raise FileNotFoundError(xlsx_path)
 
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     pdf_path.unlink(missing_ok=True)
 
     port = _free_port()
-    profile_dir = Path(tempfile.mkdtemp(prefix="kb_lo_khmer_"))
-    profile_url = profile_dir.resolve().as_uri()
+    profile_dir = Path(tempfile.mkdtemp(prefix="kb-lo-khmer-"))
     process: subprocess.Popen[str] | None = None
     document = None
 
@@ -85,8 +78,9 @@ def export_pdf(
         process = subprocess.Popen(
             [
                 soffice_path,
-                f"-env:UserInstallation={profile_url}",
+                f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
                 "--headless",
+                "--invisible",
                 "--nologo",
                 "--nodefault",
                 "--nolockcheck",
@@ -126,28 +120,30 @@ def export_pdf(
         khmer_locale.Country = "KH"
         khmer_locale.Variant = ""
 
-        for sheet in document.Sheets:
+        sheets = document.Sheets
+        for sheet_index in range(sheets.Count):
+            sheet = sheets.getByIndex(sheet_index)
             cursor = sheet.createCursor()
             cursor.gotoEndOfUsedArea(True)
-            # Set the CTL font across the used range first. Latin text keeps its
-            # normal font because only the complex-script property is changed.
             cursor.CharFontNameComplex = khmer_font
             cursor.CharLocaleComplex = khmer_locale
 
-            # Reinforce the Khmer font on actual Khmer string cells and remove
-            # accidental zero-width spaces before PDF export. This fixes words
-            # such as គ្រប់ when LibreOffice imported the XLSX with a bad CTL
-            # fallback font.
             address = cursor.RangeAddress
             for row_index in range(address.StartRow, address.EndRow + 1):
                 for col_index in range(address.StartColumn, address.EndColumn + 1):
                     cell = sheet.getCellByPosition(col_index, row_index)
                     text_value = getattr(cell, "String", "") or ""
-                    if not any("\u1780" <= ch <= "\u17ff" for ch in text_value):
+                    if not any("\u1780" <= char <= "\u17ff" for char in text_value):
                         continue
-                    normalized = unicodedata.normalize("NFC", text_value).replace("\u200b", "")
+
+                    normalized = unicodedata.normalize("NFC", text_value)
+                    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+                        normalized = normalized.replace(hidden, "")
                     if normalized != text_value:
                         cell.String = normalized
+
+                    # This is the material fix: it controls the CTL shaper used
+                    # by LibreOffice's PDF export, not only Excel's normal font.
                     cell.CharFontNameComplex = khmer_font
                     cell.CharLocaleComplex = khmer_locale
 
@@ -175,7 +171,7 @@ def export_pdf(
                     pass
         shutil.rmtree(profile_dir, ignore_errors=True)
 
-    if not pdf_path.exists() or pdf_path.stat().st_size <= 0:
+    if not pdf_path.is_file() or pdf_path.stat().st_size <= 20:
         raise RuntimeError(f"LibreOffice did not create {pdf_path}")
 
 

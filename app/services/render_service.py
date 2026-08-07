@@ -10,30 +10,6 @@ import zipfile
 from app.core.config import settings
 
 
-def _workbook_contains_khmer(xlsx_path: Path) -> bool:
-    """Return True when a workbook contains Khmer text that needs shaping."""
-    try:
-        from openpyxl import load_workbook
-
-        workbook = load_workbook(xlsx_path, read_only=True, data_only=False)
-        try:
-            for sheet in workbook.worksheets:
-                for row in sheet.iter_rows():
-                    for cell in row:
-                        value = cell.value
-                        if isinstance(value, str) and any(
-                            "\u1780" <= char <= "\u17ff" for char in value
-                        ):
-                            return True
-        finally:
-            workbook.close()
-    except Exception as exc:
-        # Do not block a report merely because this defensive preflight could
-        # not inspect it. LibreOffice conversion still performs its own checks.
-        print(f"⚠️ Khmer workbook preflight skipped: {exc}")
-    return False
-
-
 @lru_cache(maxsize=1)
 def _khmer_font_match() -> tuple[bool, str]:
     """Return the actual fontconfig match used by headless LibreOffice."""
@@ -85,6 +61,85 @@ def _find_soffice() -> str | None:
     return None
 
 
+def _khmer_uno_helper() -> Path:
+    """Return the helper that sets LibreOffice's complex-script font."""
+    return Path(__file__).resolve().parents[2] / "scripts" / "libreoffice_khmer_pdf.py"
+
+
+def _system_python_with_uno() -> str | None:
+    """Find the Debian Python interpreter that owns LibreOffice's UNO module."""
+    configured = os.getenv("LIBREOFFICE_UNO_PYTHON", "").strip()
+    for candidate in (configured, "/usr/bin/python3"):
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def _excel_to_pdf_with_khmer_uno(
+    xlsx_path: Path,
+    pdf_path: Path,
+    soffice: str,
+) -> bool:
+    """Export with an explicit Khmer CTL font so coeng clusters stay joined.
+
+    An XLSX cell's normal font and LibreOffice's complex-text-layout (CTL) font
+    are separate properties.  Microsoft Excel uses the normal font, but Linux
+    LibreOffice can still select a different CTL fallback during PDF export.
+    That is why the source cell contains the correct ``គ្រប់`` while the PNG
+    can show a detached ``គ្ ប់``.  The helper sets ``CharFontNameComplex``
+    before exporting the PDF used to build the Telegram PNG.
+    """
+    if os.name == "nt":
+        return False
+
+    helper = _khmer_uno_helper()
+    uno_python = _system_python_with_uno()
+    if not helper.is_file() or not uno_python:
+        return False
+
+    command = [
+        uno_python,
+        str(helper),
+        str(xlsx_path),
+        str(pdf_path),
+        "--soffice",
+        soffice,
+        "--khmer-font",
+        os.getenv("KHMER_PDF_FONT", "Noto Sans Khmer"),
+    ]
+    timeout_seconds = max(
+        45,
+        min(180, int(settings.png_render_timeout_seconds) * 3),
+    )
+    try:
+        process = subprocess.run(
+            command,
+            check=False,
+            timeout=timeout_seconds,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except Exception as exc:
+        print(f"⚠️ Khmer CTL PDF export could not start: {exc}")
+        return False
+
+    if process.returncode != 0:
+        detail = " ".join(
+            f"{process.stdout or ''} {process.stderr or ''}".split()
+        )
+        print(f"⚠️ Khmer CTL PDF export failed: {detail[-800:]}")
+        return False
+
+    success = pdf_path.is_file() and pdf_path.stat().st_size > 20
+    if success:
+        print(
+            "✅ Khmer CTL PDF export active: "
+            f"font={os.getenv('KHMER_PDF_FONT', 'Noto Sans Khmer')}"
+        )
+    return success
+
+
 def excel_to_pdf(xlsx_path: Path) -> Path | None:
     """Convert Excel in a private true-headless LibreOffice profile."""
     xlsx_path = Path(xlsx_path).resolve()
@@ -93,21 +148,29 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
         return None
     try:
         font_ready, font_detail = _khmer_font_match()
-        contains_khmer = _workbook_contains_khmer(xlsx_path)
         if font_ready:
             print(f"✅ Khmer PNG font: {font_detail}")
         else:
             print(f"⚠️ Khmer PNG font not matched: {font_detail}")
-            if contains_khmer:
-                # Producing a PNG with a fallback Latin font silently breaks
-                # Khmer coeng shaping (for example គ្រប់). Fail safely so the
-                # Excel file remains correct and the deployment log identifies
-                # the missing production dependency.
-                print(
-                    "❌ Khmer PNG stopped: Noto Sans Khmer is required; "
-                    "rebuild the Docker image with the bundled font packages."
-                )
-                return None
+
+        # Linux/Railway: explicitly set LibreOffice's Khmer complex-script
+        # font before PDF export. A successful result is moved atomically into
+        # place and the basic converter below is skipped.
+        if os.name != "nt":
+            final_pdf = xlsx_path.with_suffix(".pdf")
+            uno_pdf = final_pdf.with_name(f".{final_pdf.stem}.khmer.tmp.pdf")
+            try:
+                uno_pdf.unlink(missing_ok=True)
+                if _excel_to_pdf_with_khmer_uno(xlsx_path, uno_pdf, soffice):
+                    os.replace(uno_pdf, final_pdf)
+                    return final_pdf
+            finally:
+                uno_pdf.unlink(missing_ok=True)
+            print(
+                "⚠️ Falling back to basic LibreOffice PDF export; "
+                "Khmer CTL shaping may be incorrect"
+            )
+
         with tempfile.TemporaryDirectory(prefix="kb-lo-") as temporary:
             root = Path(temporary)
             output = root / "output"
@@ -120,9 +183,6 @@ def excel_to_pdf(xlsx_path: Path) -> Path | None:
             environment["SAL_USE_VCLPLUGIN"] = "svp"
             environment["LANG"] = "C.UTF-8"
             environment["LC_ALL"] = "C.UTF-8"
-            environment["LC_CTYPE"] = "C.UTF-8"
-            environment["FONTCONFIG_PATH"] = "/etc/fonts"
-            environment["SAL_DISABLE_OPENCL"] = "1"
             if Path("/etc/fonts/fonts.conf").exists():
                 environment["FONTCONFIG_FILE"] = "/etc/fonts/fonts.conf"
             environment.pop("DISPLAY", None)

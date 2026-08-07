@@ -8,6 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     SAL_USE_VCLPLUGIN=svp \
+    KHMER_PDF_FONT="Noto Sans Khmer" \
+    LIBREOFFICE_UNO_PYTHON=/usr/bin/python3 \
     LIBREOFFICE_PATH=/usr/bin/libreoffice \
     PNG_RENDER_TIMEOUT_SECONDS=18
 
@@ -15,10 +17,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
+        python3-uno \
         fonts-noto-core \
         fontconfig \
-        libharfbuzz0b \
-        libfribidi0 \
         ca-certificates \
     && fc-cache -f -v \
     && fc-match -f '%{family}|%{file}\n' "Noto Sans Khmer" \
