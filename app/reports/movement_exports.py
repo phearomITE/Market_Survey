@@ -71,6 +71,16 @@ def _clean(value) -> str:
     return str(value or "").strip()
 
 
+def _product_identity(value) -> str:
+    """Return a stable identity for product-label deduplication.
+
+    Product labels coming from different Kobo/template generations sometimes
+    differ only by whitespace or letter case (for example ``300mL`` versus
+    ``300ml``).  They must produce one row in the daily summary export.
+    """
+    return " ".join(_clean(value).split()).casefold()
+
+
 def _metric_scores(submission) -> dict[str, int]:
     scores: dict[str, int] = {}
     for metric in list(getattr(submission, "product_metrics", None) or []):
@@ -85,7 +95,15 @@ def _metric_scores(submission) -> dict[str, int]:
 
 
 def _canonical_products() -> list[str]:
-    return list(dict.fromkeys(ALL_OWN_PRODUCTS + ALL_COMPETITOR_PRODUCTS))
+    products: list[str] = []
+    seen: set[str] = set()
+    for product in ALL_OWN_PRODUCTS + ALL_COMPETITOR_PRODUCTS:
+        identity = _product_identity(product)
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+        products.append(_clean(product))
+    return products
 
 
 def _products_for_submission(submission) -> list[str]:
@@ -109,11 +127,21 @@ def _members_text(submissions: list) -> str:
 
 
 def _summary_product_data(agg: dict, product: str) -> dict:
-    return (
-        (agg.get("products") or {}).get(product)
-        or (agg.get("competitors") or {}).get(product)
-        or {}
-    )
+    products = agg.get("products") or {}
+    competitors = agg.get("competitors") or {}
+
+    # Preserve the normal preference for an own-product result, then accept an
+    # equivalent legacy/case-variant key if the exact label is unavailable.
+    exact = products.get(product) or competitors.get(product)
+    if exact:
+        return exact
+
+    identity = _product_identity(product)
+    for bucket in (products, competitors):
+        for label, data in bucket.items():
+            if _product_identity(label) == identity and data:
+                return data
+    return {}
 
 
 def _apply_header_style(ws, headers: list[str]) -> None:

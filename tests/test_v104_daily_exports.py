@@ -79,6 +79,23 @@ class V104DailyExportTests(unittest.TestCase):
             self.assertEqual(summary[-1], 10)
             wb.close()
 
+    def test_daily_export_deduplicates_product_case_variants(self):
+        self.exports.ALL_OWN_PRODUCTS = ["CAMBODIA Sport 300mL"]
+        self.exports.ALL_COMPETITOR_PRODUCTS = ["CAMBODIA Sport 300ml"]
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "daily_no_duplicate_products.xlsx"
+            self.exports.create_daily_export(
+                [self.submission], date(2026, 7, 25), output
+            )
+            wb = load_workbook(output, read_only=True)
+            rows = list(
+                wb["Summary_Data"].iter_rows(min_row=2, values_only=True)
+            )
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][14], "CAMBODIA Sport 300mL")
+            wb.close()
+
     def test_raw_export_has_six_columns_including_outlet_type(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "raw.xlsx"
