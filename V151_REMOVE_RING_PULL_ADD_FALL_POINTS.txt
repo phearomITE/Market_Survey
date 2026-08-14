@@ -1,0 +1,16 @@
+V151 - REMOVE FIXED RING PULL / ADD ចំណុចដួល
+
+Scope: only the requested Kobo and GT/HORECA report behavior.
+
+1. Removed the complete "3. Ring Pull In Outlets" Kobo group.
+2. Removed the CBL NCP 6 Can and CBL NCP 5 USD choices and quantities.
+3. Renumbered the final summary block from section 4 to section 3.
+4. Replaced "Enter Name / ឈ្មោះអ្នក Submit" with "ចំណុចដួល".
+5. ចំណុចដួល appears only when Outlet Name is exactly បូកសរុបរួម,
+   for both GT and HORECA.
+6. Removed the fixed Ring Pull block from generated GT and HORECA reports.
+7. Generated reports show up to four ចំណុចដួល entries beside Key Issues
+   and Initiative Idea / Suggestion.
+8. Kept the existing database column name for compatibility; no migration is required.
+9. Product-level Ring Pull values were not changed because they are separate from
+   the removed "Ring Pull In Outlets" section.

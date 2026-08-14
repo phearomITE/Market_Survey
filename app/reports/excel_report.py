@@ -62,20 +62,6 @@ SUMMARY_MAX_ROW_HEIGHT = 140
 SUMMARY_FONT_NAME = "Noto Sans Khmer"
 SUMMARY_FONT_SIZE = 17
 
-# Characters that are commonly introduced by copied Kobo/Telegram text but
-# must not be allowed to split a Khmer shaping cluster in LibreOffice.
-_KHMER_HIDDEN_SEPARATORS = frozenset(
-    {
-        "\u180e",  # Mongolian vowel separator (seen in copied mobile text)
-        "\u200b",  # zero-width space
-        "\u200c",  # zero-width non-joiner
-        "\u200d",  # zero-width joiner
-        "\u2060",  # word joiner
-        "\ufeff",  # zero-width no-break space / BOM
-    }
-)
-_KHMER_SPACE_CHARACTERS = frozenset({"\u00a0", "\u202f"})
-
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
     "CBC LITE ORD": "CB LITE ORD",
@@ -117,51 +103,11 @@ PRODUCT_NAME_MAP = {
 }
 
 
-def _normalize_khmer_text(value: object) -> str:
-    """Return one NFC Khmer shaping run without accidental cluster breaks.
-
-    Khmer subscript consonants use COENG (U+17D2). A hidden separator, NBSP,
-    or ordinary space between COENG and the following consonant makes a PDF
-    renderer shape separate pieces (for example ``គ្ ប់`` instead of
-    ``គ្រប់``). Combining signs can be broken in the same way. This routine
-    removes only whitespace that is invalid *inside* a Khmer cluster; normal
-    spaces between words remain unchanged.
-    """
-    text = unicodedata.normalize("NFC", str(value or ""))
-    text = "".join(
-        " " if char in _KHMER_SPACE_CHARACTERS else char
-        for char in text
-        if char not in _KHMER_HIDDEN_SEPARATORS
-    )
-
-    repaired: list[str] = []
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if char.isspace():
-            next_index = index
-            while next_index < len(text) and text[next_index].isspace():
-                next_index += 1
-            previous = repaired[-1] if repaired else ""
-            following = text[next_index] if next_index < len(text) else ""
-            follows_coeng = previous == "\u17d2" and "\u1780" <= following <= "\u17ff"
-            precedes_khmer_mark = (
-                "\u1780" <= previous <= "\u17ff"
-                and following
-                and unicodedata.combining(following) != 0
-            )
-            if not (follows_coeng or precedes_khmer_mark):
-                repaired.append(" ")
-            index = next_index
-            continue
-        repaired.append(char)
-        index += 1
-
-    return unicodedata.normalize("NFC", "".join(repaired))
-
-
 def _clean(v) -> str:
-    return " ".join(_normalize_khmer_text(v).split()).strip()
+    value = unicodedata.normalize("NFC", str(v or ""))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        value = value.replace(hidden, "")
+    return " ".join(value.split()).strip()
 
 
 def _normalize_khmer_cells(ws: Worksheet) -> None:
@@ -176,7 +122,9 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
         for cell in row:
             if isinstance(cell, MergedCell) or not isinstance(cell.value, str):
                 continue
-            value = _normalize_khmer_text(cell.value)
+            value = unicodedata.normalize("NFC", cell.value)
+            for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+                value = value.replace(hidden, "")
             cell.value = value
             if any("\u1780" <= char <= "\u17ff" for char in value):
                 font = copy(cell.font)
@@ -187,38 +135,61 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
                 cell.font = font
 
 
+def _find_movement_header_row(ws: Worksheet) -> int | None:
+    for row in range(1, min(ws.max_row, 80) + 1):
+        if (
+            _clean(ws.cell(row, 2).value).casefold() == "product"
+            and _clean(ws.cell(row, 3).value).casefold() == "mov"
+        ):
+            return row
+    return None
+
+
+def _find_summary_header_row(ws: Worksheet) -> int | None:
+    for row in range(1, min(ws.max_row, 90) + 1):
+        for col in range(1, min(ws.max_column, 27) + 1):
+            if _clean(ws.cell(row, col).value).casefold() == "key issues":
+                return row
+    return None
+
+
 def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
-    """Resolve old, new GT, and HORECA template row coordinates safely."""
-    if _is_channel_specialist_report(agg):
+    """Resolve GT/HORECA coordinates from the selected template itself.
+
+    Both report templates now end with three parallel blocks: ចំណុចដួល,
+    Key Issues and Initiative/Suggestion. The removed fixed Ring Pull block no
+    longer owns any rows, so template scanning prevents it from reappearing or
+    overwriting the new summary area.
+    """
+    movement_header = _find_movement_header_row(ws)
+    summary_header = _find_summary_header_row(ws)
+    if movement_header and summary_header:
+        movement_start = movement_header + 1
+        product_rows = [
+            row
+            for row in range(movement_start, summary_header)
+            if _clean(ws.cell(row, 1).value).isdigit()
+            and bool(_clean(ws.cell(row, 2).value))
+        ]
+        movement_end = max(product_rows) if product_rows else summary_header - 1
+        issue_start = summary_header + 1
         return {
-            "freshness_end": 24,
-            "movement_header": 26,
-            "movement_start": 27,
-            "movement_end": 41,
-            "ring_start": 44,
-            "issue_start": 44,
-            "print_end": 48,
+            "freshness_end": movement_header - 2,
+            "movement_header": movement_header,
+            "movement_start": movement_start,
+            "movement_end": movement_end,
+            "summary_header": summary_header,
+            "issue_start": issue_start,
+            "print_end": issue_start + 3,
         }
 
-    # Updated template: EXPREZ Can 330ml was inserted as freshness product 14,
-    # shifting every later section down by one row.
-    if _clean(ws.cell(25, 2).value).casefold() == "cambodia water 1500ml":
-        return {
-            "freshness_end": 25,
-            "movement_header": 27,
-            "movement_start": 28,
-            "movement_end": 43,
-            "ring_start": 46,
-            "issue_start": 46,
-            "print_end": 49,
-        }
-
+    # Backward-safe fallback for an unexpected custom template.
     return {
         "freshness_end": FRESHNESS_END_ROW,
         "movement_header": MOVEMENT_HEADER_ROW,
         "movement_start": MOVEMENT_START_ROW,
         "movement_end": MOVEMENT_END_ROW,
-        "ring_start": RING_PULL_START_ROW,
+        "summary_header": ISSUE_START_ROW - 1,
         "issue_start": ISSUE_START_ROW,
         "print_end": 48,
     }
@@ -592,7 +563,9 @@ def _prepare_channel_specialist_layout(ws: Worksheet, agg: dict) -> None:
     if not _is_channel_specialist_report(agg):
         return
 
-    for r in range(6, FRESHNESS_END_ROW + 1):
+    movement_header = _find_movement_header_row(ws)
+    freshness_end = (movement_header - 2) if movement_header else FRESHNESS_END_ROW
+    for r in range(6, freshness_end + 1):
         # Keep W:Y merged for Motor Shop, but split Z:AA for New Outlet + Volume.
         _unmerge_if_exists(ws, f"Z{r}:AA{r}")
 
@@ -818,7 +791,9 @@ def _estimate_summary_lines(text: str) -> int:
 
 def _clean_summary_text(text: str) -> str:
     """Clean summary text without forcing artificial line breaks."""
-    text = _normalize_khmer_text(text)
+    text = unicodedata.normalize("NFC", str(text or ""))
+    for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        text = text.replace(hidden, "")
     text = text.strip()
     # Keep explicit user/AI paragraph breaks, but remove excessive spacing.
     cleaned_lines: list[str] = []
@@ -863,13 +838,19 @@ def _set_row_text(ws: Worksheet, row: int, col: int, prefix_no: int, text: str) 
     return _estimate_summary_lines(value)
 
 
-def _fit_summary_row_height(ws: Worksheet, row: int, issue_lines: int, suggestion_lines: int) -> None:
+def _fit_summary_row_height(
+    ws: Worksheet,
+    row: int,
+    issue_lines: int,
+    suggestion_lines: int,
+    fall_point_lines: int = 1,
+) -> None:
     """Give each of summary rows 1-4 clear vertical breathing room.
 
     Empty rows also keep the same minimum height, so 1, 2, 3 and 4 remain
     evenly separated in Excel and in Railway's LibreOffice PNG output.
     """
-    max_lines = max(issue_lines, suggestion_lines, 1)
+    max_lines = max(fall_point_lines, issue_lines, suggestion_lines, 1)
     height = SUMMARY_MIN_ROW_HEIGHT + ((max_lines - 1) * SUMMARY_LINE_HEIGHT)
     ws.row_dimensions[row].height = min(SUMMARY_MAX_ROW_HEIGHT, height)
 
@@ -978,28 +959,32 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
 
-    # Section 4: Ring Pull fixed products.
-    ring_pull_start = layout["ring_start"]
-    for i, product in enumerate(RING_PRODUCTS, start=ring_pull_start):
-        rp = (agg.get("ring_pull") or {}).get(product, {})
-        ws.cell(i, 2).value = product
-        ws.cell(i, 4).value = int(rp.get("total_outlets", 0) or 0)
-        ws.cell(i, 6).value = int(rp.get("qty", 0) or 0)
-
-    # Bottom summary text. Only this area wraps long lines.
+    # Bottom summary text. The old fixed Ring Pull block was removed and is
+    # replaced by ចំណុចដួល beside Key Issues and Initiative/Suggestion.
+    fall_points = list((agg.get("fall_points") or [])[:4])
     key_issues = list((agg.get("key_issues") or [])[:4])
     suggestions = list((agg.get("suggestions") or [])[:4])
+    while len(fall_points) < 4:
+        fall_points.append("")
     while len(key_issues) < 4:
         key_issues.append("")
     while len(suggestions) < 4:
         suggestions.append("")
 
+    ws.cell(layout["summary_header"], 1).value = "ចំណុចដួល"
     for i in range(4):
         issue_start = layout["issue_start"]
         row = issue_start + i
+        fall_point_lines = _set_row_text(ws, row, 1, i + 1, fall_points[i])
         issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
         suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
-        _fit_summary_row_height(ws, row, issue_lines, suggestion_lines)
+        _fit_summary_row_height(
+            ws,
+            row,
+            issue_lines,
+            suggestion_lines,
+            fall_point_lines=fall_point_lines,
+        )
 
     # Apply to Location, stock labels, key issues and suggestions. The Excel
     # values stay unchanged; LibreOffice receives a font that shapes Khmer
@@ -1084,6 +1069,7 @@ def _blank_agg(dealer: str, report_date) -> dict:
         "products": {p: {"availability": {}} for p in OWN_PRODUCTS},
         "competitors": {p: {} for p in COMPETITOR_PRODUCTS},
         "ring_pull": {p: {"total_outlets": 0, "qty": 0} for p in RING_PRODUCTS},
+        "fall_points": ["", "", "", ""],
         "key_issues": ["", "", "", ""],
         "suggestions": ["", "", "", ""],
     }

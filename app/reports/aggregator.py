@@ -927,23 +927,43 @@ def _summary_points(value: Any, limit: int = 4) -> list[str]:
     return cleaned
 
 
-def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
-    # Summary selection is controlled only by Outlet Name. The Key Issues and
-    # Suggestion fields contain the actual summary text and need no keyword.
+def _latest_summary_submission(submissions: list):
+    """Return the newest final-summary control submission, if one exists."""
     candidates = [s for s in submissions if _is_summary_submission(s)]
     if not candidates:
-        return [], []
-    latest = max(
+        return None
+    return max(
         candidates,
         key=lambda s: (
             getattr(s, "submission_time", None) or datetime.min,
             getattr(s, "id", 0) or 0,
         ),
     )
+
+
+def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
+    # Summary selection is controlled only by Outlet Name. The Key Issues and
+    # Suggestion fields contain the actual summary text and need no keyword.
+    latest = _latest_summary_submission(submissions)
+    if latest is None:
+        return [], []
     return (
         _summary_points(getattr(latest, "key_issue_text", None)),
         _summary_points(getattr(latest, "suggestion_text", None)),
     )
+
+
+def _latest_fall_points(submissions: list) -> list[str]:
+    """Read ចំណុចដួល from the reused submitter_name storage field.
+
+    The database field name stays unchanged so existing deployments need no
+    schema migration. The Kobo label and generated report now present this
+    value as ចំណុចដួល only on the final-summary control submission.
+    """
+    latest = _latest_summary_submission(submissions)
+    if latest is None:
+        return []
+    return _summary_points(getattr(latest, "submitter_name", None))
 
 
 def _product_lookup_key(name: Any) -> str:
@@ -1371,6 +1391,7 @@ def aggregate_submissions(
         "products": {},
         "competitors": {},
         "ring_pull": {},
+        "fall_points": [],
         "key_issues": [],
         "suggestions": [],
     }
@@ -1524,8 +1545,11 @@ def aggregate_submissions(
 
     if include_manual_summary:
         key_issues, suggestions = _latest_manual_summary(all_submissions)
+        result["fall_points"] = _latest_fall_points(all_submissions)[:4]
         result["key_issues"] = key_issues[:4]
         result["suggestions"] = suggestions[:4]
+    while len(result["fall_points"]) < 4:
+        result["fall_points"].append("")
     while len(result["key_issues"]) < 4:
         result["key_issues"].append("")
     while len(result["suggestions"]) < 4:

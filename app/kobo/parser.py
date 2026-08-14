@@ -49,8 +49,11 @@ ALIASES = {
     ],
     "submitter_name": [
         "submitter_name", "enter_name", "name_submit", "Enter Name / ឈ្មោះអ្នក Submit",
+        "ចំណុចដួល",
         "1. OUTLET INFORMATION / Enter Name / ឈ្មោះអ្នក Submit",
         "1. OUTLET INFORMATION/Enter Name / ឈ្មោះអ្នក Submit",
+        "1. OUTLET INFORMATION / ចំណុចដួល",
+        "1. OUTLET INFORMATION/ចំណុចដួល",
     ],
     "phone_number": [
         "phone_number", "phone", "Phone Number",
@@ -75,10 +78,6 @@ ALIASES = {
         "_GPS Location = Location of Visit_longitude", "gps_longitude", "GPS Longitude",
         "1. OUTLET INFORMATION / GPS Longitude", "1. OUTLET INFORMATION/GPS Longitude",
     ],
-    "province": ["province", "Province", "province_capital", "Province / Capital"],
-    "district": ["district", "District", "district_khan", "District / Khan"],
-    "commune": ["commune", "Commune", "commune_sangkat", "Commune / Sangkat"],
-    "village": ["village", "Village", "village_name"],
     "is_new_outlet": [
         "is_new_outlet", "Is New Outlet?", "new_outlet",
         "1. OUTLET INFORMATION / Is New Outlet?", "1. OUTLET INFORMATION/Is New Outlet?",
@@ -400,10 +399,6 @@ def normalize_submission(
         "gps_text": str(value(ALIASES["gps_text"], "") or "") or None,
         "gps_latitude": to_float(value(ALIASES["gps_latitude"])),
         "gps_longitude": to_float(value(ALIASES["gps_longitude"])),
-        "province": value(ALIASES["province"]),
-        "district": value(ALIASES["district"]),
-        "commune": value(ALIASES["commune"]),
-        "village": value(ALIASES["village"]),
         "key_issue_text": value(ALIASES["key_issue_text"]),
         "suggestion_text": value(ALIASES["suggestion_text"]),
         "_flat": flat,  # transient only; sync.py converts it to SQL metric rows, not DB JSON.
