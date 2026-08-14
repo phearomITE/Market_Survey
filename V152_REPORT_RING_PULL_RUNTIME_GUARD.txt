@@ -1,0 +1,26 @@
+V152 - REPORT RING PULL RUNTIME GUARD
+
+Root cause
+==========
+The active project templates were corrected, but the supplied project still
+contained a second older Market_Survey project folder with legacy GT/HORECA
+templates. A bot process started before the update, or started from that nested
+folder, could still generate the old fixed Ring Pull footer.
+
+Fix
+===
+1. Confirmed all four selectable report templates contain ចំណុចដួល and do not
+   contain the fixed Ring Pull In Outlets block.
+2. Added a renderer guard that detects a legacy selected template and removes
+   Ring Pull In Outlets, CBL NCP 6 Can and CBL NCP 5 USD before generating the
+   report.
+3. Synchronized the root and legacy nested GT/HORECA template copies.
+4. Expanded report tests to cover template_general.xlsx,
+   template_by_dealer.xlsx, template_horeca.xlsx and
+   template_horeca_products.xlsx.
+5. Added a regression test for a legacy template selected at runtime.
+
+Required after unzip
+====================
+Fully stop the old bot process and restart it from the intended project root.
+Python modules already loaded by a running process cannot update themselves.

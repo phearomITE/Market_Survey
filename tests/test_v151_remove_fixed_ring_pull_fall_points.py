@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import _layout_rows, fill_template_sheet
@@ -102,6 +102,8 @@ class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
     def test_gt_and_horeca_templates_generate_without_fixed_ring_pull(self):
         cases = [
             ("template_general.xlsx", "GT", {"Drink Shop": 1}),
+            ("template_by_dealer.xlsx", "GT", {"Drink Shop": 1}),
+            ("template_horeca.xlsx", "HORECA", {"Local Eat": 1}),
             ("template_horeca_products.xlsx", "HORECA", {"Local Eat": 1}),
         ]
         for template_name, channel, outlet_types in cases:
@@ -143,6 +145,56 @@ class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
                 self.assertNotIn("CBL NCP 6 Can", values)
                 self.assertNotIn("CBL NCP 5 USD", values)
                 workbook.close()
+
+    def test_legacy_selected_template_is_cleaned_at_runtime(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Simaple_form"
+
+        # Minimal legacy footer: the old fixed Ring Pull title/table begins one
+        # row above the parallel Key Issues and Initiative blocks.
+        sheet["B26"] = "Product"
+        sheet["C26"] = "Mov"
+        for row in range(27, 43):
+            sheet.cell(row, 1).value = row - 26
+            sheet.cell(row, 2).value = f"Product {row - 26}"
+        sheet["A43"] = "Ring Pull In Outlets"
+        sheet["A44"] = "#"
+        sheet["B44"] = "Product"
+        sheet["C44"] = "Total Outlets"
+        sheet["D44"] = "Ring Pull Qty (Can)"
+        sheet["I44"] = "Key Issues"
+        sheet["S44"] = "INITIATIVE IDEA / SUGGESTION"
+        sheet["A45"] = 1
+        sheet["B45"] = "CBL NCP 6 Can"
+        sheet["A46"] = 2
+        sheet["B46"] = "CBL NCP 5 USD"
+
+        agg = {
+            "dealer": "CA1",
+            "report_date": date(2026, 8, 14),
+            "total_outlets": 1,
+            "outlet_types": {"Drink Shop": 1},
+            "location_text": "Phnom Penh",
+            "group_no": 2,
+            "member_no": 4,
+            "channel": "GT",
+            "products": {},
+            "competitors": {},
+            "ring_pull": {},
+            "fall_points": ["ចំណុចទីមួយ", "", "", ""],
+            "key_issues": ["Issue one", "", "", ""],
+            "suggestions": ["Action one", "", "", ""],
+        }
+        fill_template_sheet(sheet, agg)
+
+        values = [str(cell.value or "") for row in sheet.iter_rows() for cell in row]
+        self.assertNotIn("Ring Pull In Outlets", values)
+        self.assertNotIn("CBL NCP 6 Can", values)
+        self.assertNotIn("CBL NCP 5 USD", values)
+        self.assertTrue(sheet.row_dimensions[43].hidden)
+        self.assertEqual(sheet["A44"].value, "ចំណុចដួល")
+        self.assertEqual(sheet["A45"].value, "1. ចំណុចទីមួយ")
 
 
 if __name__ == "__main__":
