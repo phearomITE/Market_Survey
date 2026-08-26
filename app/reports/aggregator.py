@@ -888,17 +888,47 @@ FINAL_SUMMARY_KEYWORDS = (
     "បូកសរុបរូម",
     "សរុបរួម",
     "បួកសរុបរួម",
+    "សរុបចុងក្រោយ",
+    "បូកសរុបចុងក្រោយ",
+)
+
+
+def _compact_summary_name(value: Any) -> str:
+    """Normalize a Khmer summary label without damaging combining marks.
+
+    Kobo text can contain quotes, commas, ``#``, zero-width characters and
+    inconsistent spacing.  Removing only whitespace, punctuation and symbols
+    keeps Khmer letters/diacritics intact while making those harmless variants
+    compare consistently.
+    """
+    text = unicodedata.normalize("NFC", _clean_text(value)).casefold()
+    return "".join(
+        char
+        for char in text
+        if not (
+            char.isspace()
+            or unicodedata.category(char).startswith("P")
+            or unicodedata.category(char).startswith("S")
+        )
+    )
+
+
+_COMPACT_FINAL_SUMMARY_KEYWORDS = tuple(
+    _compact_summary_name(keyword) for keyword in FINAL_SUMMARY_KEYWORDS
 )
 
 
 def is_final_summary_outlet_name(value: Any) -> bool:
-    """Return True only when Outlet Name is one of the four summary markers.
+    """Return True when Outlet Name contains a supported summary marker.
 
-    The marker is matched exactly after trimming whitespace. It is no longer
-    searched inside Key Issues or Initiative/Suggestion text.
+    This intentionally accepts exact values and related variants such as
+    ``# ចែ ម៉ៅ , បូកសរុបរួម``.  Summary detection stays limited to the Outlet
+    Name field; narrative fields are never searched for a marker.
     """
-    normalized = _clean_text(value).replace(" ", "")
-    return normalized in {keyword.replace(" ", "") for keyword in FINAL_SUMMARY_KEYWORDS}
+    normalized = _compact_summary_name(value)
+    return bool(normalized) and any(
+        keyword in normalized for keyword in _COMPACT_FINAL_SUMMARY_KEYWORDS
+    )
 
 
 def _is_summary_submission(submission: Any) -> bool:

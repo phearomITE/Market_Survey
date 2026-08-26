@@ -3,10 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Literal
-import unicodedata
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -14,15 +11,19 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import fetch_report_submissions_fast, sync_kobo
-from app.reports.aggregator import aggregate_submissions
+from app.reports.aggregator import (
+    aggregate_submissions,
+    is_final_summary_outlet_name,
+)
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
-from app.data.dealers import ALL_DEALERS, REGION_DEALERS
+from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
 from app.reports.movement_exports import (
     create_daily_export,
     create_movement_export,
     create_raw_movement_long_export,
 )
+from app.reports.summary_status import create_summary_status_export
 
 ReportType = Literal["GT", "HORECA"]
 
@@ -395,79 +396,20 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
     )
 
 
-_SUMMARY_STATUS_MARKER = "បូកសរុបរួម"
-_INVISIBLE_TEXT = ("\u200b", "\u200c", "\u200d", "\ufeff", "\u2060")
-
-
-def _normalize_status_outlet_name(value: object) -> str:
-    """Normalize Kobo outlet text without breaking Khmer clusters."""
-    text = unicodedata.normalize("NFC", str(value or ""))
-    for hidden in _INVISIBLE_TEXT:
-        text = text.replace(hidden, "")
-    return " ".join(text.split()).strip()
-
-
-def _is_summary_status_submission(submission: object) -> bool:
-    """Status export rule: the outlet name must contain the summary marker."""
-    return _SUMMARY_STATUS_MARKER in _normalize_status_outlet_name(
-        getattr(submission, "outlet_name", "")
-    )
-
-
 def generate_summary_status_export(report_date_str: str):
-    """Export summary-submission status for all 65 official dealers.
-
-    Only a Kobo row whose Outlet Name contains ``បូកសរុបរួម`` counts as a
-    submitted summary. Ordinary outlet visits never count. If Kobo has no rows
-    for the date, the workbook still lists every dealer as Missing Summary.
-    """
-    report_date = parse_report_date(report_date_str)
-    submissions = fetch_report_submissions_fast(None, report_date)
-    submitted = {
-        str(getattr(row, "dealer", "") or "").strip().upper()
-        for row in submissions
-        if _is_summary_status_submission(row)
-    }
-    submitted.intersection_update(ALL_DEALERS)
-
-    settings.export_path.mkdir(parents=True, exist_ok=True)
-    output_path = settings.export_path / f"Summary_Status_{report_date}.xlsx"
-
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Summary Status"
-    worksheet.append(["Date", "Region", "Dealer", "Status"])
-
-    header_fill = PatternFill("solid", fgColor="1F4E78")
-    submitted_fill = PatternFill("solid", fgColor="C6EFCE")
-    missing_fill = PatternFill("solid", fgColor="FFC7CE")
-    for cell in worksheet[1]:
-        cell.fill = header_fill
-        cell.font = Font(color="FFFFFF", bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    for region, dealers in REGION_DEALERS.items():
-        for dealer in dealers:
-            status = "Submitted Summary" if dealer in submitted else "Missing Summary"
-            worksheet.append([report_date, region, dealer, status])
-            row_index = worksheet.max_row
-            worksheet.cell(row_index, 1).number_format = "yyyy-mm-dd"
-            worksheet.cell(row_index, 4).fill = (
-                submitted_fill if dealer in submitted else missing_fill
-            )
-
-    worksheet.freeze_panes = "A2"
-    worksheet.auto_filter.ref = f"A1:D{worksheet.max_row}"
-    worksheet.column_dimensions["A"].width = 14
-    worksheet.column_dimensions["B"].width = 12
-    worksheet.column_dimensions["C"].width = 14
-    worksheet.column_dimensions["D"].width = 22
-    worksheet.sheet_view.showGridLines = False
-    workbook.save(output_path)
-
-    missing_count = len(ALL_DEALERS) - len(submitted)
+    """Export dealer completion status using report summary-name rules."""
+    d = parse_report_date(report_date_str)
+    submissions = fetch_report_submissions_fast(None, d, metadata_only=True)
+    output_path = settings.export_path / f"Summary_Status_{d}.xlsx"
+    path = create_summary_status_export(submissions, d, output_path)
+    submitted = len(
+        {
+            str(getattr(row, "dealer", "") or "").strip().upper()
+            for row in submissions
+            if is_final_summary_outlet_name(getattr(row, "outlet_name", None))
+        }
+    )
     return (
-        output_path,
-        f"Summary status for {report_date}: {len(submitted)} submitted, "
-        f"{missing_count} missing, {len(ALL_DEALERS)} dealers checked",
+        path,
+        f"Generated summary status for {d}: {submitted}/65 dealers completed",
     )

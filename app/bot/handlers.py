@@ -45,7 +45,7 @@ Commands:
 /raw_movement 2026-07-25
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
-/export_status 2026-08-01
+/export_status 2026-08-22
 /alert_submit 10
 /alert_submit 20
 /map
@@ -57,7 +57,7 @@ Commands:
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
-/export_status = check all 65 dealers for a បូកសរុបរួម summary submission.
+/export_status = show which dealers completed the final combined summary.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -506,12 +506,12 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 1:
         await update.effective_message.reply_text(
-            "Usage: /export_status 2026-08-01"
+            "Usage: /export_status 2026-08-22"
         )
         return
     report_date = context.args[0].strip()
     wait = await update.effective_message.reply_text(
-        f"📋 Checking summary status for all 65 dealers on {report_date}..."
+        f"📋 Generating summary status for {report_date}..."
     )
     try:
         path, text = await _run_fast(

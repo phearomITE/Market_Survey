@@ -153,58 +153,6 @@ def _find_summary_header_row(ws: Worksheet) -> int | None:
     return None
 
 
-def _remove_legacy_fixed_ring_pull_block(ws: Worksheet) -> bool:
-    """Convert an old fixed Ring Pull footer into the summary left block.
-
-    A stale local folder or Railway image can still contain an older report
-    template whose left footer starts with ``Ring Pull In Outlets`` followed by
-    the two fixed prize rows.  The current report must never expose that block.
-    When such a legacy template is selected, rebuild only its left footer to
-    match the parallel Key Issues summary rows.  Product-level Ring Pull cells
-    in the movement table are intentionally unchanged.
-    """
-    legacy_header_rows: list[int] = []
-    for row in range(1, min(ws.max_row, 90) + 1):
-        for col in range(1, min(ws.max_column, 27) + 1):
-            if _clean(ws.cell(row, col).value).casefold() == "ring pull in outlets":
-                legacy_header_rows.append(row)
-                break
-
-    if not legacy_header_rows:
-        return False
-
-    summary_header = _find_summary_header_row(ws)
-    if summary_header is None:
-        return False
-
-    legacy_start = min(legacy_header_rows)
-    summary_end = summary_header + 4
-
-    # Remove old merges that formed the fixed Ring Pull table in A:G.
-    for merged in list(ws.merged_cells.ranges):
-        intersects_left = merged.min_col <= 7 and merged.max_col >= 1
-        intersects_rows = merged.min_row <= summary_end and merged.max_row >= legacy_start
-        if intersects_left and intersects_rows:
-            ws.unmerge_cells(str(merged))
-
-    # The old title normally sits one row above Key Issues. Hide that obsolete
-    # row so no empty blue bar or table caption remains in Excel/PNG output.
-    for row in range(legacy_start, summary_header):
-        for col in range(1, 8):
-            ws.cell(row, col).value = ""
-        ws.row_dimensions[row].hidden = True
-
-    # Rebuild A:G as five merged summary rows, borrowing the established Key
-    # Issues style from column I so the footer remains visually consistent.
-    for row in range(summary_header, summary_end + 1):
-        for col in range(1, 8):
-            ws.cell(row, col).value = ""
-            _copy_cell_style(ws.cell(row, 9), ws.cell(row, col))
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=7)
-
-    return True
-
-
 def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
     """Resolve GT/HORECA coordinates from the selected template itself.
 
@@ -225,6 +173,19 @@ def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
         ]
         movement_end = max(product_rows) if product_rows else summary_header - 1
         issue_start = summary_header + 1
+        # Preserve any template footer added below the four narrative rows.
+        # The current General template uses rows 51-55 for No Compromise.
+        footer_end = max(
+            (
+                row
+                for row in range(issue_start + 4, ws.max_row + 1)
+                if any(
+                    _clean(ws.cell(row, col).value)
+                    for col in range(1, min(ws.max_column, 27) + 1)
+                )
+            ),
+            default=issue_start + 3,
+        )
         return {
             "freshness_end": movement_header - 2,
             "movement_header": movement_header,
@@ -232,7 +193,7 @@ def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
             "movement_end": movement_end,
             "summary_header": summary_header,
             "issue_start": issue_start,
-            "print_end": issue_start + 3,
+            "print_end": footer_end,
         }
 
     # Backward-safe fallback for an unexpected custom template.
@@ -918,7 +879,6 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     _add_report_logo(ws)
     _prepare_channel_specialist_layout(ws, agg)
     _normalize_exprez_freshness_rows(ws, agg)
-    _remove_legacy_fixed_ring_pull_block(ws)
     layout = _layout_rows(ws, agg)
     # New template layout: Dealer and Report Date are on the same row/cell.
     # Example: "Dealer : CA1                              Report Date: 02/07/2026 14:55:10"

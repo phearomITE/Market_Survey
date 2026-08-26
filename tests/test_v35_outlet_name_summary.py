@@ -65,7 +65,10 @@ def test_latest_summary_selected_by_outlet_name_only():
     assert issues == ["Low stock", "Slow movement"]
     assert suggestions == ["Refill stock", "Visit outlet"]
     assert is_final_summary_outlet_name(" បូកសរុបរួម ")
-    assert not is_final_summary_outlet_name("Outlet បូកសរុបរួម Shop")
+    assert is_final_summary_outlet_name("# ចែ ម៉ៅ , បូកសរុបរួម")
+    assert is_final_summary_outlet_name('"សរុបចុងក្រោយ"')
+    assert is_final_summary_outlet_name("Outlet បូកសរុបរួម Shop")
+    assert not is_final_summary_outlet_name("Outlet A")
 
 
 def test_summary_control_row_is_not_counted_as_outlet():

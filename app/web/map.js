@@ -2,8 +2,7 @@
 const query=new URLSearchParams(location.search),access=query.get("access")||"",isPhone=matchMedia("(max-width: 900px)").matches;
 const $=id=>document.getElementById(id),esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
 const state={data:null,selected:null,aborter:null};
-const cambodiaBounds=L.latLngBounds([9.20,101.00],[15.70,108.50]);
-const map=L.map("map",{zoomControl:false,preferCanvas:true,zoomAnimation:!isPhone,fadeAnimation:false,markerZoomAnimation:false,inertia:!isPhone,wheelDebounceTime:35,wheelPxPerZoomLevel:90,maxBounds:cambodiaBounds.pad(.08),maxBoundsViscosity:.75,minZoom:6}).fitBounds(cambodiaBounds,{animate:false});
+const map=L.map("map",{zoomControl:false,preferCanvas:true,zoomAnimation:!isPhone,fadeAnimation:false,markerZoomAnimation:false,inertia:!isPhone,wheelDebounceTime:35,wheelPxPerZoomLevel:90}).setView([12.5657,104.991],7);
 L.control.zoom({position:"bottomright"}).addTo(map);
 const satellite=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Imagery © Esri",updateWhenIdle:true,updateWhenZooming:false,keepBuffer:isPhone?1:2,detectRetina:false}).addTo(map);
 const labels=L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Boundaries © Esri",updateWhenIdle:true,updateWhenZooming:false,keepBuffer:1,detectRetina:false}).addTo(map);
@@ -26,16 +25,9 @@ function requestParams(){
 async function loadData({preserveOptions=false,preserveView=false}={}){
   if(state.aborter)state.aborter.abort(); state.aborter=new AbortController(); $("loading").classList.remove("hidden"); $("emptyState").classList.add("hidden");
   try{
-    const params=requestParams(),cacheKey=`kb-map:${params.toString()}`;
-    try{
-      const cached=JSON.parse(sessionStorage.getItem(cacheKey)||"null");
-      if(cached&&Date.now()-cached.saved<120000){state.data=cached.data;if(!preserveOptions)populateOptions(state.data.options);renderMap(true);renderStats()}
-    }catch(_){}
-    const response=await fetch(`/api/map/data?${params}`,{signal:state.aborter.signal,headers:{Accept:"application/json"}});
+    const response=await fetch(`/api/map/data?${requestParams()}`,{signal:state.aborter.signal,headers:{Accept:"application/json"}});
     if(!response.ok)throw new Error(response.status===401?"Invalid or expired map link.":"Unable to load movement data.");
-    state.data=await response.json();
-    try{sessionStorage.setItem(cacheKey,JSON.stringify({saved:Date.now(),data:state.data}))}catch(_){}
-    if(!preserveOptions)populateOptions(state.data.options); renderMap(preserveView); renderStats();
+    state.data=await response.json(); if(!preserveOptions)populateOptions(state.data.options); renderMap(preserveView); renderStats();
     const now=new Date(); $("syncStatus").innerHTML=`<i></i><span>Synced ${now.toLocaleDateString()} · ${now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>`;
   }catch(error){if(error.name==="AbortError")return;$("emptyState").classList.remove("hidden");$("emptyState").innerHTML=`<strong>${esc(error.message)}</strong><span>Check the link or try again.</span>`}
   finally{$("loading").classList.add("hidden")}
@@ -46,7 +38,7 @@ function updateProducts(){if(!state.data)return;const category=$("category").val
 function renderMap(preserveView){
   movementGroup.clearLayers();closeDetail();const rows=state.data.markers||[];rows.forEach(addMarker);$("emptyState").classList.toggle("hidden",rows.length>0);
   if(!preserveView&&rows.length){map.fitBounds(L.latLngBounds(rows.map(row=>[row.latitude,row.longitude])),{padding:isPhone?[28,28]:[55,55],maxZoom:15,animate:false})}
-  else if(!rows.length&&!preserveView)map.fitBounds(cambodiaBounds,{animate:false});
+  else if(!rows.length&&!preserveView)map.setView([12.5657,104.991],7,{animate:false});
 }
 function renderStats(){const s=state.data.summary,cards=[["⌂",s.outlets,"Outlets","outlet"],["●",s.medium,"Medium","medium"],["↗",s.very_strong,"Very Strong","strong"],["↘",s.very_low,"Very Low","weak"]];$("stats").innerHTML=cards.map(([icon,value,label,kind])=>`<div class="stat"><i class="stat-icon ${kind}">${icon}</i><b>${value}</b><span>${label}</span></div>`).join("")}
 async function showDetail(row){

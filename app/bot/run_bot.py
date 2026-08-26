@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import datetime
-from threading import Thread
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
@@ -31,40 +29,6 @@ from app.kobo.sync import sync_kobo
 
 _auto_sync_task: asyncio.Task | None = None
 _last_auto_sync: dict | None = None
-_web_server_thread: Thread | None = None
-
-
-def _run_web_server() -> None:
-    """Serve the public movement map beside the Telegram polling bot.
-
-    Railway starts this module as the single container process.  Starting
-    Uvicorn here makes ``/map`` and ``/api/map/data`` available without a
-    second service or a different Railway start command.
-    """
-    import uvicorn
-
-    port = int(os.getenv("PORT", "8080"))
-    print(f"🌐 Movement map web server starting on PORT={port}")
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=port,
-        log_level="info",
-        loop="asyncio",
-        access_log=False,
-    )
-
-
-def _start_web_server() -> None:
-    global _web_server_thread
-    if _web_server_thread is not None and _web_server_thread.is_alive():
-        return
-    _web_server_thread = Thread(
-        target=_run_web_server,
-        name="movement-map-web",
-        daemon=True,
-    )
-    _web_server_thread.start()
 
 
 async def _auto_sync_loop() -> None:
@@ -213,10 +177,6 @@ def main() -> None:
     print(f"📁 Export directory: {settings.export_path}")
 
     init_db()
-
-    # Railway exposes only one process/PORT.  Run FastAPI in a daemon thread
-    # and keep Telegram polling on the main thread (required by PTB signals).
-    _start_web_server()
 
     app = _build_application()
 

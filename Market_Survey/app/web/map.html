@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#d90b24">
+  <title>KB Outlet Movement Map</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="/web/map.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">KB</div>
+    <div class="brand-copy"><h1>KB OUTLET MOVEMENT MAP</h1><p>Kobo Survey Data</p></div>
+    <div class="top-actions">
+      <div id="syncStatus" class="sync-status"><i></i><span>Loading data…</span></div>
+      <button id="refreshBtn" class="icon-btn" type="button" aria-label="Refresh map">↻</button>
+    </div>
+  </header>
+  <main class="app-shell">
+    <aside id="filterPanel" class="side-panel" aria-label="Map controls">
+      <div class="panel-head">
+        <div class="panel-tabs" role="tablist"><button class="tab active" data-tab="filters" type="button">FILTERS</button><button class="tab" data-tab="layers" type="button">LAYERS</button></div>
+        <button id="closeFilters" class="close-panel" type="button" aria-label="Close filters">×</button>
+      </div>
+      <section id="filtersTab" class="tab-panel active">
+        <label>Region<select id="region"><option value="">All regions</option></select></label>
+        <label>Dealer<select id="dealer"><option value="">All dealers</option></select></label>
+        <label>Report Date<select id="reportDate"><option value="">All report dates</option></select></label>
+        <label>Province / Capital<select id="province"><option value="">All provinces</option></select></label>
+        <label>District / Khan<select id="district"><option value="">All districts</option></select></label>
+        <label>Commune / Sangkat<select id="commune"><option value="">All communes</option></select></label>
+        <label>Product Category<select id="category"><option value="">All categories</option></select></label>
+        <label>Product<select id="product"><option value="">All products</option></select></label>
+        <label>Movement Rating<select id="movement"><option value="">All scores (1–10)</option><option value="1-4">1–4 · Very Low</option><option value="5-8">5–8 · Medium</option><option value="9-10">9–10 · Very Strong</option></select></label>
+        <button id="applyBtn" class="primary-btn" type="button">Apply Filters</button><button id="resetBtn" class="secondary-btn" type="button">Reset</button>
+      </section>
+      <section id="layersTab" class="tab-panel layers-panel">
+        <div class="layer-group"><strong>Movement data</strong><label><input id="movementLayer" type="checkbox" checked> Movement rating markers</label></div>
+        <div class="layer-group"><strong>Administrative labels</strong><label><input id="labelsLayer" type="checkbox" checked> Province, district and places</label></div>
+        <div class="layer-group"><strong>Basemap</strong><label><input name="basemap" type="radio" value="satellite" checked> Satellite</label><label><input name="basemap" type="radio" value="street"> Street</label></div>
+      </section>
+    </aside>
+    <section class="map-stage">
+      <div id="map" role="application" aria-label="Outlet movement map"></div>
+      <button id="openFilters" class="mobile-filter-btn" type="button">☰ Filters</button>
+      <div id="stats" class="stats-card" aria-live="polite"></div>
+      <div class="legend"><strong>MOVEMENT RATING</strong><span><i class="red"></i>1–4 <small>Very Low</small></span><span><i class="amber"></i>5–8 <small>Medium</small></span><span><i class="green"></i>9–10 <small>Very Strong</small></span></div>
+      <div id="emptyState" class="empty-state hidden"><strong>No matching movement data</strong><span>Change the filters and try again.</span></div>
+      <div id="loading" class="loading"><i></i><span>Loading movement map…</span></div>
+      <article id="detailCard" class="detail-card hidden" aria-live="polite"></article>
+    </section>
+  </main>
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script><script src="/web/map.js"></script>
+</body>
+</html>

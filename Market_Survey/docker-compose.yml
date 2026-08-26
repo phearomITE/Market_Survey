@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: survey_form_postgres
+    environment:
+      POSTGRES_DB: survey_form_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 2005
+    ports:
+      - "5438:5432"
+    volumes:
+      - survey_form_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d survey_form_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  survey_form_pgdata:
