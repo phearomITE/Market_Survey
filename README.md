@@ -7,7 +7,10 @@ Railway-ready Telegram bot for:
 - Dealer Excel reports
 - LibreOffice PDF/PNG rendering
 - Single-dealer and selected multi-dealer Telegram reports
-- Manual final summary selected by the four Outlet Name markers
+- Manual final summary selected by related Outlet Name cues, including
+  បូកសរុបរួម, សរុបរួម, សរុបចុងក្រោយ, prefixed names, punctuation and repeats
+- Automatic No Compromise section; Kobo supplies only បញ្ហាទីផ្សារ and
+  បញ្ហាត្រូវដោះស្រាយ
 
 ## Commands
 

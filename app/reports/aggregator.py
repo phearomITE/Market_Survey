@@ -889,45 +889,39 @@ FINAL_SUMMARY_KEYWORDS = (
     "សរុបរួម",
     "បួកសរុបរួម",
     "សរុបចុងក្រោយ",
-    "បូកសរុបចុងក្រោយ",
+)
+
+# These cues are intentionally matched anywhere in Outlet Name. Field teams
+# often prefix a name (for example ``# ចែ ម៉ៅ, បូកសរុបរួម``), add quotes or
+# punctuation, repeat the marker, or use a common spelling variant. Removing
+# whitespace/punctuation and looking for a summary cue keeps all those cases on
+# the final-summary path without requiring one exact phrase.
+FINAL_SUMMARY_CUES = (
+    "សរុបរួម",
+    "សរុបរូម",
+    "សរុបចុងក្រោយ",
+    "បូកសរុប",
+    "finalsummary",
+    "overallsummary",
+    "grandtotal",
 )
 
 
-def _compact_summary_name(value: Any) -> str:
-    """Normalize a Khmer summary label without damaging combining marks.
-
-    Kobo text can contain quotes, commas, ``#``, zero-width characters and
-    inconsistent spacing.  Removing only whitespace, punctuation and symbols
-    keeps Khmer letters/diacritics intact while making those harmless variants
-    compare consistently.
-    """
-    text = unicodedata.normalize("NFC", _clean_text(value)).casefold()
+def _normalize_summary_outlet_name(value: Any) -> str:
+    text = _clean_text(value).casefold()
     return "".join(
         char
         for char in text
-        if not (
-            char.isspace()
-            or unicodedata.category(char).startswith("P")
-            or unicodedata.category(char).startswith("S")
-        )
+        if not char.isspace()
+        and not unicodedata.category(char).startswith(("P", "S"))
     )
 
 
-_COMPACT_FINAL_SUMMARY_KEYWORDS = tuple(
-    _compact_summary_name(keyword) for keyword in FINAL_SUMMARY_KEYWORDS
-)
-
-
 def is_final_summary_outlet_name(value: Any) -> bool:
-    """Return True when Outlet Name contains a supported summary marker.
-
-    This intentionally accepts exact values and related variants such as
-    ``# ចែ ម៉ៅ , បូកសរុបរួម``.  Summary detection stays limited to the Outlet
-    Name field; narrative fields are never searched for a marker.
-    """
-    normalized = _compact_summary_name(value)
+    """Return True when Outlet Name contains a supported final-summary cue."""
+    normalized = _normalize_summary_outlet_name(value)
     return bool(normalized) and any(
-        keyword in normalized for keyword in _COMPACT_FINAL_SUMMARY_KEYWORDS
+        cue in normalized for cue in FINAL_SUMMARY_CUES
     )
 
 
@@ -972,8 +966,8 @@ def _latest_summary_submission(submissions: list):
 
 
 def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
-    # Summary selection is controlled only by Outlet Name. The Key Issues and
-    # Suggestion fields contain the actual summary text and need no keyword.
+    # Summary selection is controlled only by Outlet Name. The market-issue and
+    # action fields contain the actual summary text and need no keyword.
     latest = _latest_summary_submission(submissions)
     if latest is None:
         return [], []
@@ -981,19 +975,6 @@ def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
         _summary_points(getattr(latest, "key_issue_text", None)),
         _summary_points(getattr(latest, "suggestion_text", None)),
     )
-
-
-def _latest_fall_points(submissions: list) -> list[str]:
-    """Read ចំណុចដួល from the reused submitter_name storage field.
-
-    The database field name stays unchanged so existing deployments need no
-    schema migration. The Kobo label and generated report now present this
-    value as ចំណុចដួល only on the final-summary control submission.
-    """
-    latest = _latest_summary_submission(submissions)
-    if latest is None:
-        return []
-    return _summary_points(getattr(latest, "submitter_name", None))
 
 
 def _product_lookup_key(name: Any) -> str:
@@ -1421,7 +1402,6 @@ def aggregate_submissions(
         "products": {},
         "competitors": {},
         "ring_pull": {},
-        "fall_points": [],
         "key_issues": [],
         "suggestions": [],
     }
@@ -1575,11 +1555,8 @@ def aggregate_submissions(
 
     if include_manual_summary:
         key_issues, suggestions = _latest_manual_summary(all_submissions)
-        result["fall_points"] = _latest_fall_points(all_submissions)[:4]
         result["key_issues"] = key_issues[:4]
         result["suggestions"] = suggestions[:4]
-    while len(result["fall_points"]) < 4:
-        result["fall_points"].append("")
     while len(result["key_issues"]) < 4:
         result["key_issues"].append("")
     while len(result["suggestions"]) < 4:

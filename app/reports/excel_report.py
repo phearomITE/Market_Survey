@@ -62,6 +62,15 @@ SUMMARY_MAX_ROW_HEIGHT = 140
 SUMMARY_FONT_NAME = "Noto Sans Khmer"
 SUMMARY_FONT_SIZE = 17
 
+# Fixed management rules. They are written on every generated report, so the
+# No Compromise block stays automatic and never depends on a Kobo response.
+NO_COMPROMISE_ITEMS = (
+    "1.Mass Products មិនត្រូវឲ្យខ្វះស្លកក្នុងផ្ទះមួយ(CBL/Wurkz/Exprez/Dazz/Water/Sport PET 500ml/Ize PET 500ml)",
+    "2.ផលិតផលហួសការកំណត់",
+    "3. ការបញ្ចូលរបាយការណ៍លក់មិនត្រឹមត្រូវ",
+    "4. របាយការណ៍លក់ជូនអតិថិជនមិនពិត (ទាំងចំនួនលក់ និងតម្លៃ)។",
+)
+
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
     "CBC LITE ORD": "CB LITE ORD",
@@ -146,9 +155,10 @@ def _find_movement_header_row(ws: Worksheet) -> int | None:
 
 
 def _find_summary_header_row(ws: Worksheet) -> int | None:
+    accepted_headers = {"key issues", "បញ្ហាទីផ្សារ"}
     for row in range(1, min(ws.max_row, 90) + 1):
         for col in range(1, min(ws.max_column, 27) + 1):
-            if _clean(ws.cell(row, col).value).casefold() == "key issues":
+            if _clean(ws.cell(row, col).value).casefold() in accepted_headers:
                 return row
     return None
 
@@ -156,10 +166,9 @@ def _find_summary_header_row(ws: Worksheet) -> int | None:
 def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
     """Resolve GT/HORECA coordinates from the selected template itself.
 
-    Both report templates now end with three parallel blocks: ចំណុចដួល,
-    Key Issues and Initiative/Suggestion. The removed fixed Ring Pull block no
-    longer owns any rows, so template scanning prevents it from reappearing or
-    overwriting the new summary area.
+    Both report templates end with three parallel blocks: No Compromise,
+    បញ្ហាទីផ្សារ and បញ្ហាត្រូវដោះស្រាយ. Template scanning accepts both the
+    new Khmer header and the legacy English header.
     """
     movement_header = _find_movement_header_row(ws)
     summary_header = _find_summary_header_row(ws)
@@ -173,19 +182,6 @@ def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
         ]
         movement_end = max(product_rows) if product_rows else summary_header - 1
         issue_start = summary_header + 1
-        # Preserve any template footer added below the four narrative rows.
-        # The current General template uses rows 51-55 for No Compromise.
-        footer_end = max(
-            (
-                row
-                for row in range(issue_start + 4, ws.max_row + 1)
-                if any(
-                    _clean(ws.cell(row, col).value)
-                    for col in range(1, min(ws.max_column, 27) + 1)
-                )
-            ),
-            default=issue_start + 3,
-        )
         return {
             "freshness_end": movement_header - 2,
             "movement_header": movement_header,
@@ -193,7 +189,7 @@ def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
             "movement_end": movement_end,
             "summary_header": summary_header,
             "issue_start": issue_start,
-            "print_end": footer_end,
+            "print_end": issue_start + 3,
         }
 
     # Backward-safe fallback for an unexpected custom template.
@@ -851,19 +847,39 @@ def _set_row_text(ws: Worksheet, row: int, col: int, prefix_no: int, text: str) 
     return _estimate_summary_lines(value)
 
 
+def _set_fixed_summary_text(ws: Worksheet, row: int, col: int, text: str) -> int:
+    """Write one automatic No Compromise item without adding a second number."""
+    value = _clean_summary_text(text)
+    cell = ws.cell(row, col)
+    cell.value = value
+    cell.font = Font(
+        name=SUMMARY_FONT_NAME,
+        size=SUMMARY_FONT_SIZE,
+        bold=False,
+        color="000000",
+    )
+    cell.alignment = Alignment(
+        horizontal="left",
+        vertical="center",
+        wrap_text=True,
+        shrink_to_fit=False,
+    )
+    return _estimate_summary_lines(value)
+
+
 def _fit_summary_row_height(
     ws: Worksheet,
     row: int,
     issue_lines: int,
     suggestion_lines: int,
-    fall_point_lines: int = 1,
+    no_compromise_lines: int = 1,
 ) -> None:
     """Give each of summary rows 1-4 clear vertical breathing room.
 
     Empty rows also keep the same minimum height, so 1, 2, 3 and 4 remain
     evenly separated in Excel and in Railway's LibreOffice PNG output.
     """
-    max_lines = max(fall_point_lines, issue_lines, suggestion_lines, 1)
+    max_lines = max(no_compromise_lines, issue_lines, suggestion_lines, 1)
     height = SUMMARY_MIN_ROW_HEIGHT + ((max_lines - 1) * SUMMARY_LINE_HEIGHT)
     ws.row_dimensions[row].height = min(SUMMARY_MAX_ROW_HEIGHT, height)
 
@@ -972,23 +988,24 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
 
-    # Bottom summary text. The old fixed Ring Pull block was removed and is
-    # replaced by ចំណុចដួល beside Key Issues and Initiative/Suggestion.
-    fall_points = list((agg.get("fall_points") or [])[:4])
+    # Bottom management section. No Compromise is always automatic; only the
+    # market issues and actions come from the final-summary Kobo submission.
     key_issues = list((agg.get("key_issues") or [])[:4])
     suggestions = list((agg.get("suggestions") or [])[:4])
-    while len(fall_points) < 4:
-        fall_points.append("")
     while len(key_issues) < 4:
         key_issues.append("")
     while len(suggestions) < 4:
         suggestions.append("")
 
-    ws.cell(layout["summary_header"], 1).value = "ចំណុចដួល"
+    ws.cell(layout["summary_header"], 1).value = "No Compromise"
+    ws.cell(layout["summary_header"], 9).value = "បញ្ហាទីផ្សារ"
+    ws.cell(layout["summary_header"], 19).value = "បញ្ហាត្រូវដោះស្រាយ"
     for i in range(4):
         issue_start = layout["issue_start"]
         row = issue_start + i
-        fall_point_lines = _set_row_text(ws, row, 1, i + 1, fall_points[i])
+        no_compromise_lines = _set_fixed_summary_text(
+            ws, row, 1, NO_COMPROMISE_ITEMS[i]
+        )
         issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
         suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
         _fit_summary_row_height(
@@ -996,7 +1013,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
             row,
             issue_lines,
             suggestion_lines,
-            fall_point_lines=fall_point_lines,
+            no_compromise_lines=no_compromise_lines,
         )
 
     # Apply to Location, stock labels, key issues and suggestions. The Excel
@@ -1082,7 +1099,6 @@ def _blank_agg(dealer: str, report_date) -> dict:
         "products": {p: {"availability": {}} for p in OWN_PRODUCTS},
         "competitors": {p: {} for p in COMPETITOR_PRODUCTS},
         "ring_pull": {p: {"total_outlets": 0, "qty": 0} for p in RING_PRODUCTS},
-        "fall_points": ["", "", "", ""],
         "key_issues": ["", "", "", ""],
         "suggestions": ["", "", "", ""],
     }

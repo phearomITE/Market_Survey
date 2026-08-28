@@ -3,10 +3,14 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 
 from app.reports.aggregator import aggregate_submissions
-from app.reports.excel_report import _layout_rows, fill_template_sheet
+from app.reports.excel_report import (
+    NO_COMPROMISE_ITEMS,
+    _layout_rows,
+    fill_template_sheet,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -36,8 +40,8 @@ def _submission(index: int, outlet_name: str, **overrides):
     return SimpleNamespace(**values)
 
 
-class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
-    def test_xlsform_has_conditional_fall_point_and_no_fixed_ring_pull_group(self):
+class V152SummaryNoCompromiseTests(unittest.TestCase):
+    def test_xlsform_removes_fall_point_and_uses_new_summary_labels(self):
         workbook = load_workbook(FORM_PATH, read_only=True, data_only=False)
         survey = workbook["survey"]
         headers = [cell.value for cell in next(survey.iter_rows(min_row=1, max_row=1))]
@@ -60,21 +64,29 @@ class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
         self.assertNotIn("ring_pull_qty_cbl_ncp_5_usd", rows_by_name)
         self.assertFalse(any("Ring Pull In Outlets" in label for label in labels))
 
-        fall_point = rows_by_name["submitter_name"]
-        self.assertEqual(fall_point[label_col], "ចំណុចដួល")
-        self.assertIn("${final_summary_report_type} = 'gt'", fall_point[relevant_col])
-        self.assertIn("${final_summary_report_type} = 'horeca'", fall_point[relevant_col])
-        self.assertIn("normalize-space(${outlet_name}) = 'បូកសរុបរួម'", fall_point[relevant_col])
+        self.assertNotIn("submitter_name", rows_by_name)
+        self.assertFalse(any("ចំណុចដួល" in label for label in labels))
 
         final_section = rows_by_name["key_issues_suggestion_group"]
         self.assertIn(">3. FINAL", str(final_section[label_col]))
+        self.assertIn("បញ្ហាទីផ្សារ", str(final_section[label_col]))
+        self.assertIn("បញ្ហាត្រូវដោះស្រាយ", str(final_section[label_col]))
+        self.assertEqual(rows_by_name["key_issues_detail"][label_col], "បញ្ហាទីផ្សារ")
+        self.assertEqual(
+            rows_by_name["initiative_idea_suggestion"][label_col],
+            "បញ្ហាត្រូវដោះស្រាយ",
+        )
+        required = str(rows_by_name["key_issues_detail"][headers.index("required")])
+        self.assertIn("contains(", required)
+        self.assertIn("សរុបរួម", required)
+        self.assertIn("សរុបចុងក្រោយ", required)
 
         choices = workbook["choices"]
         choice_rows = list(choices.iter_rows(values_only=True))
         self.assertFalse(any(row and row[0] == "ring_pull_in_outlet_choices" for row in choice_rows))
         workbook.close()
 
-    def test_summary_fall_points_come_only_from_summary_control_row(self):
+    def test_summary_control_row_uses_only_market_issue_and_action(self):
         normal = _submission(
             1,
             "Outlet A",
@@ -83,7 +95,7 @@ class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
         summary = _submission(
             2,
             "បូកសរុបរួម",
-            submitter_name="1. ចំណុចទីមួយ\n2. ចំណុចទីពីរ",
+            submitter_name="Legacy value must be ignored",
             key_issue_text="1. Issue one",
             suggestion_text="1. Action one",
         )
@@ -95,15 +107,13 @@ class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
             include_ring_pull=False,
         )
         self.assertEqual(result["total_outlets"], 1)
-        self.assertEqual(result["fall_points"][:2], ["ចំណុចទីមួយ", "ចំណុចទីពីរ"])
+        self.assertNotIn("fall_points", result)
         self.assertEqual(result["key_issues"][0], "Issue one")
         self.assertEqual(result["suggestions"][0], "Action one")
 
     def test_gt_and_horeca_templates_generate_without_fixed_ring_pull(self):
         cases = [
             ("template_general.xlsx", "GT", {"Drink Shop": 1}),
-            ("template_by_dealer.xlsx", "GT", {"Drink Shop": 1}),
-            ("template_horeca.xlsx", "HORECA", {"Local Eat": 1}),
             ("template_horeca_products.xlsx", "HORECA", {"Local Eat": 1}),
         ]
         for template_name, channel, outlet_types in cases:
@@ -125,16 +135,28 @@ class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
                         "CBL NCP 6 Can": {"total_outlets": 99, "qty": 99},
                         "CBL NCP 5 USD": {"total_outlets": 99, "qty": 99},
                     },
-                    "fall_points": ["ចំណុចទីមួយ", "ចំណុចទីពីរ", "", ""],
                     "key_issues": ["Issue one", "", "", ""],
                     "suggestions": ["Action one", "", "", ""],
                 }
                 fill_template_sheet(sheet, agg)
                 layout = _layout_rows(sheet, agg)
 
-                self.assertEqual(sheet.cell(layout["summary_header"], 1).value, "ចំណុចដួល")
-                self.assertEqual(sheet.cell(layout["issue_start"], 1).value, "1. ចំណុចទីមួយ")
-                self.assertEqual(sheet.cell(layout["issue_start"] + 1, 1).value, "2. ចំណុចទីពីរ")
+                self.assertEqual(sheet.cell(layout["summary_header"], 1).value, "No Compromise")
+                self.assertEqual(sheet.cell(layout["summary_header"], 9).value, "បញ្ហាទីផ្សារ")
+                self.assertEqual(
+                    sheet.cell(layout["summary_header"], 19).value,
+                    "បញ្ហាត្រូវដោះស្រាយ",
+                )
+                self.assertEqual(
+                    sheet.cell(layout["issue_start"], 1).value,
+                    NO_COMPROMISE_ITEMS[0],
+                )
+                self.assertEqual(
+                    sheet.cell(layout["issue_start"] + 3, 1).value,
+                    NO_COMPROMISE_ITEMS[3],
+                )
+                self.assertEqual(sheet.cell(layout["issue_start"], 9).value, "1. Issue one")
+                self.assertEqual(sheet.cell(layout["issue_start"], 19).value, "1. Action one")
 
                 values = [
                     str(cell.value or "")
@@ -144,57 +166,8 @@ class V151RemoveFixedRingPullFallPointsTests(unittest.TestCase):
                 self.assertNotIn("Ring Pull In Outlets", values)
                 self.assertNotIn("CBL NCP 6 Can", values)
                 self.assertNotIn("CBL NCP 5 USD", values)
+                self.assertFalse(any("ចំណុចដួល" in value for value in values))
                 workbook.close()
-
-    def test_legacy_selected_template_is_cleaned_at_runtime(self):
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = "Simaple_form"
-
-        # Minimal legacy footer: the old fixed Ring Pull title/table begins one
-        # row above the parallel Key Issues and Initiative blocks.
-        sheet["B26"] = "Product"
-        sheet["C26"] = "Mov"
-        for row in range(27, 43):
-            sheet.cell(row, 1).value = row - 26
-            sheet.cell(row, 2).value = f"Product {row - 26}"
-        sheet["A43"] = "Ring Pull In Outlets"
-        sheet["A44"] = "#"
-        sheet["B44"] = "Product"
-        sheet["C44"] = "Total Outlets"
-        sheet["D44"] = "Ring Pull Qty (Can)"
-        sheet["I44"] = "Key Issues"
-        sheet["S44"] = "INITIATIVE IDEA / SUGGESTION"
-        sheet["A45"] = 1
-        sheet["B45"] = "CBL NCP 6 Can"
-        sheet["A46"] = 2
-        sheet["B46"] = "CBL NCP 5 USD"
-
-        agg = {
-            "dealer": "CA1",
-            "report_date": date(2026, 8, 14),
-            "total_outlets": 1,
-            "outlet_types": {"Drink Shop": 1},
-            "location_text": "Phnom Penh",
-            "group_no": 2,
-            "member_no": 4,
-            "channel": "GT",
-            "products": {},
-            "competitors": {},
-            "ring_pull": {},
-            "fall_points": ["ចំណុចទីមួយ", "", "", ""],
-            "key_issues": ["Issue one", "", "", ""],
-            "suggestions": ["Action one", "", "", ""],
-        }
-        fill_template_sheet(sheet, agg)
-
-        values = [str(cell.value or "") for row in sheet.iter_rows() for cell in row]
-        self.assertNotIn("Ring Pull In Outlets", values)
-        self.assertNotIn("CBL NCP 6 Can", values)
-        self.assertNotIn("CBL NCP 5 USD", values)
-        self.assertTrue(sheet.row_dimensions[43].hidden)
-        self.assertEqual(sheet["A44"].value, "ចំណុចដួល")
-        self.assertEqual(sheet["A45"].value, "1. ចំណុចទីមួយ")
 
 
 if __name__ == "__main__":

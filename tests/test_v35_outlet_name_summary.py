@@ -23,6 +23,7 @@ from app.reports.excel_report import (
     RING_PULL_START_ROW,
     ISSUE_START_ROW,
 )
+from app.kobo.parser import normalize_submission
 
 
 def test_exact_report_rows():
@@ -42,6 +43,19 @@ def test_new_kobo_field_names():
     assert "comp_stock_status_king_kong_ice" in competitor_field("King Kong Ice", "stock")
     # Cross-over product uses its own-product question in the competitor report block.
     assert "fresh_movement_score_cb_original_ncp" in competitor_field("CB Original NCP", "mov")
+
+
+def test_khmer_summary_labels_parse_into_existing_database_fields():
+    normalized = normalize_submission(
+        {
+            "_id": "summary-1",
+            "outlet_name": "# ចែ ម៉ៅ, បូកសរុបរួម",
+            "បញ្ហាទីផ្សារ": "ស្តុកទាប",
+            "បញ្ហាត្រូវដោះស្រាយ": "បំពេញស្តុក",
+        }
+    )
+    assert normalized["key_issue_text"] == "ស្តុកទាប"
+    assert normalized["suggestion_text"] == "បំពេញស្តុក"
 
 
 def _submission(idx, outlet_name, issue="", suggestion="", hour=8):
@@ -65,10 +79,12 @@ def test_latest_summary_selected_by_outlet_name_only():
     assert issues == ["Low stock", "Slow movement"]
     assert suggestions == ["Refill stock", "Visit outlet"]
     assert is_final_summary_outlet_name(" បូកសរុបរួម ")
-    assert is_final_summary_outlet_name("# ចែ ម៉ៅ , បូកសរុបរួម")
-    assert is_final_summary_outlet_name('"សរុបចុងក្រោយ"')
-    assert is_final_summary_outlet_name("Outlet បូកសរុបរួម Shop")
-    assert not is_final_summary_outlet_name("Outlet A")
+    assert is_final_summary_outlet_name("# ចែ ម៉ៅ, បូកសរុបរួម")
+    assert is_final_summary_outlet_name('“បូក សរុប រួម”')
+    assert is_final_summary_outlet_name("បូកសរុបរួម, បូកសរុបរួម")
+    assert is_final_summary_outlet_name("សរុបចុងក្រោយ")
+    assert is_final_summary_outlet_name("Outlet Final Summary")
+    assert not is_final_summary_outlet_name("Outlet Shop")
 
 
 def test_summary_control_row_is_not_counted_as_outlet():

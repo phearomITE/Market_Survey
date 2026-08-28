@@ -130,14 +130,20 @@ class V105BusinessMovementTests(unittest.TestCase):
         self.assertEqual(result["total_outlets"], 3)
         self.assertEqual(result["products"]["CAMBODIA ED"]["_movement_points"], 3)
 
-    def test_combined_summary_outlet_marker_is_excluded(self):
+    def test_related_summary_outlet_markers_are_excluded(self):
         self.assertTrue(
             self.aggregator.is_final_summary_outlet_name(" បូកសរុបរួម ")
         )
-        self.assertFalse(
+        self.assertTrue(
             self.aggregator.is_final_summary_outlet_name(
-                "Outlet បូកសរុបរួម Shop"
+                "# ចែ ម៉ៅ, បូកសរុបរួម"
             )
+        )
+        self.assertTrue(
+            self.aggregator.is_final_summary_outlet_name("សរុបចុងក្រោយ")
+        )
+        self.assertFalse(
+            self.aggregator.is_final_summary_outlet_name("Outlet Shop")
         )
 
     def test_every_gt_and_horeca_comparison_product_is_registered(self):

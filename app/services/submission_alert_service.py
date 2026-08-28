@@ -6,9 +6,7 @@ from zoneinfo import ZoneInfo
 
 from app.data.dealers import ALL_DEALERS
 from app.kobo.sync import fetch_report_submissions_fast
-
-
-SUMMARY_NAMES = {"បូកសរុបរួម", "បូកសរុបរូម", "សរុបរួម", "បួកសរុបរួម"}
+from app.reports.aggregator import is_final_summary_outlet_name
 
 
 def _clean(value) -> str:
@@ -26,16 +24,13 @@ def local_today() -> date:
 def dealer_submission_counts(report_date: date) -> dict[str, int]:
     counts: Counter[str] = Counter()
     official = set(ALL_DEALERS)
-    summary_names = {value.replace(" ", "") for value in SUMMARY_NAMES}
     submissions = fetch_report_submissions_fast(
         None, report_date, metadata_only=True
     )
     for submission in submissions:
         dealer = _clean(getattr(submission, "dealer", None)).upper()
-        outlet_name = _clean(
-            getattr(submission, "outlet_name", None)
-        ).replace(" ", "")
-        if dealer in official and outlet_name not in summary_names:
+        outlet_name = getattr(submission, "outlet_name", None)
+        if dealer in official and not is_final_summary_outlet_name(outlet_name):
             counts[dealer] += 1
     return {dealer: int(counts.get(dealer, 0)) for dealer in ALL_DEALERS}
 
