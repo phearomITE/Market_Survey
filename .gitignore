@@ -12,3 +12,8 @@ exports/*
 .DS_Store
 .idea/
 .vscode/
+
+# Ignore documentation and version-note files
+*.md
+*.txt
+!requirements*.txt
