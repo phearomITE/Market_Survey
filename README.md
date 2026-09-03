@@ -1,4 +1,4 @@
-# KB Market Survey Bot V39
+# KB Market Survey Bot V153
 
 Railway-ready Telegram bot for:
 
@@ -7,10 +7,9 @@ Railway-ready Telegram bot for:
 - Dealer Excel reports
 - LibreOffice PDF/PNG rendering
 - Single-dealer and selected multi-dealer Telegram reports
-- Manual final summary selected by related Outlet Name cues, including
-  បូកសរុបរួម, សរុបរួម, សរុបចុងក្រោយ, prefixed names, punctuation and repeats
-- Automatic No Compromise section; Kobo supplies only បញ្ហាទីផ្សារ and
-  បញ្ហាត្រូវដោះស្រាយ
+- Flexible final-summary Outlet Name matching in Khmer or English
+- Automatic weekly rotation between No Compromise and Don't
+- Six បញ្ហាទីផ្សារ and six បញ្ហាត្រូវដោះស្រាយ lines
 
 ## Commands
 

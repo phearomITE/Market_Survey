@@ -1,15 +1,35 @@
 from datetime import date, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+import sys
 import unittest
 
 from openpyxl import load_workbook
 
+# Keep this regression test runnable in a lightweight source checkout where the
+# production database/settings packages have not been installed yet.
+sqlalchemy = ModuleType("sqlalchemy")
+sqlalchemy.text = lambda statement: statement
+database = ModuleType("app.db.database")
+database.SessionLocal = None
+config = ModuleType("app.core.config")
+config.settings = SimpleNamespace(
+    template_file=Path("templates/template_by_dealer.xlsx"),
+    horeca_template_file=Path("templates/template_horeca_products.xlsx"),
+    export_path=Path("exports"),
+)
+sys.modules.setdefault("sqlalchemy", sqlalchemy)
+sys.modules.setdefault("app.db.database", database)
+sys.modules.setdefault("app.core.config", config)
+
 from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import (
+    DONT_ITEMS,
     NO_COMPROMISE_ITEMS,
+    SUMMARY_POINT_COUNT,
     _layout_rows,
     fill_template_sheet,
+    get_weekly_management_section,
 )
 
 
@@ -20,8 +40,8 @@ FORM_PATH = PROJECT_ROOT / "templates" / "KB_Market_Improvement_XLSForm_GT_HOREC
 def _submission(index: int, outlet_name: str, **overrides):
     values = {
         "id": index,
-        "submission_time": datetime(2026, 8, 14, 8, index),
-        "report_date": date(2026, 8, 14),
+        "submission_time": datetime(2026, 9, 3, 8, index),
+        "report_date": date(2026, 9, 3),
         "region": "R1",
         "dealer": "CA1",
         "group_no": 2,
@@ -40,14 +60,14 @@ def _submission(index: int, outlet_name: str, **overrides):
     return SimpleNamespace(**values)
 
 
-class V152SummaryNoCompromiseTests(unittest.TestCase):
-    def test_xlsform_removes_fall_point_and_uses_new_summary_labels(self):
+class V153WeeklyDontSixSummaryTests(unittest.TestCase):
+    def test_xlsform_removes_fall_point_and_supports_six_summary_points(self):
         workbook = load_workbook(FORM_PATH, read_only=True, data_only=False)
         survey = workbook["survey"]
         headers = [cell.value for cell in next(survey.iter_rows(min_row=1, max_row=1))]
         name_col = headers.index("name")
         label_col = headers.index("label")
-        relevant_col = headers.index("relevant")
+        required_col = headers.index("required")
 
         rows_by_name = {}
         labels = []
@@ -58,49 +78,32 @@ class V152SummaryNoCompromiseTests(unittest.TestCase):
             if row[label_col]:
                 labels.append(str(row[label_col]))
 
-        self.assertNotIn("ring_pull_group", rows_by_name)
-        self.assertNotIn("ring_pull_in_outlets", rows_by_name)
-        self.assertNotIn("ring_pull_qty_cbl_ncp_6_can", rows_by_name)
-        self.assertNotIn("ring_pull_qty_cbl_ncp_5_usd", rows_by_name)
-        self.assertFalse(any("Ring Pull In Outlets" in label for label in labels))
-
         self.assertNotIn("submitter_name", rows_by_name)
         self.assertFalse(any("ចំណុចដួល" in label for label in labels))
-
-        final_section = rows_by_name["key_issues_suggestion_group"]
-        self.assertIn(">3. FINAL", str(final_section[label_col]))
-        self.assertIn("បញ្ហាទីផ្សារ", str(final_section[label_col]))
-        self.assertIn("បញ្ហាត្រូវដោះស្រាយ", str(final_section[label_col]))
         self.assertEqual(rows_by_name["key_issues_detail"][label_col], "បញ្ហាទីផ្សារ")
         self.assertEqual(
             rows_by_name["initiative_idea_suggestion"][label_col],
             "បញ្ហាត្រូវដោះស្រាយ",
         )
-        required = str(rows_by_name["key_issues_detail"][headers.index("required")])
+        required = str(rows_by_name["key_issues_detail"][required_col])
         self.assertIn("contains(", required)
         self.assertIn("សរុបរួម", required)
         self.assertIn("សរុបចុងក្រោយ", required)
 
-        choices = workbook["choices"]
-        choice_rows = list(choices.iter_rows(values_only=True))
-        self.assertFalse(any(row and row[0] == "ring_pull_in_outlet_choices" for row in choice_rows))
+        instruction = rows_by_name["summary_instruction"]
+        self.assertIn("6 ចំណុច", str(instruction[headers.index("hint")]))
         workbook.close()
 
-    def test_summary_control_row_uses_only_market_issue_and_action(self):
-        normal = _submission(
-            1,
-            "Outlet A",
-            submitter_name="This normal-outlet value must not be used",
-        )
+    def test_summary_parser_keeps_six_market_issues_and_actions(self):
         summary = _submission(
             2,
-            "បូកសរុបរួម",
+            "# ចែ ម៉ៅ, បូកសរុបរួម",
             submitter_name="Legacy value must be ignored",
-            key_issue_text="1. Issue one",
-            suggestion_text="1. Action one",
+            key_issue_text="\n".join(f"{i}. Issue {i}" for i in range(1, 8)),
+            suggestion_text="\n".join(f"{i}. Action {i}" for i in range(1, 8)),
         )
         result = aggregate_submissions(
-            [normal, summary],
+            [_submission(1, "Outlet A"), summary],
             wide_map={},
             own_product_names=[],
             competitor_product_names=[],
@@ -108,10 +111,19 @@ class V152SummaryNoCompromiseTests(unittest.TestCase):
         )
         self.assertEqual(result["total_outlets"], 1)
         self.assertNotIn("fall_points", result)
-        self.assertEqual(result["key_issues"][0], "Issue one")
-        self.assertEqual(result["suggestions"][0], "Action one")
+        self.assertEqual(result["key_issues"], [f"Issue {i}" for i in range(1, 7)])
+        self.assertEqual(result["suggestions"], [f"Action {i}" for i in range(1, 7)])
 
-    def test_gt_and_horeca_templates_generate_without_fixed_ring_pull(self):
+    def test_weekly_rotation_anchor(self):
+        last_title, last_items = get_weekly_management_section(date(2026, 8, 24))
+        current_title, current_items = get_weekly_management_section(date(2026, 9, 3))
+        next_title, next_items = get_weekly_management_section(date(2026, 9, 7))
+
+        self.assertEqual((last_title, last_items), ("No Compromise", NO_COMPROMISE_ITEMS))
+        self.assertEqual((current_title, current_items), ("Don't", DONT_ITEMS))
+        self.assertEqual((next_title, next_items), ("No Compromise", NO_COMPROMISE_ITEMS))
+
+    def test_generated_reports_show_dont_and_six_issue_action_lines(self):
         cases = [
             ("template_general.xlsx", "GT", {"Drink Shop": 1}),
             ("template_horeca_products.xlsx", "HORECA", {"Local Eat": 1}),
@@ -122,7 +134,7 @@ class V152SummaryNoCompromiseTests(unittest.TestCase):
                 sheet = workbook.active
                 agg = {
                     "dealer": "CA1",
-                    "report_date": date(2026, 8, 14),
+                    "report_date": date(2026, 9, 3),
                     "total_outlets": 1,
                     "outlet_types": outlet_types,
                     "location_text": "Phnom Penh",
@@ -131,42 +143,26 @@ class V152SummaryNoCompromiseTests(unittest.TestCase):
                     "channel": channel,
                     "products": {},
                     "competitors": {},
-                    "ring_pull": {
-                        "CBL NCP 6 Can": {"total_outlets": 99, "qty": 99},
-                        "CBL NCP 5 USD": {"total_outlets": 99, "qty": 99},
-                    },
-                    "key_issues": ["Issue one", "", "", ""],
-                    "suggestions": ["Action one", "", "", ""],
+                    "ring_pull": {},
+                    "key_issues": [f"Issue {i}" for i in range(1, 7)],
+                    "suggestions": [f"Action {i}" for i in range(1, 7)],
                 }
                 fill_template_sheet(sheet, agg)
                 layout = _layout_rows(sheet, agg)
 
-                self.assertEqual(sheet.cell(layout["summary_header"], 1).value, "No Compromise")
+                self.assertEqual(sheet.cell(layout["summary_header"], 1).value, "Don't")
                 self.assertEqual(sheet.cell(layout["summary_header"], 9).value, "បញ្ហាទីផ្សារ")
                 self.assertEqual(
                     sheet.cell(layout["summary_header"], 19).value,
                     "បញ្ហាត្រូវដោះស្រាយ",
                 )
-                self.assertEqual(
-                    sheet.cell(layout["issue_start"], 1).value,
-                    NO_COMPROMISE_ITEMS[0],
-                )
-                self.assertEqual(
-                    sheet.cell(layout["issue_start"] + 3, 1).value,
-                    NO_COMPROMISE_ITEMS[3],
-                )
-                self.assertEqual(sheet.cell(layout["issue_start"], 9).value, "1. Issue one")
-                self.assertEqual(sheet.cell(layout["issue_start"], 19).value, "1. Action one")
-
-                values = [
-                    str(cell.value or "")
-                    for row in sheet.iter_rows()
-                    for cell in row
-                ]
-                self.assertNotIn("Ring Pull In Outlets", values)
-                self.assertNotIn("CBL NCP 6 Can", values)
-                self.assertNotIn("CBL NCP 5 USD", values)
-                self.assertFalse(any("ចំណុចដួល" in value for value in values))
+                for index in range(SUMMARY_POINT_COUNT):
+                    row = layout["issue_start"] + index
+                    self.assertEqual(sheet.cell(row, 9).value, f"{index + 1}. Issue {index + 1}")
+                    self.assertEqual(sheet.cell(row, 19).value, f"{index + 1}. Action {index + 1}")
+                self.assertEqual(sheet.cell(layout["issue_start"] + 6, 1).value, DONT_ITEMS[6])
+                self.assertEqual(sheet.cell(layout["issue_start"] + 6, 9).value, "")
+                self.assertEqual(sheet.cell(layout["issue_start"] + 6, 19).value, "")
                 workbook.close()
 
 

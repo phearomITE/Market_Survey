@@ -3,7 +3,28 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from datetime import datetime
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+
+try:
+    import sqlalchemy  # noqa: F401
+except ModuleNotFoundError:
+    sqlalchemy = ModuleType("sqlalchemy")
+    sqlalchemy.text = lambda statement: statement
+    database = ModuleType("app.db.database")
+    database.SessionLocal = None
+    sys.modules["sqlalchemy"] = sqlalchemy
+    sys.modules["app.db.database"] = database
+
+try:
+    import pydantic_settings  # noqa: F401
+except ModuleNotFoundError:
+    config = ModuleType("app.core.config")
+    config.settings = SimpleNamespace(
+        template_file=Path("templates/template_by_dealer.xlsx"),
+        horeca_template_file=Path("templates/template_horeca_products.xlsx"),
+        export_path=Path("exports"),
+    )
+    sys.modules["app.core.config"] = config
 
 from app.reports.aggregator import (
     OWN_PRODUCTS,

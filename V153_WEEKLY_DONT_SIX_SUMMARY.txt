@@ -1,0 +1,13 @@
+V153 - WEEKLY DON'T / SIX SUMMARY LINES
+
+1. The automatic management block alternates every Monday by report date.
+2. Week starting 24-Aug-2026: No Compromise.
+3. Week starting 31-Aug-2026: Don't.
+4. The next weeks continue alternating automatically.
+5. Don't contains the seven approved Khmer management rules.
+6. បញ្ហាទីផ្សារ supports up to six numbered points.
+7. បញ្ហាត្រូវដោះស្រាយ supports up to six numbered points.
+8. The report expands its final section automatically to fit all seven Don't
+   rules while keeping exactly six market-issue/action lines.
+9. Flexible final-summary Outlet Name matching from V152 is retained.
+10. The Kobo form removes ចំណុចដួល and uses the new Khmer labels/instructions.

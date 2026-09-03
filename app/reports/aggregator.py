@@ -891,11 +891,10 @@ FINAL_SUMMARY_KEYWORDS = (
     "សរុបចុងក្រោយ",
 )
 
-# These cues are intentionally matched anywhere in Outlet Name. Field teams
-# often prefix a name (for example ``# ចែ ម៉ៅ, បូកសរុបរួម``), add quotes or
-# punctuation, repeat the marker, or use a common spelling variant. Removing
-# whitespace/punctuation and looking for a summary cue keeps all those cases on
-# the final-summary path without requiring one exact phrase.
+
+# Summary cues are accepted anywhere in Outlet Name. This supports names with
+# a person/outlet prefix, punctuation, repeated markers, common Khmer spelling
+# variants, and English equivalents used by field teams.
 FINAL_SUMMARY_CUES = (
     "សរុបរួម",
     "សរុបរូម",
@@ -936,11 +935,11 @@ def _strip_final_summary_keyword(value: Any) -> str:
     return text_value.strip(" :-–—|\n\t")
 
 
-def _summary_points(value: Any, limit: int = 4) -> list[str]:
+def _summary_points(value: Any, limit: int = 6) -> list[str]:
     text_value = _strip_final_summary_keyword(value)
     if not text_value:
         return []
-    pieces = re.split(r"(?:\r?\n)+|[;；]+|(?:(?<=^)|(?<=\s))[1-4][.)៖:]\s*|[•▪◦●]+", text_value)
+    pieces = re.split(r"(?:\r?\n)+|[;；]+|(?:(?<=^)|(?<=\s))[1-6][.)៖:]\s*|[•▪◦●]+", text_value)
     cleaned: list[str] = []
     for piece in pieces:
         item = re.sub(r"^[-–—*]+\s*", "", str(piece or "")).strip()
@@ -1555,10 +1554,10 @@ def aggregate_submissions(
 
     if include_manual_summary:
         key_issues, suggestions = _latest_manual_summary(all_submissions)
-        result["key_issues"] = key_issues[:4]
-        result["suggestions"] = suggestions[:4]
-    while len(result["key_issues"]) < 4:
+        result["key_issues"] = key_issues[:6]
+        result["suggestions"] = suggestions[:6]
+    while len(result["key_issues"]) < 6:
         result["key_issues"].append("")
-    while len(result["suggestions"]) < 4:
+    while len(result["suggestions"]) < 6:
         result["suggestions"].append("")
     return result
