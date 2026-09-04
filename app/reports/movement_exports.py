@@ -23,6 +23,11 @@ from app.reports.aggregator import (
     load_wide_payloads,
 )
 
+try:
+    from app.reports.aggregator import final_movement_product_data
+except ImportError:  # Backward-compatible with lightweight legacy test stubs.
+    final_movement_product_data = None
+
 
 BEER_PRODUCTS = [
     "CB LITE ORD",
@@ -127,6 +132,17 @@ def _members_text(submissions: list) -> str:
 
 
 def _summary_product_data(agg: dict, product: str) -> dict:
+    # Use the same resolved own/competitor bucket as the comparison rows in
+    # /report.  A few labels exist in both buckets, and selecting own first here
+    # used to make /export disagree with the final report Movement.
+    final_data = (
+        final_movement_product_data(agg, product)
+        if callable(final_movement_product_data)
+        else {}
+    )
+    if final_data:
+        return final_data
+
     products = agg.get("products") or {}
     competitors = agg.get("competitors") or {}
 

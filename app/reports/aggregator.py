@@ -406,17 +406,33 @@ def final_offtake_movement(values: list[Any]) -> int | None:
     return max(0, min(10, rounded_score))
 
 
-def coverage_movement_stats(values: list[Any], total_outlets: int) -> dict[str, Any]:
+def coverage_movement_stats(
+    values: list[Any],
+    total_outlets: int,
+    *,
+    availability_count: int | None = None,
+) -> dict[str, Any]:
     """Calculate coverage-weighted movement before comparison normalization.
 
     Effective movement = adjusted rating points / all genuine visited outlets.
     Per the business rule, a blank or zero product movement contributes the
     minimum rating 1. The summary/control outlet is removed before this
     function is called, so it never affects either the numerator or denominator.
+
+    Availability is a hard gate when ``availability_count`` is supplied:
+    a product unavailable in every visited outlet must stay at movement 0 and
+    must not be promoted by the comparison-row winner rule.  ``None`` keeps
+    the legacy standalone behaviour for older callers that do not yet provide
+    availability information.
     """
     nums = [to_float(value) for value in values]
     nums = [max(1.0, min(10.0, value)) for value in nums if value is not None]
     denominator = max(0, int(total_outlets or 0))
+    normalized_availability = (
+        None
+        if availability_count is None
+        else max(0, min(denominator, int(availability_count or 0)))
+    )
     if denominator <= 0:
         return {
             "mov": None,
@@ -426,6 +442,21 @@ def coverage_movement_stats(values: list[Any], total_outlets: int) -> dict[str, 
             "_movement_observed_count": 0,
             "_movement_points": 0.0,
             "_movement_values": nums,
+            "_availability_count": normalized_availability or 0,
+            "_movement_eligible": False,
+        }
+
+    if normalized_availability == 0:
+        return {
+            "mov": 0,
+            "_mov_avg": 0.0,
+            "_mov_effective": 0.0,
+            "_movement_count": denominator,
+            "_movement_observed_count": len(nums[:denominator]),
+            "_movement_points": 0.0,
+            "_movement_values": nums[:denominator],
+            "_availability_count": 0,
+            "_movement_eligible": False,
         }
 
     # Every outlet must contribute at least movement 1 for every product.
@@ -443,6 +474,8 @@ def coverage_movement_stats(values: list[Any], total_outlets: int) -> dict[str, 
         "_movement_observed_count": len(observed),
         "_movement_points": points,
         "_movement_values": observed,
+        "_availability_count": normalized_availability,
+        "_movement_eligible": True,
     }
 
 def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any]] | None:
@@ -453,12 +486,18 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     # These two are own-product freshness rows but appear in competitor
     # columns in the movement table, so comparison promotion must update the
     # competitor bucket that Excel actually reads.
-    if product in {
-        "CB Original NCP",
-        "CAMBODIA Sport 300ml",
-        "EXPREZ Can 330ml",
-    } and product in competitors:
-        return "competitors", competitors[product]
+    comparison_competitor_keys = {
+        _product_lookup_key("CB Original NCP"),
+        _product_lookup_key("CAMBODIA Sport 300ml"),
+        _product_lookup_key("EXPREZ Can 330ml"),
+    }
+    product_key = _product_lookup_key(product)
+    if product_key in comparison_competitor_keys:
+        if product in competitors:
+            return "competitors", competitors[product]
+        for label, data in competitors.items():
+            if _product_lookup_key(label) == product_key and isinstance(data, dict):
+                return "competitors", data
     if product in products:
         return "products", products[product]
     if product in competitors:
@@ -478,6 +517,17 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     if alias in competitors:
         return "competitors", competitors[alias]
     return None
+
+
+def final_movement_product_data(result: dict, product: str) -> dict[str, Any]:
+    """Return the exact final metric dictionary used by report comparison rows.
+
+    Daily exports call this public helper so duplicate own/competitor labels
+    (CB Original, EXPREZ Can and CAMBODIA Sport 300 mL) cannot select a
+    different Movement result from the Excel report.
+    """
+    found = _get_movement_bucket(result, product)
+    return found[1] if found else {}
 
 
 def _apply_offtake_comparison_goal(result: dict) -> None:
@@ -500,6 +550,16 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
             if id(pdata) in seen_ids:
                 continue
             seen_ids.add(id(pdata))
+
+            # Availability is a hard business gate.  A product that is absent
+            # from every genuine outlet must remain exactly zero and cannot
+            # become the comparison winner merely because blanks previously
+            # contributed the legacy minimum movement point.
+            if pdata.get("_movement_eligible") is False or to_int(
+                pdata.get("_availability_count")
+            ) == 0:
+                pdata["mov"] = 0
+                continue
 
             effective = to_float(pdata.get("_mov_effective"))
             count = to_int(pdata.get("_movement_count")) or 0
@@ -530,7 +590,7 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
         best = winner["effective"]
         if best <= 0:
             for item in items:
-                item["data"]["mov"] = 1
+                item["data"]["mov"] = 0
             continue
 
         for item in items:
@@ -1221,21 +1281,64 @@ def _metric_or_payload_value(submission: Any, metric: Any, product: str, field: 
     return first_value(payload, keys)
 
 
-def _metric_or_payload_available(submission: Any, metric: Any, product: str) -> bool:
+def _metric_or_payload_available(
+    submission: Any,
+    metric: Any,
+    product: str,
+    *,
+    is_competitor: bool = False,
+) -> bool:
+    """Return whether one product is available in one outlet submission.
+
+    Own-product metric rows normally carry an explicit boolean ``available``.
+    Competitor rows do not, so their status is authoritative and a positive
+    movement is the safe fallback.  A numeric zero by itself is not evidence
+    of availability.
+    """
     available = _value(metric, "available")
     if available not in (None, ""):
-        return bool(available)
+        if isinstance(available, bool):
+            return available
+        return yes_value(available)
+
+    metric_status = _value(metric, "status")
+    if metric_status not in (None, ""):
+        return (
+            str(metric_status).strip().lower() in STATUS_AVAILABLE
+            or str(metric_status).strip() in STATUS_AVAILABLE
+        )
 
     payload = _payload_of_submission(submission)
-    if not payload:
-        return False
+    if payload:
+        keys = competitor_field if is_competitor else product_field
+        status = first_value(payload, keys(product, "status"))
+        if status not in (None, ""):
+            return (
+                str(status).strip().lower() in STATUS_AVAILABLE
+                or str(status).strip() in STATUS_AVAILABLE
+            )
 
-    status = first_value(payload, product_field(product, "status"))
-    if status not in (None, ""):
-        return str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
+        movement = to_float(first_value(payload, keys(product, "mov")))
+        if movement is not None:
+            return movement > 0
 
-    for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume"):
-        if first_value(payload, product_field(product, field)) not in (None, ""):
+        for field in ("bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume"):
+            if first_value(payload, keys(product, field)) not in (None, ""):
+                return True
+
+    metric_movement = to_float(_value(metric, "movement_score"))
+    if metric_movement is not None:
+        return metric_movement > 0
+
+    for field in (
+        "bbe_date",
+        "stock_status",
+        "buy_in_price",
+        "sell_out_price",
+        "ring_pull_value",
+        "volume_ctn",
+    ):
+        if _value(metric, field) not in (None, ""):
             return True
     return False
 
@@ -1341,17 +1444,30 @@ def _available_from_wide_or_metric(
     metric: Any,
     product: str,
     wide_map: dict[str, dict[str, Any]],
+    *,
+    is_competitor: bool = False,
 ) -> bool:
     wide_payload = _wide_payload_for_submission(submission, wide_map)
     if wide_payload:
-        status = first_value(wide_payload, product_field(product, "status"))
+        keys = competitor_field if is_competitor else product_field
+        status = first_value(wide_payload, keys(product, "status"))
         if status not in (None, ""):
             return str(status).strip().lower() in STATUS_AVAILABLE or str(status).strip() in STATUS_AVAILABLE
-        for field in ("mov", "bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume"):
-            if first_value(wide_payload, product_field(product, field)) not in (None, ""):
+
+        movement = to_float(first_value(wide_payload, keys(product, "mov")))
+        if movement is not None:
+            return movement > 0
+
+        for field in ("bbe", "stock", "buy_in", "sell_out", "ring_pull", "volume"):
+            if first_value(wide_payload, keys(product, field)) not in (None, ""):
                 return True
 
-    return _metric_or_payload_available(submission, metric, product)
+    return _metric_or_payload_available(
+        submission,
+        metric,
+        product,
+        is_competitor=is_competitor,
+    )
 
 def aggregate_submissions(
     submissions: list,
@@ -1433,6 +1549,21 @@ def aggregate_submissions(
             v for s, m in zip(submissions, metrics)
             if (v := _movement_from_wide_or_metric(s, m, product, is_competitor=False, wide_map=wide_map)) is not None
         ]
+        availability_known = bool(movement_values) or any(
+            metric is not None for metric in metrics
+        )
+
+        counts = Counter()
+        for s, m in zip(submissions, metrics):
+            if _available_from_wide_or_metric(
+                s,
+                m,
+                product,
+                wide_map,
+                is_competitor=False,
+            ):
+                counts[s.outlet_type or "Unknown"] += 1
+        availability_total = sum(counts.values())
 
         volume_values = [
             to_float(_value_from_wide_or_metric(s, m, product, "volume_ctn", is_competitor=False, wide_map=wide_map)) or 0
@@ -1445,7 +1576,13 @@ def aggregate_submissions(
                 _value_from_wide_or_metric(s, m, product, "bbe_date", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
             ]),
-            **coverage_movement_stats(movement_values, total_outlets),
+            **coverage_movement_stats(
+                movement_values,
+                total_outlets,
+                availability_count=(
+                    availability_total if availability_known else None
+                ),
+            ),
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=False, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1464,27 +1601,52 @@ def aggregate_submissions(
             ]),
             "new_purchase": sum(1 for m in metrics if bool(_value(m, "new_outlet_purchase"))),
             "volume": report_number(volume_sum) if volume_sum else None,
+            "availability": counts,
+            "availability_total": availability_total,
+            "_availability_known": availability_known,
         }
-
-        counts = Counter()
-        for s, m in zip(submissions, metrics):
-            if _available_from_wide_or_metric(s, m, product, wide_map):
-                counts[s.outlet_type or "Unknown"] += 1
-        pdata["availability"] = counts
         result["products"][product] = pdata
 
     for product in selected_competitor_products:
         metrics = [cm.get(product) or cm.get(_product_lookup_key(product)) for cm in competitor_maps]
+        raw_movement_values = [
+            _movement_from_wide_or_metric(
+                s,
+                m,
+                product,
+                is_competitor=True,
+                wide_map=wide_map,
+            )
+            for s, m in zip(submissions, metrics)
+        ]
         movement_values = [
             v
-            for s, m in zip(submissions, metrics)
-            if _include_movement_value(
-                (v := _movement_from_wide_or_metric(s, m, product, is_competitor=True, wide_map=wide_map)),
-                is_competitor=True,
-            )
+            for v in raw_movement_values
+            if _include_movement_value(v, is_competitor=True)
         ]
+        availability_known = any(v is not None for v in raw_movement_values) or any(
+            metric is not None for metric in metrics
+        )
+        counts = Counter()
+        for s, m in zip(submissions, metrics):
+            if _available_from_wide_or_metric(
+                s,
+                m,
+                product,
+                wide_map,
+                is_competitor=True,
+            ):
+                counts[s.outlet_type or "Unknown"] += 1
+        availability_total = sum(counts.values())
+
         cdata: dict[str, Any] = {
-            **coverage_movement_stats(movement_values, total_outlets),
+            **coverage_movement_stats(
+                movement_values,
+                total_outlets,
+                availability_count=(
+                    availability_total if availability_known else None
+                ),
+            ),
             "stock": stock_summary([
                 _value_from_wide_or_metric(s, m, product, "stock_status", is_competitor=True, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
@@ -1497,6 +1659,9 @@ def aggregate_submissions(
                 _value_from_wide_or_metric(s, m, product, "sell_out_price", is_competitor=True, wide_map=wide_map)
                 for s, m in zip(submissions, metrics)
             ]),
+            "availability": counts,
+            "availability_total": availability_total,
+            "_availability_known": availability_known,
         }
         result["competitors"][product] = cdata
 
@@ -1535,7 +1700,17 @@ def aggregate_submissions(
                 )
             ]
 
-        gb.update(coverage_movement_stats(gb_values, total_outlets))
+        gb.update(
+            coverage_movement_stats(
+                gb_values,
+                total_outlets,
+                availability_count=(
+                    (to_int(gb.get("availability_total")) or 0)
+                    if gb.get("_availability_known")
+                    else None
+                ),
+            )
+        )
 
         # Re-point every known GB Original alias to the exact same final dict.
         for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
