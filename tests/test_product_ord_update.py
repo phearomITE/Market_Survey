@@ -1,5 +1,6 @@
 import ast
 import unittest
+from functools import lru_cache
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -8,6 +9,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProductOrdUpdateTests(unittest.TestCase):
+    def test_competitor_field_resolves_for_report_and_raw_export(self):
+        """Execute the actual field resolver without importing the DB runtime."""
+        tree = ast.parse((ROOT / 'app/reports/aggregator.py').read_text(encoding='utf8'))
+        function = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef) and node.name == 'competitor_field')
+        scope = {
+            'lru_cache': lru_cache,
+            'COMPETITOR_CODES': {'Boostrong ORD': ['boostrong'], 'EXPREZ Can 330ml ORD': ['exprez_can_330']},
+            'OWN_PRODUCTS': ['EXPREZ Can 330ml ORD'],
+            'slug': lambda product: product.lower().replace(' ', '_'),
+            '_field_label_aliases': lambda product, field: [],
+            'product_field': lambda product, field: [f'own_{field}_{product}'],
+        }
+        exec(compile(ast.Module(body=[function], type_ignores=[]), '<aggregator>', 'exec'), scope)
+        self.assertIn('comp_mov_boostrong', scope['competitor_field']('Boostrong ORD', 'mov'))
+        self.assertIn('own_mov_EXPREZ Can 330ml ORD',
+                      scope['competitor_field']('EXPREZ Can 330ml ORD', 'mov'))
+
     def test_product_lists_and_comparison_groups(self):
         tree = ast.parse((ROOT / 'app/reports/aggregator.py').read_text(encoding='utf8'))
         values = {}

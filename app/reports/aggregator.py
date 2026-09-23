@@ -820,10 +820,9 @@ def competitor_field(product: str, field: str) -> list[str]:
     codes = COMPETITOR_CODES.get(product, [slug(product)])
     keys: list[str] = []
     keys += _field_label_aliases(product, field)
-    # Some report comparison items are also own-product freshness rows
-    # CB Original NCP is shared across own and competitor contexts.
-    if own_alias in OWN_PRODUCTS:
-        keys += product_field(own_alias, field)
+    # Some comparison items also have own-product freshness fields.
+    if product in OWN_PRODUCTS:
+        keys += product_field(product, field)
     for code in codes:
         field_aliases = [field]
         if field == "mov":
