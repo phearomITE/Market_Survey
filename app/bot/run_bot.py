@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import threading
 from datetime import datetime
 from urllib.parse import urlsplit
 
 from telegram.ext import Application, CommandHandler
+import uvicorn
 
 from app.bot.handlers import (
     alert_submit_cmd,
     debug_kobo_cmd,
     help_cmd,
     export_cmd,
-    export_status_cmd,
     map_cmd,
     report_cmd,
     report_multi_cmd,
@@ -157,7 +159,6 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
-    app.add_handler(CommandHandler("export_status", export_status_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
 
     return app
@@ -178,6 +179,14 @@ def main() -> None:
 
     init_db()
 
+    # Railway starts this module for Telegram polling. Serve the read-only BI
+    # endpoint in the same process so the public Railway domain can reach it.
+    web_server = uvicorn.Server(uvicorn.Config(
+        "app.main:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")),
+        log_level="info",
+    ))
+    threading.Thread(target=web_server.run, name="market-survey-web", daemon=True).start()
+
     app = _build_application()
 
     print("✅ KB Market Survey Bot running...")
@@ -189,6 +198,7 @@ def main() -> None:
     try:
         app.run_polling(close_loop=False)
     finally:
+        web_server.should_exit = True
         if not event_loop.is_closed():
             event_loop.close()
 
