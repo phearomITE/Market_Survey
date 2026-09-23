@@ -16,6 +16,8 @@ RUN apt-get update \
         libreoffice-calc \
         libreoffice-core \
         fonts-noto-core \
+        libharfbuzz0b \
+        libfribidi0 \
         fontconfig \
         ca-certificates \
     && fc-cache -f -v \

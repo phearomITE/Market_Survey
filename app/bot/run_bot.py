@@ -13,6 +13,7 @@ from app.bot.handlers import (
     alert_submit_cmd,
     debug_kobo_cmd,
     help_cmd,
+    export_status_cmd,
     export_cmd,
     map_cmd,
     report_cmd,
@@ -158,6 +159,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("summary", summary_cmd))
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
+    app.add_handler(CommandHandler("export_status", export_status_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
 

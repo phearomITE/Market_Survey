@@ -471,6 +471,11 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
         return "products", products[alias]
     if alias in competitors:
         return "competitors", competitors[alias]
+    canonical = _canonical_product_name(product)
+    for bucket_name, bucket in (("products", products), ("competitors", competitors)):
+        for label, data in bucket.items():
+            if _canonical_product_name(label) == canonical:
+                return bucket_name, data
     return None
 
 
@@ -982,6 +987,9 @@ def _canonical_product_name(name: Any) -> str:
         "Hanuman Black": "Hanuman Black NCP",
         "Ganzberg  500ml": "Ganzberg 500ml",
     }
+    for current in ALL_OWN_PRODUCTS + ALL_COMPETITOR_PRODUCTS:
+        if current.endswith(" ORD") and value.casefold() == current[:-4].casefold():
+            return current
     return aliases.get(value, value)
 
 

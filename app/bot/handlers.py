@@ -25,6 +25,7 @@ from app.services.report_service import (
     parse_report_command_args,
 )
 from app.services.render_service import excel_to_png
+from app.services.export_status_service import format_export_status
 from app.services.submission_alert_service import format_submission_alert, local_today
 
 HELP_TEXT = """
@@ -45,7 +46,7 @@ Commands:
 /raw_movement 2026-07-25
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
-/export_status 2026-08-22
+/export_status 2026-09-19
 /alert_submit 10
 /alert_submit 20
 /map
@@ -57,7 +58,8 @@ Commands:
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
 /raw_movement = export combined GT/HORECA raw product movement with Outlet Type.
 /export movement_multi = export Beer product movement for multiple dates.
-/export_status = show which dealers completed the final combined summary.
+
+/export_status = export final combined summary completion for all 65 dealers.
 
 Logic:
 1 Kobo submission = 1 outlet visit
@@ -456,6 +458,36 @@ async def alert_submit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text(f"❌ Submission alert failed: {exc}")
 
 
+async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.effective_message.reply_text(
+            "Usage: /export_status 2026-09-19"
+        )
+        return
+    try:
+        from app.services.report_service import parse_report_date
+        report_date = parse_report_date(context.args[0])
+    except ValueError:
+        await update.effective_message.reply_text(
+            "Invalid date. Use /export_status YYYY-MM-DD"
+        )
+        return
+    wait = await update.effective_message.reply_text(
+        f"📊 Checking final combined summaries for {report_date}..."
+    )
+    try:
+        path, message = await _run_fast(
+            generate_summary_status_export, report_date.isoformat(), timeout_seconds=50
+        )
+        await wait.edit_text(message)
+        with path.open("rb") as file_handle:
+            await update.effective_message.reply_document(
+                document=InputFile(file_handle, filename=path.name)
+            )
+    except Exception as exc:
+        await wait.edit_text(f"❌ Export status failed: {exc}")
+
+
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = [str(value).strip() for value in context.args if str(value).strip()]
     if len(args) == 1:
@@ -491,6 +523,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         path, text = await _run_fast(
             generate_movement_multi_export,
+    generate_summary_status_export,
             report_dates,
             timeout_seconds=50,
         )
@@ -501,28 +534,3 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Movement export failed: {exc}")
-
-
-async def export_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
-        await update.effective_message.reply_text(
-            "Usage: /export_status 2026-08-22"
-        )
-        return
-    report_date = context.args[0].strip()
-    wait = await update.effective_message.reply_text(
-        f"📋 Generating summary status for {report_date}..."
-    )
-    try:
-        path, text = await _run_fast(
-            generate_summary_status_export,
-            report_date,
-            timeout_seconds=50,
-        )
-        await wait.edit_text(f"✅ {text}\n📎 Uploading Excel...")
-        with path.open("rb") as file_handle:
-            await update.effective_message.reply_document(
-                document=InputFile(file_handle, filename=path.name)
-            )
-    except Exception as exc:
-        await wait.edit_text(f"❌ Summary status export failed: {exc}")

@@ -1,5 +1,6 @@
 """Upload and redeploy the existing Kobo XLSForm from the local checkout."""
 import os
+import getpass
 from pathlib import Path
 import sys
 import time
@@ -9,13 +10,46 @@ ROOT = Path(__file__).resolve().parents[1]
 FORM = ROOT / 'templates' / 'KB_Market_Improvement_XLSForm_GT_HORECA.xlsx'
 
 
-def config():
-    # A local .env is never uploaded to Git. Shell variables take precedence.
+def validate_form(form=FORM):
+    """Refuse an old or partially extracted workbook before touching Kobo."""
+    from openpyxl import load_workbook
+
+    if not form.is_file():
+        raise FileNotFoundError(f'XLSForm missing: {form}')
+    with form.open('rb') as source:
+        workbook = load_workbook(source, read_only=True)
+        try:
+            survey = workbook['survey']
+            headers = {cell.value: index for index, cell in enumerate(survey[1])}
+            rows = {
+                row[headers['name']]: row
+                for row in survey.iter_rows(min_row=2, values_only=True)
+                if row[headers['name']]
+            }
+            routing = rows['gps_location'][headers['relevant']]
+            hint = rows['outlet_name'][headers['hint']]
+            if ('submitter_name' in rows or 'contains(translate(' not in str(routing)
+                    or 'សរុបចុងក្រោយ' not in str(hint)):
+                raise ValueError(
+                    'The local Kobo XLSForm is still the OLD version. Close Excel, '
+                    'extract the complete ZIP again, and retry.'
+                )
+        finally:
+            workbook.close()
+
+
+def config(input_fn=input, secret_fn=getpass.getpass):
+    # Railway service variables are unavailable to local Git Bash sessions.
     from dotenv import load_dotenv
     load_dotenv(ROOT / '.env', override=False)
     base = os.getenv('KOBO_BASE_URL', 'https://kf.kobotoolbox.org').rstrip('/')
     token = os.getenv('KOBO_TOKEN', '').strip()
     uid = os.getenv('KOBO_ASSET_UID', '').strip()
+    if sys.stdin.isatty():
+        if not token or token.startswith('replace_'):
+            token = secret_fn('Kobo API token (hidden): ').strip()
+        if not uid or uid.startswith('replace_'):
+            uid = input_fn('Existing Kobo asset UID: ').strip()
     if not token or not uid or token.startswith('replace_') or uid.startswith('replace_'):
         raise ValueError('Set KOBO_TOKEN and KOBO_ASSET_UID in local .env or environment.')
     if not base.startswith('https://') or '/' in base[8:] or not uid.replace('-', '').isalnum():
@@ -74,6 +108,7 @@ def deploy(session, base, uid, form=FORM, timeout=150, pause=time.sleep):
 
 def main():
     try:
+        validate_form()
         base, token, uid = config()
         import requests
         session = requests.Session()

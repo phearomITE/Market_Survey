@@ -11,10 +11,7 @@ from app.core.config import settings
 from app.db.database import SessionLocal, init_db
 from app.db.models import KoboSubmission
 from app.kobo.sync import fetch_report_submissions_fast, sync_kobo
-from app.reports.aggregator import (
-    aggregate_submissions,
-    is_final_summary_outlet_name,
-)
+from app.reports.aggregator import aggregate_submissions
 from app.reports.excel_report import create_single_report, create_all_dealer_report, create_selected_dealer_report
 from app.data.dealers import ALL_DEALERS
 from app.reports.summary_report import build_summary_rows, create_summary_report
@@ -23,7 +20,6 @@ from app.reports.movement_exports import (
     create_movement_export,
     create_raw_movement_long_export,
 )
-from app.reports.summary_status import create_summary_status_export
 
 ReportType = Literal["GT", "HORECA"]
 
@@ -397,19 +393,20 @@ def generate_movement_multi_export(report_date_values: list[str] | tuple[str, ..
 
 
 def generate_summary_status_export(report_date_str: str):
-    """Export dealer completion status using report summary-name rules."""
-    d = parse_report_date(report_date_str)
-    submissions = fetch_report_submissions_fast(None, d, metadata_only=True)
-    output_path = settings.export_path / f"Summary_Status_{d}.xlsx"
-    path = create_summary_status_export(submissions, d, output_path)
-    submitted = len(
-        {
-            str(getattr(row, "dealer", "") or "").strip().upper()
-            for row in submissions
-            if is_final_summary_outlet_name(getattr(row, "outlet_name", None))
-        }
-    )
-    return (
-        path,
-        f"Generated summary status for {d}: {submitted}/65 dealers completed",
+    """Export all official dealers, including those without a final summary."""
+    from app.reports.status_export import create_summary_status_export, is_summary_submission
+    from app.data.dealers import ALL_DEALERS
+    from uuid import uuid4
+    report_date = parse_report_date(report_date_str)
+    rows = fetch_report_submissions_fast(None, report_date, metadata_only=True)
+    completed = {
+        str(getattr(row, "dealer", "") or "").strip().upper()
+        for row in rows if is_summary_submission(getattr(row, "outlet_name", ""))
+    } & set(ALL_DEALERS)
+    path = settings.export_path / f"Summary_Status_{report_date}_{uuid4().hex[:8]}.xlsx"
+    create_summary_status_export(rows, report_date, output_path=path)
+    return path, (
+        f"{report_date}: {len(completed)} submitted, "
+        f"{len(ALL_DEALERS) - len(completed)} missing, "
+        f"{len(ALL_DEALERS)} dealers checked"
     )

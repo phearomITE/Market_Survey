@@ -12,3 +12,7 @@ exports/*
 tests
 docs
 *.zip
+
+Market_Survey/
+Market_Survey_Ready/
+.~

@@ -20,7 +20,8 @@ def _clean_text(value: object) -> str:
 
 def is_summary_submission(outlet_name: object) -> bool:
     """Only the official summary outlet name counts as dealer submission."""
-    return SUMMARY_OUTLET_TEXT in _clean_text(outlet_name)
+    from app.core.summary_marker import is_summary_name
+    return is_summary_name(outlet_name)
 
 
 def create_summary_status_export(

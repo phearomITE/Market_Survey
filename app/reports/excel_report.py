@@ -110,6 +110,14 @@ def _clean(v) -> str:
     return " ".join(value.split()).strip()
 
 
+def _normalize_khmer_text(value: str) -> str:
+    import re
+    text = unicodedata.normalize("NFC", value)
+    for hidden in ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"):
+        text = text.replace(hidden, "")
+    return re.sub(r"(\u17d2)\s+(?=[\u1780-\u17a2])", r"\1", text)
+
+
 def _normalize_khmer_cells(ws: Worksheet) -> None:
     """Normalize Khmer and remove Excel theme-font overrides before PNG.
 
@@ -122,7 +130,7 @@ def _normalize_khmer_cells(ws: Worksheet) -> None:
         for cell in row:
             if isinstance(cell, MergedCell) or not isinstance(cell.value, str):
                 continue
-            value = unicodedata.normalize("NFC", cell.value)
+            value = _normalize_khmer_text(cell.value)
             for hidden in ("\u200b", "\u200c", "\u200d", "\ufeff"):
                 value = value.replace(hidden, "")
             cell.value = value

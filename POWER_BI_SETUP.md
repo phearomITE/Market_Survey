@@ -1,6 +1,6 @@
 # Power BI connection for Market Survey
 
-Use `Market_Survey_Git(1).zip` as your current source archive. The other uploaded ZIP has nested older copies. Apply `Market_Survey_Power_BI_Web_Update.zip` to the root of your existing Git working directory. The full ZIP is for backup/review only: never unzip it on top of a current Git checkout unless you intend to replace the project.
+Use D:/Bot/Market_Survey_Git as the project root.
 
 ## Deploy
 
@@ -27,17 +27,5 @@ When asked for credentials, choose **Web API** and paste the `POWER_BI_API_KEY` 
 
 Publishing a report also requires configuring **Web API** credentials under the semantic model's Data source credentials in Power BI Service, then enabling Scheduled refresh. Browser URLs without an API key return 401 by design. Do not place the API key in a URL or screenshot.
 
-## Run in Git Bash
 
-```bash
-cd /d/Bot/Market_Survey_Git
-unzip -o /c/Users/User/Downloads/Market_Survey_Power_BI_Web_Update.zip -d .
-python -m compileall -q app
-python -m unittest discover -s tests -v
-git status
-git add app/main.py app/core/config.py app/web/power_bi.py app/bot/run_bot.py POWER_BI_SETUP.md
-git commit -m "Add protected Power BI CSV exports"
-git push origin main
-```
-
-Check tests finish successfully before `git add`. Check `git status` to ensure no `.env` or secrets are staged. The Railway start command runs the bot; this update also starts the FastAPI server on Railway PORT. This code was syntax checked here but could not be tested against your live database. Existing full-suite test failures from old product names, templates, and form deploy are separate from the BI endpoint; the full test suite must not be described as passing.
+These feeds read PostgreSQL. Date-filtered Telegram reports do not save their fetched rows to PostgreSQL. Run /sync_kobo to populate the database before expecting fresh BI data. Full-history automatic sync remains disabled.
