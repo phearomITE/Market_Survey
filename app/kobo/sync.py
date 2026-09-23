@@ -3,7 +3,7 @@ from __future__ import annotations
 from threading import Event, Lock
 import hashlib
 import json
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 from time import monotonic
 
@@ -29,7 +29,7 @@ from app.kobo.parser import (
     to_int,
     yes_value,
 )
-from app.db.kobo_wide import upsert_wide_submission
+from app.db.kobo_wide import upsert_wide_submission, ensure_wide_columns
 from app.core.config import settings
 _SYNC_LOCK = Lock()
 _SYNC_FINISHED = Event()
@@ -436,7 +436,7 @@ def _build_report_submissions(
     return submissions
 
 
-def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = None) -> dict:
+def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = None, *, force: bool = False, full_history: bool = False) -> dict:
     """Fetch Kobo rows and upsert only new or changed submissions.
 
     When dealer/report_date are supplied, only matching rows are processed. This
@@ -446,8 +446,9 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     rows = KoboClient().fetch_submissions(
         report_date=report_date,
         dealer=dealer,
-        deadline_seconds=settings.kobo_fetch_deadline_seconds,
+        deadline_seconds=900 if full_history else settings.kobo_fetch_deadline_seconds,
         request_timeout=settings.kobo_request_timeout_seconds,
+        page_limit=10000 if full_history else 20,
         use_cache=False,
     )
     synced = 0
@@ -455,8 +456,11 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     hash_backfilled = 0
     skipped = 0
     matched = 0
+    source_ids = set()
     skipped_reasons: list[str] = []
 
+    # Prepare dynamic field columns once per run, not once per submission.
+    wide_mapping = ensure_wide_columns({key: None for raw in rows for key in flatten_dict(raw)})
     with SessionLocal() as db:
         existing_hashes = dict(db.execute(select(KoboSubmission.submission_id, KoboSubmission.source_hash)).all())
 
@@ -469,8 +473,10 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             if report_date and data.get("report_date") != report_date:
                 continue
             matched += 1
+            if data.get("submission_id"):
+                source_ids.add(data["submission_id"])
 
-            missing = [k for k in ("submission_id", "dealer", "report_date") if not data.get(k)]
+            missing = [k for k in ("submission_id",) if not data.get(k)]
             if missing:
                 skipped += 1
                 if len(skipped_reasons) < 5:
@@ -480,24 +486,12 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             source_hash = _source_hash(raw)
             data["source_hash"] = source_hash
             existing_hash = existing_hashes.get(data["submission_id"])
-            if existing_hash == source_hash:
+            if not force and existing_hash == source_hash:
                 unchanged += 1
                 continue
 
-            # V37 first-run optimization: old DB rows have no source_hash yet.
-            # Backfill their hash without deleting/recreating 57 child metric rows.
-            # New rows are still imported fully, and future Kobo edits are detected.
-            if data["submission_id"] in existing_hashes and existing_hash in (None, ""):
-                db.execute(
-                    update(KoboSubmission)
-                    .where(KoboSubmission.submission_id == data["submission_id"])
-                    .values(source_hash=source_hash, report_type=data.get("report_type"))
-                )
-                existing_hashes[data["submission_id"]] = source_hash
-                hash_backfilled += 1
-                continue
-
-            upsert_wide_submission(flat, data)
+            data["updated_at"] = datetime.utcnow()
+            upsert_wide_submission(flat, data, mapping=wide_mapping)
             stmt = insert(KoboSubmission).values(**data).on_conflict_do_update(
                 index_elements=["submission_id"],
                 set_={k: v for k, v in data.items() if k != "submission_id"},
@@ -505,15 +499,17 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             db.execute(stmt)
             db.flush()
 
-            sub = db.scalar(select(KoboSubmission).where(KoboSubmission.submission_id == data["submission_id"]))
-            if sub is None:
+            sub_id = db.scalar(select(KoboSubmission.id).where(KoboSubmission.submission_id == data["submission_id"]))
+            if sub_id is None:
                 skipped += 1
                 skipped_reasons.append(f"could not re-read submission_id={data['submission_id']}")
                 continue
 
-            _replace_metric_rows(db, sub.id, flat)
+            _replace_metric_rows(db, sub_id, flat)
             existing_hashes[data["submission_id"]] = source_hash
             synced += 1
+            if synced % 250 == 0:
+                print(f"BI sync prepared {synced} changed submissions; final commit pending", flush=True)
 
         message = (
             f"fetched {len(rows)}, matched {matched}, synced {synced}, "
@@ -521,7 +517,18 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
         )
         if skipped_reasons:
             message += " | " + " || ".join(skipped_reasons[:5])
-        db.add(SyncLog(status="success", message=message, fetched=len(rows), synced=synced, skipped=skipped))
+        db.flush()
+        stored_ids = set(db.scalars(select(KoboSubmission.submission_id)))
+        audit = {
+            "database_rows": len(stored_ids),
+            "source_distinct_ids": len(source_ids),
+            "missing_source_ids": len(source_ids - stored_ids),
+            "database_only_ids": len(stored_ids - source_ids) if full_history else None,
+        }
+        message += " | " + json.dumps(audit)
+        db.add(SyncLog(source="kobo_bi_full" if full_history else "kobo",
+                      status="warning" if skipped or audit["missing_source_ids"] else "success",
+                      message=message, fetched=len(rows), synced=synced, skipped=skipped))
         db.commit()
 
     print(
@@ -531,7 +538,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     return {
         "fetched": len(rows), "matched": matched, "synced": synced,
         "hash_backfilled": hash_backfilled, "unchanged": unchanged,
-        "skipped": skipped, "skipped_reasons": skipped_reasons,
+        "skipped": skipped, "skipped_reasons": skipped_reasons, "audit": audit,
     }
 
 
@@ -541,6 +548,8 @@ def sync_kobo(
     *,
     wait_if_running: bool = True,
     timeout_seconds: int = 45,
+    force: bool = False,
+    full_history: bool = False,
 ) -> dict:
     """Thread-safe sync. Reports wait for an active sync instead of failing early."""
     acquired = _SYNC_LOCK.acquire(blocking=False)
@@ -560,7 +569,7 @@ def sync_kobo(
 
     _SYNC_FINISHED.clear()
     try:
-        result = _sync_kobo_unlocked(dealer=dealer, report_date=report_date)
+        result = _sync_kobo_unlocked(dealer=dealer, report_date=report_date, force=force, full_history=full_history)
         clear_report_submission_cache()
         return result
     finally:

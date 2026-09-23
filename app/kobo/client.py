@@ -74,6 +74,7 @@ class KoboClient:
         rows: list[dict] = []
         started = monotonic()
         pages = 0
+        expected_count = None
         while url:
             remaining = deadline_seconds - (monotonic() - started)
             if pages >= page_limit or remaining <= 0:
@@ -86,10 +87,15 @@ class KoboClient:
                 timeout=max(1, min(request_timeout, int(remaining))),
                 params=params,
             )
+            if pages == 0:
+                expected_count = data.get("count")
             rows.extend(data.get("results", []))
             url = data.get("next")
             params = None
             pages += 1
+        if expected_count is not None and len(rows) != int(expected_count):
+            raise RuntimeError("Kobo pagination count changed or is incomplete; retry the sync. "
+                               f"Expected {expected_count}, received {len(rows)}.")
         print(f"✅ Kobo date fetch: rows={len(rows)} pages={pages}")
         return rows
 

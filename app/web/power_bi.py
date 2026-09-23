@@ -7,13 +7,13 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.core.config import settings
 from app.core.summary_marker import is_summary_name
 from app.db.database import SessionLocal
 from app.db.models import (
-    KoboCompetitorMetric, KoboProductMetric, KoboRingPullMetric, KoboSubmission,
+    KoboCompetitorMetric, KoboProductMetric, KoboRingPullMetric, KoboSubmission, SyncLog,
 )
 
 router = APIRouter()
@@ -48,7 +48,7 @@ def _line(values):
 
 @router.get("/api/power-bi/{table}")
 def power_bi_csv(
-    table: Literal["outlets", "products", "competitors", "ring_pulls"],
+    table: Literal["outlets", "products", "competitors", "ring_pulls", "dealers", "sync_status"],
     api_key: str = Query(default=""),
     start_date: date | None = None,
 ):
@@ -56,6 +56,31 @@ def power_bi_csv(
     expected = settings.power_bi_api_key
     if not expected or not secrets.compare_digest(api_key, expected):
         raise HTTPException(status_code=401, detail="Invalid Power BI API key")
+
+    if table in {"dealers", "sync_status"}:
+        def metadata_stream():
+            if table == "dealers":
+                from app.data.dealers import REGION_DEALERS
+                yield _line(("dealer", "region"))
+                for region, dealers in REGION_DEALERS.items():
+                    for dealer in dealers:
+                        yield _line((dealer, region))
+            else:
+                yield _line(("database_rows", "first_report_date", "last_report_date",
+                             "last_submission_time", "last_full_sync_utc", "sync_status",
+                             "kobo_rows_at_sync", "synced_rows", "skipped_rows", "details"))
+                with SessionLocal() as db:
+                    counts = db.execute(select(func.count(KoboSubmission.id),
+                        func.min(KoboSubmission.report_date), func.max(KoboSubmission.report_date),
+                        func.max(KoboSubmission.submission_time))).one()
+                    log = db.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full")
+                                    .order_by(SyncLog.id.desc()).limit(1))
+                    yield _line((*counts, log.created_at if log else None,
+                                 log.status if log else "never_synced",
+                                 log.fetched if log else None, log.synced if log else None,
+                                 log.skipped if log else None, log.message if log else None))
+        return StreamingResponse(metadata_stream(), media_type="text/csv; charset=utf-8",
+                                 headers={"Cache-Control": "private, no-store"})
 
     parent = KoboSubmission
     if table == "outlets":
