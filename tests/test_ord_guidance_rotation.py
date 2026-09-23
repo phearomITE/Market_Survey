@@ -1,4 +1,5 @@
 import ast
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 import unittest
@@ -20,17 +21,27 @@ class OrdGuidanceTests(unittest.TestCase):
 
     def test_guidance_is_visible_in_printable_sheet(self):
         sheet = Workbook().active
-        end = write_guidance(sheet, date(2026, 9, 19), 50)
-        self.assertEqual(sheet['A50'].value, "Don't")
-        self.assertEqual(end, 57)
-        self.assertTrue(sheet['A57'].value.startswith('7. '))
+        end = write_guidance(sheet, date(2026, 9, 19), 45)
+        self.assertEqual(sheet['A45'].value, "Don't")
+        self.assertEqual(end, 52)
+        self.assertEqual(sheet['A52'].value,
+                         '7.កុំសន្យាជាមួយមួយបើមិនច្បាស់លាស់។')
+        self.assertTrue(any(str(rng) == 'A52:G52' for rng in sheet.merged_cells.ranges))
+        self.assertFalse(any(str(rng) == 'A45:AA45' for rng in sheet.merged_cells.ranges))
         source = (ROOT / 'app/reports/excel_report.py').read_text(encoding='utf8')
-        self.assertIn('write_guidance(ws, rdate, layout["print_end"] + 2)', source)
-        self.assertIn('ws.print_area = f"A1:AA{guidance_end}"', source)
+        self.assertIn('write_guidance(ws, rdate, layout["summary_header"])', source)
+        self.assertIn('max(layout[\'print_end\'], guidance_end)', source)
+
+    def test_wording_matches_uploaded_reports(self):
+        from app.reports.guidance import DONT, NO_COMPROMISE
+        self.assertEqual(DONT[5],
+                         '6. កុំប្រជុំយូរពេក (Morning Talk កុំឲ្យលើស 15នាទី)')
+        self.assertEqual(NO_COMPROMISE[0],
+                         '1.Mass Products មិនត្រូវឲ្យខ្វះស្លកក្នុងផ្ទះមួយ(CBL/Wurkz/Exprez/Dazz/Water/Sport PET 500ml/Ize PET 500ml)')
 
     def test_form_and_product_lists_have_both_ord_names(self):
-        form = load_workbook(ROOT / 'templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx', read_only=True)
-        labels = [cell.value for sheet in form for row in sheet for cell in row if isinstance(cell.value, str)]
+        with closing(load_workbook(ROOT / 'templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx', read_only=True)) as form:
+            labels = [cell.value for sheet in form for row in sheet for cell in row if isinstance(cell.value, str)]
         for name in ('WURKZ ORD', 'Dragon ORD'):
             self.assertIn(name, labels)
         source = (ROOT / 'app/reports/aggregator.py').read_text(encoding='utf8')
@@ -50,8 +61,8 @@ class OrdGuidanceTests(unittest.TestCase):
                      'template_horeca.xlsx', 'template_horeca_products.xlsx',
                      'template_gt_summary.xlsx'):
             template_path = ROOT / 'templates' / name
-            sheet = load_workbook(template_path, read_only=True).active
-            labels = [cell.value for row in sheet for cell in row if isinstance(cell.value, str)]
+            with closing(load_workbook(template_path, read_only=True)) as template:
+                labels = [cell.value for row in template.active for cell in row if isinstance(cell.value, str)]
             self.assertNotIn('WURKZ', labels, template_path.name)
             self.assertNotIn('Dragon', labels, template_path.name)
 

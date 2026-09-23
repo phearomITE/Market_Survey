@@ -12,17 +12,15 @@ NO_COMPROMISE = (
     "4. របាយការណ៍លក់ជូនអតិថិជនមិនពិត (ទាំងចំនួនលក់ និងតម្លៃ)។",
 )
 
-# The historical ZIP includes the No Compromise text but no Don't source
-# table. These seven points retain the themes visible in the supplied 19 Sep
-# screenshot. They live in one place so their exact wording is easy to edit.
+# Exact text from Market_Improvement_STR3_2026-09-19.xlsx, cells A46:A52.
 DONT = (
-    "Do not sell Retail at Wholesale prices.",
-    "Do not leave Mass Products unavailable at the outlet.",
-    "Do not submit inaccurate product or outlet reports.",
-    "Do not start a Program without completing its Build.",
-    "Do not leave outlet actions unfinished.",
-    "Do not skip the 15-minute Morning Talk.",
-    "Do not leave reported outlet issues unresolved.",
+    "1.កុំធ្វើ Retail នៅកន្លែងដដែលៗ និងកន្លែងលក់ដាច់ (កុំដណ្ដើមមួយWholesale)",
+    "2.កុំឡើងផលិតផលដែលលក់ដាច់ស្រាប់ (Mass Product)",
+    "3.កុំដើររំលងមួយ ឬទុកទីតាំងចោលយូរ",
+    "4.កុំយក Program ទៅ Build ម៉ូយដដែលៗ",
+    "5. កុំយកធលិតផលដាក់មួយធំៗច្រើនពេក ផលិតផលលក់យឺត និងផលិតផលថ្មី",
+    "6. កុំប្រជុំយូរពេក (Morning Talk កុំឲ្យលើស 15នាទី)",
+    "7.កុំសន្យាជាមួយមួយបើមិនច្បាស់លាស់។",
 )
 
 
@@ -52,9 +50,8 @@ def _matches_date(value, fmt):
 
 
 def write_guidance(ws, report_date, header_row):
-    """Append the dated guidance below the existing report summaries."""
+    """Put dated guidance in the left A:G block beside issues and suggestions."""
     title, lines = guidance_for_date(report_date)
-    ws.merge_cells(start_row=header_row, start_column=1, end_row=header_row, end_column=27)
     header = ws.cell(header_row, 1)
     header.value = title
     header.fill = PatternFill("solid", fgColor="FF1018")
@@ -63,10 +60,14 @@ def write_guidance(ws, report_date, header_row):
     ws.row_dimensions[header_row].height = 26
     for index, line in enumerate(lines, 1):
         row = header_row + index
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=27)
+        for first, last in ((1, 7), (9, 17), (19, 27)):
+            address = f"{ws.cell(row, first).coordinate}:{ws.cell(row, last).coordinate}"
+            if address not in {str(merged) for merged in ws.merged_cells.ranges}:
+                ws.merge_cells(start_row=row, start_column=first,
+                               end_row=row, end_column=last)
         cell = ws.cell(row, 1)
         cell.value = line if line.lstrip().startswith(f"{index}.") else f"{index}. {line}"
         cell.font = Font(name="Noto Sans Khmer", size=11)
         cell.alignment = Alignment(vertical="center", wrap_text=True)
-        ws.row_dimensions[row].height = 28 if len(line) < 95 else 42
+        ws.row_dimensions[row].height = 32 if len(line) < 80 else 50
     return header_row + len(lines)

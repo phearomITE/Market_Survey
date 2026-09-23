@@ -16,7 +16,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from app.core.config import settings
 from app.data.dealers import ALL_DEALERS
 from app.reports.aggregator import OWN_PRODUCTS, COMPETITOR_PRODUCTS, RING_PRODUCTS
-from app.reports.guidance import write_guidance
+from app.reports.guidance import guidance_for_date, write_guidance
 
 # Exact cell layout from template_by_dealer.xlsx.
 # General Trade report uses 4 outlet-type columns.
@@ -961,32 +961,24 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
 
     # Bottom summary text. The old fixed Ring Pull block was removed and is
     # replaced by ចំណុចដួល beside Key Issues and Initiative/Suggestion.
-    fall_points = list((agg.get("fall_points") or [])[:4])
-    key_issues = list((agg.get("key_issues") or [])[:4])
-    suggestions = list((agg.get("suggestions") or [])[:4])
-    while len(fall_points) < 4:
-        fall_points.append("")
-    while len(key_issues) < 4:
-        key_issues.append("")
-    while len(suggestions) < 4:
-        suggestions.append("")
-
-    ws.cell(layout["summary_header"], 1).value = "ចំណុចដួល"
-    for i in range(4):
+    _, guidance_lines = guidance_for_date(rdate)
+    key_issues = list((agg.get("key_issues") or [])[:len(guidance_lines)])
+    suggestions = list((agg.get("suggestions") or [])[:len(guidance_lines)])
+    guidance_end = write_guidance(ws, rdate, layout["summary_header"])
+    for i in range(max(4, len(guidance_lines))):
         issue_start = layout["issue_start"]
         row = issue_start + i
-        fall_point_lines = _set_row_text(ws, row, 1, i + 1, fall_points[i])
-        issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
-        suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
+        issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i] if i < len(key_issues) else "")
+        suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i] if i < len(suggestions) else "")
         _fit_summary_row_height(
             ws,
             row,
             issue_lines,
             suggestion_lines,
-            fall_point_lines=fall_point_lines,
+            fall_point_lines=_estimate_summary_lines(ws.cell(row, 1).value),
         )
-
-    guidance_end = write_guidance(ws, rdate, layout["print_end"] + 2)
+        ws.row_dimensions[row].height = max(ws.row_dimensions[row].height or 0,
+                                            50 if len(str(ws.cell(row, 1).value or "")) >= 80 else 32)
 
     # Apply to Location, stock labels, key issues and suggestions. The Excel
     # values stay unchanged; LibreOffice receives a font that shapes Khmer
@@ -999,7 +991,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.print_area = f"A1:AA{guidance_end}"
+    ws.print_area = f"A1:AA{max(layout['print_end'], guidance_end)}"
 
 
 
