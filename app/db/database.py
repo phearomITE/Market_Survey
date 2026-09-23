@@ -96,8 +96,15 @@ def _ensure_light_migrations() -> None:
             "CB Original": "CB Original NCP",
             "CB LITE": "CB LITE NCP",
             "CB BLACK": "CB BLACK NCP",
-            "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED",
-            "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
+            "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED ORD",
+            "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
+            "CAMBODIA ED ORD": "CAMBODIA ED ORD",
+            "DAZZ ORD": "DAZZ ORD",
+            "DAZZ Zero Sugar ORD": "DAZZ Zero Sugar ORD",
+            "EXPREZ Melon ORD": "EXPREZ Melon ORD",
+            "EXPREZ Can 330ml ORD": "EXPREZ Can 330ml ORD",
+            "Wurkz Ice ORD": "Wurkz Ice ORD",
+            "CAMBODIA Sport 500mL ORD": "CAMBODIA Sport 500mL ORD",
         }
         competitor_renames = {
             "GB Original": "GB Original NCP",
@@ -109,6 +116,14 @@ def _ensure_light_migrations() -> None:
             "Greet Lite": "Greet LITE NCP",
             "Great Lite": "Greet LITE NCP",
             "Hanuman Black": "Hanuman Black NCP",
+            "Boostrong ORD": "Boostrong ORD",
+            "Krud ED ORD": "Krud ED ORD",
+            "Champion ORD": "Champion ORD",
+            "King Kong Ice ORD": "King Kong Ice ORD",
+            "Krud Ice ORD": "Krud Ice ORD",
+            "Super Boostrong ORD": "Super Boostrong ORD",
+            "King Kong ORD": "King Kong ORD",
+            "Idol Can 330ml ORD": "Idol Can 330ml ORD",
         }
         for old_name, new_name in product_renames.items():
             _safe_exec(conn, f"""

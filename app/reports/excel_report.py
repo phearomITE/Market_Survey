@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 import unicodedata
 from copy import copy
-from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.core.config import settings
@@ -53,66 +51,16 @@ REPORT_LOGO_ANCHOR = "A1"
 # the cell border. Row height is estimated only to make the PNG preview clean.
 SUMMARY_CHARS_PER_LINE = 145
 
-# Keep each numbered item on a clearly separated visual line.
+# Keep each numbered item (1-4) on a clearly separated visual line.
 # 32 points is about 43 screen pixels, matching the requested preview spacing.
 SUMMARY_MIN_ROW_HEIGHT = 32
 SUMMARY_LINE_HEIGHT = 22
 SUMMARY_MAX_ROW_HEIGHT = 140
-SUMMARY_POINT_COUNT = 6
 
 # Noto Sans Khmer is installed by the Railway Dockerfile. It prevents Khmer
 # glyphs and diacritics from colliding when LibreOffice renders Excel to PNG.
 SUMMARY_FONT_NAME = "Noto Sans Khmer"
 SUMMARY_FONT_SIZE = 17
-
-# The weekly management block alternates using the report date, not the server
-# clock, so regenerated historical reports always keep the same weekly rules.
-# Monday 31-Aug-2026 is the first Don't week; Monday 24-Aug-2026 is therefore
-# the previous No Compromise week.
-DONT_WEEK_ANCHOR = date(2026, 8, 31)
-
-NO_COMPROMISE_ITEMS = (
-    "1.Mass Products មិនត្រូវឲ្យខ្វះស្លកក្នុងផ្ទះមួយ(CBL/Wurkz/Exprez/Dazz/Water/Sport PET 500ml/Ize PET 500ml)",
-    "2.ផលិតផលហួសការកំណត់",
-    "3. ការបញ្ចូលរបាយការណ៍លក់មិនត្រឹមត្រូវ",
-    "4. របាយការណ៍លក់ជូនអតិថិជនមិនពិត (ទាំងចំនួនលក់ និងតម្លៃ)។",
-)
-
-DONT_ITEMS = (
-    "1.កុំធ្វើ Retail នៅកន្លែងដដែលៗ និងកន្លែងលក់ដាច់ (កុំដណ្ដើមមួយWholesale)",
-    "2.កុំឡើងផលិតផលដែលលក់ដាច់ស្រាប់ (Mass Product)",
-    "3.កុំដើររំលងមួយ ឬទុកទីតាំងចោលយូរ",
-    "4.កុំយក Program ទៅ Build ម៉ូយដដែលៗ",
-    "5. កុំយកធលិតផលដាក់មួយធំៗច្រើនពេក ផលិតផលលក់យឺត និងផលិតផលថ្មី",
-    "6. កុំប្រជុំយូរពេក (Morning Talk កុំឲ្យលើស 15នាទី)",
-    "7.កុំសន្យាជាមួយមួយបើមិនច្បាស់លាស់។",
-)
-
-
-def _report_day(value) -> date:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-
-    text = str(value or "").strip()
-    for candidate in (text, text[:10]):
-        for pattern in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
-            try:
-                return datetime.strptime(candidate, pattern).date()
-            except ValueError:
-                continue
-    return datetime.now(ZoneInfo("Asia/Phnom_Penh")).date()
-
-
-def get_weekly_management_section(report_date) -> tuple[str, tuple[str, ...]]:
-    """Return the automatic title/items for the report's Monday-based week."""
-    report_day = _report_day(report_date)
-    week_start = report_day - timedelta(days=report_day.weekday())
-    weeks_from_dont_anchor = (week_start - DONT_WEEK_ANCHOR).days // 7
-    if weeks_from_dont_anchor % 2 == 0:
-        return "Don't", DONT_ITEMS
-    return "No Compromise", NO_COMPROMISE_ITEMS
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
@@ -128,17 +76,14 @@ PRODUCT_NAME_MAP = {
     "CB BLACK NCP": "CB BLACK NCP",
     "CAMBODIA COLA 330ml": "CAMBODIA COLA",
     "CAMBODIA COLA 330ML": "CAMBODIA COLA",
-    "CAMBODIA ED": "CAMBODIA ED",
-    "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED",
+    "CAMBODIA ED ORD": "CAMBODIA ED ORD",
+    "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED ORD",
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
-    "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon",
-    "EXPREZ Can 330ml": "EXPREZ Can 330ml",
-    "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL",
-    "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL",
-    "CAMBODIA Sport 300mL": "CAMBODIA Sport 300mL",
-    "CAMBODIA Sport 300ml": "CAMBODIA Sport 300ml",
-    "CAMBODIA Sport 300ML": "CAMBODIA Sport 300ml",
+    "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
+    "EXPREZ Can 330ml ORD": "EXPREZ Can 330ml ORD",
+    "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL ORD",
+    "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL ORD",
     "GB Original": "GB Original NCP",
     "GB  Original": "GB Original NCP",
     "GB Original NCP": "GB Original NCP",
@@ -198,10 +143,9 @@ def _find_movement_header_row(ws: Worksheet) -> int | None:
 
 
 def _find_summary_header_row(ws: Worksheet) -> int | None:
-    accepted_headers = {"key issues", "បញ្ហាទីផ្សារ"}
     for row in range(1, min(ws.max_row, 90) + 1):
         for col in range(1, min(ws.max_column, 27) + 1):
-            if _clean(ws.cell(row, col).value).casefold() in accepted_headers:
+            if _clean(ws.cell(row, col).value).casefold() == "key issues":
                 return row
     return None
 
@@ -209,9 +153,10 @@ def _find_summary_header_row(ws: Worksheet) -> int | None:
 def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
     """Resolve GT/HORECA coordinates from the selected template itself.
 
-    Both report templates end with three parallel blocks: the automatic weekly
-    management rules, បញ្ហាទីផ្សារ and បញ្ហាត្រូវដោះស្រាយ. Template scanning
-    accepts both the Khmer header and the legacy English header.
+    Both report templates now end with three parallel blocks: ចំណុចដួល,
+    Key Issues and Initiative/Suggestion. The removed fixed Ring Pull block no
+    longer owns any rows, so template scanning prevents it from reappearing or
+    overwriting the new summary area.
     """
     movement_header = _find_movement_header_row(ws)
     summary_header = _find_summary_header_row(ws)
@@ -643,7 +588,7 @@ def _normalize_exprez_freshness_rows(ws: Worksheet, agg: dict) -> None:
     if _is_channel_specialist_report(agg):
         return
 
-    expected = {19: "EXPREZ Melon", 20: "EXPREZ Can 330ml"}
+    expected = {19: "EXPREZ Melon ORD", 20: "EXPREZ Can 330ml ORD"}
     merge_columns = ((3, 7), (8, 11), (12, 15), (16, 19), (20, 22), (23, 25), (26, 27))
     source_row = 18
 
@@ -890,67 +835,19 @@ def _set_row_text(ws: Worksheet, row: int, col: int, prefix_no: int, text: str) 
     return _estimate_summary_lines(value)
 
 
-def _set_fixed_summary_text(ws: Worksheet, row: int, col: int, text: str) -> int:
-    """Write one automatic weekly rule without adding a second number."""
-    value = _clean_summary_text(text)
-    cell = ws.cell(row, col)
-    cell.value = value
-    cell.font = Font(
-        name=SUMMARY_FONT_NAME,
-        size=SUMMARY_FONT_SIZE,
-        bold=False,
-        color="000000",
-    )
-    cell.alignment = Alignment(
-        horizontal="left",
-        vertical="center",
-        wrap_text=True,
-        shrink_to_fit=False,
-    )
-    return _estimate_summary_lines(value)
-
-
-def _ensure_summary_rows(ws: Worksheet, issue_start: int, row_count: int) -> None:
-    """Extend the three merged summary blocks at the end of the template."""
-    template_row = issue_start + 3
-    merged = {str(cell_range) for cell_range in ws.merged_cells.ranges}
-    block_columns = ((1, 7), (9, 17), (19, 27))
-
-    for row in range(issue_start, issue_start + row_count):
-        if row > template_row:
-            for start_col, _ in block_columns:
-                source = ws.cell(template_row, start_col)
-                target = ws.cell(row, start_col)
-                target._style = copy(source._style)
-                target.font = copy(source.font)
-                target.alignment = copy(source.alignment)
-                target.fill = copy(source.fill)
-                target.border = copy(source.border)
-            ws.row_dimensions[row].height = ws.row_dimensions[template_row].height
-
-        for start_col, end_col in block_columns:
-            merge_ref = (
-                f"{get_column_letter(start_col)}{row}:"
-                f"{get_column_letter(end_col)}{row}"
-            )
-            if merge_ref not in merged:
-                ws.merge_cells(merge_ref)
-                merged.add(merge_ref)
-
-
 def _fit_summary_row_height(
     ws: Worksheet,
     row: int,
     issue_lines: int,
     suggestion_lines: int,
-    management_lines: int = 1,
+    fall_point_lines: int = 1,
 ) -> None:
-    """Give every summary row clear vertical breathing room.
+    """Give each of summary rows 1-4 clear vertical breathing room.
 
-    Empty rows keep the same minimum height so the six market/action lines stay
+    Empty rows also keep the same minimum height, so 1, 2, 3 and 4 remain
     evenly separated in Excel and in Railway's LibreOffice PNG output.
     """
-    max_lines = max(management_lines, issue_lines, suggestion_lines, 1)
+    max_lines = max(fall_point_lines, issue_lines, suggestion_lines, 1)
     height = SUMMARY_MIN_ROW_HEIGHT + ((max_lines - 1) * SUMMARY_LINE_HEIGHT)
     ws.row_dimensions[row].height = min(SUMMARY_MAX_ROW_HEIGHT, height)
 
@@ -1059,41 +956,31 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
                 if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
 
-    # Bottom management section. No Compromise and Don't alternate once per
-    # Monday-based week. Market issues/actions come from the final-summary Kobo
-    # submission and always provide exactly six numbered lines.
-    management_title, management_items = get_weekly_management_section(rdate)
-    summary_row_count = max(SUMMARY_POINT_COUNT, len(management_items))
-    _ensure_summary_rows(ws, layout["issue_start"], summary_row_count)
-
-    key_issues = list((agg.get("key_issues") or [])[:SUMMARY_POINT_COUNT])
-    suggestions = list((agg.get("suggestions") or [])[:SUMMARY_POINT_COUNT])
-    while len(key_issues) < SUMMARY_POINT_COUNT:
+    # Bottom summary text. The old fixed Ring Pull block was removed and is
+    # replaced by ចំណុចដួល beside Key Issues and Initiative/Suggestion.
+    fall_points = list((agg.get("fall_points") or [])[:4])
+    key_issues = list((agg.get("key_issues") or [])[:4])
+    suggestions = list((agg.get("suggestions") or [])[:4])
+    while len(fall_points) < 4:
+        fall_points.append("")
+    while len(key_issues) < 4:
         key_issues.append("")
-    while len(suggestions) < SUMMARY_POINT_COUNT:
+    while len(suggestions) < 4:
         suggestions.append("")
 
-    ws.cell(layout["summary_header"], 1).value = management_title
-    ws.cell(layout["summary_header"], 9).value = "បញ្ហាទីផ្សារ"
-    ws.cell(layout["summary_header"], 19).value = "បញ្ហាត្រូវដោះស្រាយ"
-    for i in range(summary_row_count):
-        row = layout["issue_start"] + i
-        management_text = management_items[i] if i < len(management_items) else ""
-        management_lines = _set_fixed_summary_text(ws, row, 1, management_text)
-        if i < SUMMARY_POINT_COUNT:
-            issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
-            suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
-        else:
-            ws.cell(row, 9).value = ""
-            ws.cell(row, 19).value = ""
-            issue_lines = 1
-            suggestion_lines = 1
+    ws.cell(layout["summary_header"], 1).value = "ចំណុចដួល"
+    for i in range(4):
+        issue_start = layout["issue_start"]
+        row = issue_start + i
+        fall_point_lines = _set_row_text(ws, row, 1, i + 1, fall_points[i])
+        issue_lines = _set_row_text(ws, row, 9, i + 1, key_issues[i])
+        suggestion_lines = _set_row_text(ws, row, 19, i + 1, suggestions[i])
         _fit_summary_row_height(
             ws,
             row,
             issue_lines,
             suggestion_lines,
-            management_lines=management_lines,
+            fall_point_lines=fall_point_lines,
         )
 
     # Apply to Location, stock labels, key issues and suggestions. The Excel
@@ -1107,8 +994,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    print_end = layout["issue_start"] + summary_row_count - 1
-    ws.print_area = f"A1:AA{print_end}"
+    ws.print_area = f"A1:AA{layout['print_end']}"
 
 
 
@@ -1180,8 +1066,9 @@ def _blank_agg(dealer: str, report_date) -> dict:
         "products": {p: {"availability": {}} for p in OWN_PRODUCTS},
         "competitors": {p: {} for p in COMPETITOR_PRODUCTS},
         "ring_pull": {p: {"total_outlets": 0, "qty": 0} for p in RING_PRODUCTS},
-        "key_issues": [""] * SUMMARY_POINT_COUNT,
-        "suggestions": [""] * SUMMARY_POINT_COUNT,
+        "fall_points": ["", "", "", ""],
+        "key_issues": ["", "", "", ""],
+        "suggestions": ["", "", "", ""],
     }
 
 
