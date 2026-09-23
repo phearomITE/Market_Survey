@@ -16,6 +16,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from app.core.config import settings
 from app.data.dealers import ALL_DEALERS
 from app.reports.aggregator import OWN_PRODUCTS, COMPETITOR_PRODUCTS, RING_PRODUCTS
+from app.reports.guidance import write_guidance
 
 # Exact cell layout from template_by_dealer.xlsx.
 # General Trade report uses 4 outlet-type columns.
@@ -64,6 +65,8 @@ SUMMARY_FONT_SIZE = 17
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
+    "WURKZ": "WURKZ ORD",
+    "Dragon": "Dragon ORD",
     "CBC LITE ORD": "CB LITE ORD",
     "CB LITE ORD": "CB LITE ORD",
     "CBC 4.4": "CBC 4.4 NCP",
@@ -983,6 +986,8 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
             fall_point_lines=fall_point_lines,
         )
 
+    guidance_end = write_guidance(ws, rdate, layout["print_end"] + 2)
+
     # Apply to Location, stock labels, key issues and suggestions. The Excel
     # values stay unchanged; LibreOffice receives a font that shapes Khmer
     # consonant clusters correctly instead of splitting them in the PNG.
@@ -994,7 +999,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.print_area = f"A1:AA{layout['print_end']}"
+    ws.print_area = f"A1:AA{guidance_end}"
 
 
 

@@ -21,7 +21,7 @@ OWN_PRODUCTS = [
     "CB LITE NCP",
     "CB BLACK NCP",
     "CAMBODIA COLA",
-    "WURKZ",
+    "WURKZ ORD",
     "CAMBODIA ED ORD",
     "DAZZ ORD",
     "DAZZ Zero Sugar ORD",
@@ -57,7 +57,7 @@ COMPETITOR_PRODUCTS = [
     "King Kong ORD",
     "AIRA",
     "BACCHUSE",
-    "Dragon",
+    "Dragon ORD",
     "BACCHUSE Sugar Free",
     "POP Z Flavour",
     "V Cola 350ml",
@@ -107,10 +107,10 @@ OFFTAKE_COMPARE_GROUPS = [
     ["CB LITE NCP", "GB SNOW NCP", "Hanuman LITE NCP", "Krud LITE NCP", "Greet LITE NCP"],
     ["CB BLACK NCP", "Hanuman Black NCP"],
     ["CAMBODIA COLA", "Coca Cola 330ml"],
-    ["WURKZ", "Boostrong ORD", "Krud ED ORD"],
+    ["WURKZ ORD", "Boostrong ORD", "Krud ED ORD"],
     ["Wurkz Ice ORD", "Champion ORD", "King Kong Ice ORD", "Krud Ice ORD"],
     ["CAMBODIA ED ORD", "Super Boostrong ORD", "King Kong ORD", "AIRA"],
-    ["DAZZ ORD", "BACCHUSE", "Dragon"],
+    ["DAZZ ORD", "BACCHUSE", "Dragon ORD"],
     ["DAZZ Zero Sugar ORD", "BACCHUSE Sugar Free"],
     ["IZE PET 300ml Flavour", "POP Z Flavour", "V Cola 350ml"],
     ["IZE COLA PET 1.5L All SKUs", "Coca 1.5L", "Big Cola 3L"],
@@ -130,7 +130,7 @@ PRODUCT_CODES = {
     "CB LITE NCP": ["cb_lite_ncp", "cbc_lite_ncp", "cb_lite", "cbc_lite"],
     "CB BLACK NCP": ["cb_black_ncp", "cb_black"],
     "CAMBODIA COLA": ["cambodia_cola_330", "cambodia_cola", "cambodia_cola_330ml"],
-    "WURKZ": ["wurkz"],
+    "WURKZ ORD": ["wurkz"],
     "CAMBODIA ED ORD": ["cambodia_ed", "cambodia_energy", "energy_menthol"],
     "DAZZ ORD": ["dazz"],
     "DAZZ Zero Sugar ORD": ["dazz_zero_sugar", "dazz_zero"],
@@ -174,7 +174,7 @@ COMPETITOR_CODES = {
     "King Kong ORD": ["king_kong"],
     "AIRA": ["aira"],
     "BACCHUSE": ["bacchuse"],
-    "Dragon": ["dragon"],
+    "Dragon ORD": ["dragon"],
     "BACCHUSE Sugar Free": ["bacchuse_sugar_free"],
     "POP Z Flavour": ["pop_z_flavour"],
     "V Cola 350ml": ["v_cola_350"],
@@ -196,6 +196,8 @@ COMPETITOR_CODES = {
 }
 
 PRODUCT_LABEL_ALIASES = {
+    "WURKZ ORD": ["WURKZ ORD", "WURKZ"],
+    "Dragon ORD": ["Dragon ORD", "Dragon"],
     "CB LITE ORD": ["CB LITE ORD", "CBC LITE ORD"],
     "CBC 4.4 NCP": ["CBC 4.4 NCP", "CBC 4.4"],
     "CB Original NCP": ["CB Original NCP", "CB Original"],
@@ -964,6 +966,8 @@ def _canonical_product_name(name: Any) -> str:
     """Canonical product name used for current template and legacy DB rows."""
     value = " ".join(str(name or "").replace("\u200b", "").split()).strip()
     aliases = {
+        "WURKZ": "WURKZ ORD",
+        "Dragon": "Dragon ORD",
         "CBC LITE ORD": "CB LITE ORD",
         "CB LITE ORD": "CB LITE ORD",
         "CBC 4.4": "CBC 4.4 NCP",

@@ -26,7 +26,7 @@ PRODUCT_CATEGORIES = {
     "CB LITE NCP": "Beer",
     "CB BLACK NCP": "Beer",
     "CAMBODIA COLA": "Beverage",
-    "WURKZ": "Energy Drink",
+    "WURKZ ORD": "Energy Drink",
     "CAMBODIA ED ORD": "Energy Drink",
     "DAZZ ORD": "Energy Drink",
     "DAZZ Zero Sugar ORD": "Energy Drink",

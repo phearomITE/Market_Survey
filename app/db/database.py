@@ -98,13 +98,14 @@ def _ensure_light_migrations() -> None:
             "CB BLACK": "CB BLACK NCP",
             "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED ORD",
             "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
-            "CAMBODIA ED ORD": "CAMBODIA ED ORD",
-            "DAZZ ORD": "DAZZ ORD",
-            "DAZZ Zero Sugar ORD": "DAZZ Zero Sugar ORD",
-            "EXPREZ Melon ORD": "EXPREZ Melon ORD",
-            "EXPREZ Can 330ml ORD": "EXPREZ Can 330ml ORD",
-            "Wurkz Ice ORD": "Wurkz Ice ORD",
-            "CAMBODIA Sport 500mL ORD": "CAMBODIA Sport 500mL ORD",
+            "CAMBODIA ED": "CAMBODIA ED ORD",
+            "DAZZ": "DAZZ ORD",
+            "DAZZ Zero Sugar": "DAZZ Zero Sugar ORD",
+            "EXPREZ Melon": "EXPREZ Melon ORD",
+            "EXPREZ Can 330ml": "EXPREZ Can 330ml ORD",
+            "Wurkz Ice": "Wurkz Ice ORD",
+            "CAMBODIA Sport 500mL": "CAMBODIA Sport 500mL ORD",
+            "WURKZ": "WURKZ ORD",
         }
         competitor_renames = {
             "GB Original": "GB Original NCP",
@@ -116,16 +117,19 @@ def _ensure_light_migrations() -> None:
             "Greet Lite": "Greet LITE NCP",
             "Great Lite": "Greet LITE NCP",
             "Hanuman Black": "Hanuman Black NCP",
-            "Boostrong ORD": "Boostrong ORD",
-            "Krud ED ORD": "Krud ED ORD",
-            "Champion ORD": "Champion ORD",
-            "King Kong Ice ORD": "King Kong Ice ORD",
-            "Krud Ice ORD": "Krud Ice ORD",
-            "Super Boostrong ORD": "Super Boostrong ORD",
-            "King Kong ORD": "King Kong ORD",
-            "Idol Can 330ml ORD": "Idol Can 330ml ORD",
+            "Boostrong": "Boostrong ORD",
+            "Krud ED": "Krud ED ORD",
+            "Champion": "Champion ORD",
+            "King Kong Ice": "King Kong Ice ORD",
+            "Krud Ice": "Krud Ice ORD",
+            "Super Boostrong": "Super Boostrong ORD",
+            "King Kong": "King Kong ORD",
+            "Idol Can 330ml": "Idol Can 330ml ORD",
+            "Dragon": "Dragon ORD",
         }
         for old_name, new_name in product_renames.items():
+            if old_name == new_name:
+                continue
             _safe_exec(conn, f"""
                 UPDATE kobo_product_metrics old_row
                 SET product_name = '{new_name}'
@@ -138,6 +142,8 @@ def _ensure_light_migrations() -> None:
             """)
             _safe_exec(conn, f"DELETE FROM kobo_product_metrics WHERE product_name = '{old_name}'")
         for old_name, new_name in competitor_renames.items():
+            if old_name == new_name:
+                continue
             _safe_exec(conn, f"""
                 UPDATE kobo_competitor_metrics old_row
                 SET product_name = '{new_name}'
