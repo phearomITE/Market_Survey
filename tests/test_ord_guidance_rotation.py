@@ -43,7 +43,13 @@ class OrdGuidanceTests(unittest.TestCase):
         self.assertIn('Dragon ORD', lists['COMPETITOR_PRODUCTS'])
         self.assertNotIn('WURKZ', lists['OWN_PRODUCTS'])
         self.assertNotIn('Dragon', lists['COMPETITOR_PRODUCTS'])
-        for template_path in (ROOT / 'templates').glob('template*.xlsx'):
+        # These are the shipped report templates. User repositories can contain
+        # older optional files such as template_channel_specialist.xlsx; the
+        # active HORECA path uses template_horeca_products.xlsx.
+        for name in ('template_general.xlsx', 'template_by_dealer.xlsx',
+                     'template_horeca.xlsx', 'template_horeca_products.xlsx',
+                     'template_gt_summary.xlsx'):
+            template_path = ROOT / 'templates' / name
             sheet = load_workbook(template_path, read_only=True).active
             labels = [cell.value for row in sheet for cell in row if isinstance(cell.value, str)]
             self.assertNotIn('WURKZ', labels, template_path.name)
