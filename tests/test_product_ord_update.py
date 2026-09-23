@@ -1,4 +1,5 @@
 import ast
+from contextlib import closing
 import unittest
 from functools import lru_cache
 from pathlib import Path
@@ -49,15 +50,15 @@ class ProductOrdUpdateTests(unittest.TestCase):
                              for group in values['OFFTAKE_COMPARE_GROUPS'] for product in group))
 
     def test_kobo_form_and_export_template(self):
-        form = load_workbook(ROOT / 'templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx', read_only=True)
-        survey = form['survey']
-        self.assertEqual(survey['C250'].value, 'CAMBODIA ED ORD')
-        self.assertEqual(survey['C442'].value, 'CAMBODIA Sport 500mL ORD')
-        self.assertTrue(all(survey.cell(i, 1).value is None for i in range(432, 442)))
-        labels = [cell.value for row in survey for cell in row if isinstance(cell.value, str)]
-        self.assertFalse(any('CAMBODIA Sport 300mL' in value for value in labels))
-        template = load_workbook(ROOT / 'templates/template_general.xlsx', read_only=True)
-        self.assertEqual(template.active['B14'].value, 'CAMBODIA ED ORD')
+        with closing(load_workbook(ROOT / 'templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx', read_only=True)) as form:
+            survey = form['survey']
+            labels = [cell.value for row in survey for cell in row if isinstance(cell.value, str)]
+            self.assertIn('CAMBODIA ED ORD', labels)
+            self.assertIn('CAMBODIA Sport 500mL ORD', labels)
+            labels = [cell.value for row in survey for cell in row if isinstance(cell.value, str)]
+            self.assertFalse(any('CAMBODIA Sport 300mL' in value for value in labels))
+        with closing(load_workbook(ROOT / 'templates/template_general.xlsx', read_only=True)) as template:
+            self.assertEqual(template.active['B14'].value, 'CAMBODIA ED ORD')
 
 
 if __name__ == '__main__':

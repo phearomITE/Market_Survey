@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.core.summary_marker import SUMMARY_MARKERS, is_summary_name
 from app.db.database import SessionLocal
 
 OWN_PRODUCTS = [
@@ -874,22 +875,12 @@ def _clean_text(value: Any) -> str:
     return text.replace("\r", "\n").strip()
 
 
-FINAL_SUMMARY_KEYWORDS = (
-    "បូកសរុបរួម",
-    "បូកសរុបរូម",
-    "សរុបរួម",
-    "បួកសរុបរួម",
-)
+FINAL_SUMMARY_KEYWORDS = SUMMARY_MARKERS
 
 
 def is_final_summary_outlet_name(value: Any) -> bool:
-    """Return True only when Outlet Name is one of the four summary markers.
-
-    The marker is matched exactly after trimming whitespace. It is no longer
-    searched inside Key Issues or Initiative/Suggestion text.
-    """
-    normalized = _clean_text(value).replace(" ", "")
-    return normalized in {keyword.replace(" ", "") for keyword in FINAL_SUMMARY_KEYWORDS}
+    """Match final-summary phrases anywhere in Outlet Name, including annotations."""
+    return is_summary_name(value)
 
 
 def _is_summary_submission(submission: Any) -> bool:

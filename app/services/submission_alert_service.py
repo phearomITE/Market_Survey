@@ -4,9 +4,10 @@ from collections import Counter
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from app.core.summary_marker import is_summary_name
 from app.data.dealers import ALL_DEALERS
 from app.kobo.sync import fetch_report_submissions_fast
-from app.reports.aggregator import is_final_summary_outlet_name
+
 
 
 def _clean(value) -> str:
@@ -29,8 +30,10 @@ def dealer_submission_counts(report_date: date) -> dict[str, int]:
     )
     for submission in submissions:
         dealer = _clean(getattr(submission, "dealer", None)).upper()
-        outlet_name = getattr(submission, "outlet_name", None)
-        if dealer in official and not is_final_summary_outlet_name(outlet_name):
+        outlet_name = _clean(
+            getattr(submission, "outlet_name", None)
+        ).replace(" ", "")
+        if dealer in official and not is_summary_name(outlet_name):
             counts[dealer] += 1
     return {dealer: int(counts.get(dealer, 0)) for dealer in ALL_DEALERS}
 
