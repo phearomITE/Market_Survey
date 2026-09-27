@@ -67,7 +67,7 @@ def write_guidance(ws, report_date, header_row):
                                end_row=row, end_column=last)
         cell = ws.cell(row, 1)
         cell.value = line if line.lstrip().startswith(f"{index}.") else f"{index}. {line}"
-        cell.font = Font(name="Noto Sans Khmer", size=11)
+        cell.font = Font(name="Noto Sans Khmer", size=16)
         cell.alignment = Alignment(vertical="center", wrap_text=True)
         ws.row_dimensions[row].height = 32 if len(line) < 80 else 50
     return header_row + len(lines)
