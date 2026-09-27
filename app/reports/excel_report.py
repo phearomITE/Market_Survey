@@ -65,6 +65,9 @@ SUMMARY_FONT_SIZE = 17
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
+    "BACCHUSE ORD": "BACCHUSE",
+    "BACCHUSE SUGAR FREE ORD": "BACCHUSE Sugar Free",
+    "BACCHUSE ORD SUGAR FREE": "BACCHUSE Sugar Free",
     "WURKZ": "WURKZ ORD",
     "Dragon": "Dragon ORD",
     "CBC LITE ORD": "CB LITE ORD",
@@ -450,6 +453,8 @@ def _force_rewrite_competitor_blocks(ws: Worksheet, agg: dict) -> None:
             if not product_label:
                 continue
             comp_name = _product_key(product_label)
+            if comp_name in {"BACCHUSE", "BACCHUSE Sugar Free"}:
+                ws.cell(row, product_col).value = comp_name
             # Always clear old/stale template values first, then rewrite.
             for c in range(product_col + 1, product_col + 5):
                 ws.cell(row, c).value = ""

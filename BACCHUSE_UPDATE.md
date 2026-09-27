@@ -1,0 +1,5 @@
+# BACCHUSE label update
+Canonical names: BACCHUSE and BACCHUSE Sugar Free (no ORD). DAZZ ORD and other product names remain unchanged.
+Latest uploaded source and templates already had the canonical labels. This patch adds legacy BACCHUSE ORD name compatibility to aggregation and report rendering, and installs the supplied template_general(5).xlsx as templates/template_general.xlsx. Kobo field identifiers are unchanged; no form redeployment or database rebuild is needed. Existing historical report files are not rewritten: generate reports again after deployment.
+Validation: 6 tests passed (legacy report label/value lookup, metric names, template labels and existing product ORD checks). No live Railway deployment performed.
+Apply at D:/Bot/Market_Survey_Git, never inside a nested copy. Back up the two Python files and template before unzipping. Run python -m pytest -q tests/test_bacchuse_labels.py tests/test_product_ord_update.py. Commit only the files in this patch, leaving unrelated local edits and folder deletions out.

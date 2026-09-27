@@ -961,6 +961,13 @@ def _product_lookup_key(name: Any) -> str:
 def _canonical_product_name(name: Any) -> str:
     """Canonical product name used for current template and legacy DB rows."""
     value = " ".join(str(name or "").replace("\u200b", "").split()).strip()
+    bacchuse_aliases = {
+        "bacchuse ord": "BACCHUSE",
+        "bacchuse sugar free ord": "BACCHUSE Sugar Free",
+        "bacchuse ord sugar free": "BACCHUSE Sugar Free",
+    }
+    if value.casefold() in bacchuse_aliases:
+        return bacchuse_aliases[value.casefold()]
     aliases = {
         "WURKZ": "WURKZ ORD",
         "Dragon": "Dragon ORD",
