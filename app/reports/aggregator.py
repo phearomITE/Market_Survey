@@ -484,8 +484,16 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
 
     Final = round_half_up(product effective / row-best effective * 10).
     Exactly one observed product receives goal 10; other observed products are
-    restricted to 1-9. Products with no observations stay blank.
+    restricted to 1-9. Products with zero availability receive 0 and cannot win.
     """
+    # Apply the zero-availability rule before choosing comparison winners.
+    for bucket in (result.get("products") or {}, result.get("competitors") or {}):
+        for data in bucket.values():
+            if "availability" in data and not any(
+                (to_int(value) or 0) > 0 for value in data["availability"].values()
+            ):
+                data["mov"] = 0
+
     for group in OFFTAKE_COMPARE_GROUPS:
         items: list[dict[str, Any]] = []
         seen_ids: set[int] = set()
@@ -499,6 +507,12 @@ def _apply_offtake_comparison_goal(result: dict) -> None:
             if id(pdata) in seen_ids:
                 continue
             seen_ids.add(id(pdata))
+
+            if "availability" in pdata and not any(
+                (to_int(value) or 0) > 0 for value in pdata["availability"].values()
+            ):
+                pdata["mov"] = 0
+                continue
 
             effective = to_float(pdata.get("_mov_effective"))
             count = to_int(pdata.get("_movement_count")) or 0
@@ -1486,6 +1500,15 @@ def aggregate_submissions(
                 for s, m in zip(submissions, metrics)
             ]),
         }
+        # Competitor blank/zero ratings mean not selected in the Kobo form.
+        cdata["availability"] = Counter(
+            s.outlet_type or "Unknown"
+            for s, m in zip(submissions, metrics)
+            if _include_movement_value(
+                _movement_from_wide_or_metric(s, m, product, is_competitor=True, wide_map=wide_map),
+                is_competitor=True,
+            )
+        )
         result["competitors"][product] = cdata
 
         # Store safe aliases in the result dict. This protects Excel report
