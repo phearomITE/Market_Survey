@@ -90,6 +90,8 @@ PRODUCT_NAME_MAP = {
     "EXPREZ Can 330ml ORD": "EXPREZ Can 330ml ORD",
     "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL ORD",
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL ORD",
+    "CAMBODIA SPORT 500ML ORD": "CAMBODIA Sport 500mL ORD",
+    "CAMBODIA SPORT 500ML": "CAMBODIA Sport 500mL ORD",
     "GB Original": "GB Original NCP",
     "GB  Original": "GB Original NCP",
     "GB Original NCP": "GB Original NCP",
