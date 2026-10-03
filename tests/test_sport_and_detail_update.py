@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from openpyxl import load_workbook
-from app.services.outlet_detail_export import create_detail_export, coordinates, administrative_names
+from app.services.outlet_detail_export import create_detail_export, coordinates
 
 
 def test_sport_group_normalized_and_zero_excluded():
@@ -37,10 +37,9 @@ def test_detail_columns_coordinates_cache_and_literals():
         assert ws['F2'].value=='012345678'
         assert ws['K2'].value=='Commune';wb.close()
         create_detail_export(rows,date(2026,1,3),folder,resolve)
-        assert len(calls)==1
+        assert len(calls)==2
     assert coordinates('nan',104) is None
     assert coordinates(91,104) is None
-    assert administrative_names({'localityInfo':{'administrative':[{'adminLevel':4,'name':'P'},{'adminLevel':6,'name':'D'},{'adminLevel':8,'name':'C'}]}})==['P','D','C']
 
 if __name__=='__main__':
     test_sport_group_normalized_and_zero_excluded()

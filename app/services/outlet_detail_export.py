@@ -1,14 +1,10 @@
 """One row per genuine outlet visit, with GPS-derived administrative names."""
-import json
 import math
-import os
-import time
 from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from app.core.summary_marker import is_summary_name
+from app.services.offline_locations import resolve_location, get_boundary_index
 
 HEADERS = ['Date', 'Region', 'Dealer', 'Outlet Name', 'Outlet Type',
            'Phone Number Outlet', 'Latitude', 'Longitude', 'Province', 'District', 'Commune']
@@ -26,33 +22,8 @@ def coordinates(lat, lon):
         return None
 
 
-def administrative_names(payload):
-    # Use explicit administrative levels, never nearby POIs as communes.
-    levels = {int(x['adminLevel']): x.get('name', '')
-              for x in payload.get('localityInfo', {}).get('administrative', [])
-              if str(x.get('adminLevel', '')).isdigit()}
-    return [levels.get(4) or payload.get('principalSubdivision', ''),
-            levels.get(6, ''), levels.get(8, '')]
-
-
-def resolve_location(lat, lon):
-    key = os.getenv('BIGDATACLOUD_API_KEY', '').strip()
-    if not key:
-        raise ValueError('Set BIGDATACLOUD_API_KEY on Railway for GPS location lookup.')
-    query = urlencode({'latitude':lat, 'longitude':lon, 'localityLanguage':'en', 'key':key})
-    base = 'https://api-bdc.net/data/reverse-geocode'
-    req = Request(base + '?' + query, headers={'Accept':'application/json'})
-    with urlopen(req, timeout=10) as response:
-        return administrative_names(json.load(response))
-
-
 def create_detail_export(rows, day, output_dir, resolver=resolve_location):
     output_dir = Path(output_dir); output_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = output_dir / 'outlet_detail_geocode_cache.json'
-    try:
-        cache = json.loads(cache_path.read_text(encoding='utf8'))
-    except (OSError, ValueError):
-        cache = {}
     wb = Workbook(); ws = wb.active; ws.title = 'Outlet Detail'; ws.append(HEADERS)
     count = unresolved = 0
     attempted = {}
@@ -62,18 +33,11 @@ def create_detail_export(rows, day, output_dir, resolver=resolve_location):
         pin = coordinates(getattr(row, 'gps_latitude', None), getattr(row, 'gps_longitude', None))
         names = ['', '', '']
         if pin:
-            key = f'{pin[0]:.6f},{pin[1]:.6f}'
-            names = cache.get(key) or attempted.get(key)
+            key = pin
+            names = attempted.get(key)
             if names is None:
-                try:
-                    names = list(resolver(*pin))
-                except Exception:
-                    names = ['', '', '']
+                names = list(resolver(*pin))
                 attempted[key] = names
-                if all(names):
-                    cache[key] = names
-                if resolver is resolve_location:
-                    time.sleep(1)
         unresolved += int(not all(names))
         values = [day, getattr(row,'region',None), getattr(row,'dealer',None),
                   getattr(row,'outlet_name',None), getattr(row,'outlet_type',None),
@@ -93,13 +57,11 @@ def create_detail_export(rows, day, output_dir, resolver=resolve_location):
     ws.freeze_panes='A2'; ws.auto_filter.ref=ws.dimensions
     path=output_dir / f'Export_detail_{day}.xlsx'
     wb.save(path)
-    temp=cache_path.with_suffix('.tmp');temp.write_text(json.dumps(cache,ensure_ascii=False),encoding='utf8');temp.replace(cache_path)
     return path,count,unresolved
 
 
 def generate_outlet_detail_export(day):
-    if not os.getenv('BIGDATACLOUD_API_KEY', '').strip():
-        raise ValueError('Set BIGDATACLOUD_API_KEY on Railway for Province/District/Commune lookup.')
+    get_boundary_index()  # Fail clearly if deployment omitted the bundled map.
     from app.core.config import settings
     from app.kobo.sync import fetch_report_submissions_fast
     rows=fetch_report_submissions_fast(None,day,metadata_only=True)
