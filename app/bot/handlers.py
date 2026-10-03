@@ -44,6 +44,7 @@ Commands:
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
 /raw_movement 2026-07-25
+/export_detail 2026-01-03
 /export 2026-07-25
 /export movement_multi 2026-07-04 2026-07-18 2026-07-25
 /export_status 2026-09-19
@@ -523,7 +524,6 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         path, text = await _run_fast(
             generate_movement_multi_export,
-    generate_summary_status_export,
             report_dates,
             timeout_seconds=50,
         )
@@ -534,3 +534,37 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as exc:
         await wait.edit_text(f"❌ Movement export failed: {exc}")
+
+
+async def export_detail_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from app.services.report_service import parse_report_date
+    from app.services.outlet_detail_export import generate_outlet_detail_export
+    if len(context.args) != 1:
+        await update.effective_message.reply_text("Usage: /export_detail YYYY-MM-DD")
+        return
+    try:
+        day = parse_report_date(context.args[0])
+    except ValueError:
+        await update.effective_message.reply_text("Invalid date. Use /export_detail YYYY-MM-DD")
+        return
+    jobs = context.application.bot_data.setdefault("outlet_detail_jobs", set())
+    if jobs:
+        await update.effective_message.reply_text("An outlet-detail export is still running. Please wait for its file.")
+        return
+    jobs.add(str(day))
+    try:
+        wait = await update.effective_message.reply_text(f"Preparing outlet details for {day}. GPS lookups may take several minutes.")
+    except Exception:
+        jobs.discard(str(day))
+        raise
+    async def finish():
+        try:
+            path, count, unresolved = await asyncio.to_thread(generate_outlet_detail_export, day)
+            with path.open("rb") as stream:
+                await update.effective_message.reply_document(document=InputFile(stream, filename=path.name))
+            await wait.edit_text(f"Exported {count} outlet visits. {unresolved} rows have incomplete GPS administrative names.")
+        except Exception as exc:
+            await wait.edit_text(f"Outlet-detail export failed: {exc}")
+        finally:
+            jobs.discard(str(day))
+    context.application.create_task(finish(), update=update)

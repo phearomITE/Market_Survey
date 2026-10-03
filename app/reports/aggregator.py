@@ -116,6 +116,7 @@ OFFTAKE_COMPARE_GROUPS = [
     ["IZE PET 300ml Flavour", "POP Z Flavour", "V Cola 350ml"],
     ["IZE COLA PET 1.5L All SKUs", "Coca 1.5L", "Big Cola 3L"],
     ["EXPREZ Melon ORD", "EXPREZ Can 330ml ORD", "Sting Can 330ml", "Idol Can 330ml ORD"],
+    ["CAMBODIA Sport 500mL ORD", "Pocari Sweat", "V-Active Sport"],
     ["CAMBODIA WATER 500mL", "Vital 500mL", "Provida 500mL", "Ganzberg 500ml", "Hitech 500mL"],
     ["CAMBODIA WATER 1500mL", "Vital 1500mL", "Provida 1500mL", "Ganzberg 1500ml", "Hitech 1500mL"],
 ]

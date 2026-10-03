@@ -15,6 +15,7 @@ from app.bot.handlers import (
     help_cmd,
     export_status_cmd,
     export_cmd,
+    export_detail_cmd,
     map_cmd,
     report_cmd,
     report_multi_cmd,
@@ -161,6 +162,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export_status", export_status_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("export_detail", export_detail_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
 
     return app
