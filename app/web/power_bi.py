@@ -48,7 +48,7 @@ def _line(values):
 
 @router.get("/api/power-bi/{table}")
 def power_bi_csv(
-    table: Literal["outlets", "products", "competitors", "ring_pulls", "dealers", "sync_status"],
+    table: Literal["outlets", "products", "competitors", "ring_pulls", "dealers", "sync_status", "dashboard"],
     api_key: str = Query(default=""),
     start_date: date | None = None,
 ):
@@ -56,6 +56,36 @@ def power_bi_csv(
     expected = settings.power_bi_api_key
     if not expected or not secrets.compare_digest(api_key, expected):
         raise HTTPException(status_code=401, detail="Invalid Power BI API key")
+
+    if table == "dashboard":
+        from app.services.dashboard_feed import HEADERS, dashboard_values
+        from app.services.offline_locations import get_boundary_index
+        get_boundary_index()  # Fail before sending a CSV header if map is missing.
+        fields = ("report_date", "region", "dealer", "outlet_name", "outlet_type",
+                  "phone_number", "gps_latitude", "gps_longitude", "key_issue_text",
+                  "suggestion_text", "submission_id", "report_type")
+        stmt = select(*(getattr(KoboSubmission, name) for name in fields),
+                      KoboProductMetric.product_name, KoboProductMetric.available,
+                      KoboProductMetric.movement_score).join(
+                          KoboProductMetric, KoboProductMetric.submission_id == KoboSubmission.id
+                      ).order_by(KoboSubmission.id, KoboProductMetric.id)
+        if start_date:
+            stmt = stmt.where(KoboSubmission.report_date >= start_date)
+        with SessionLocal() as session:
+            latest = session.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full")
+                                    .order_by(SyncLog.id.desc()).limit(1))
+            if latest is None or latest.status != "success":
+                raise HTTPException(status_code=503, detail="A successful full BI sync is required. Check sync_status and the BI worker logs.")
+            synced_at = str(latest.created_at)
+        def dashboard_stream():
+            yield _line(HEADERS)
+            with SessionLocal() as session:
+                rows = session.execute(stmt).mappings().yield_per(1000)
+                for values in dashboard_values(rows):
+                    yield _line(values)
+        return StreamingResponse(dashboard_stream(), media_type="text/csv; charset=utf-8",
+            headers={"Cache-Control": "private, no-store", "X-BI-Last-Sync-UTC": synced_at,
+                     "Content-Disposition": 'attachment; filename="market_survey_dashboard.csv"'})
 
     if table in {"dealers", "sync_status"}:
         def metadata_stream():

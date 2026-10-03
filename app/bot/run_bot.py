@@ -208,4 +208,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if os.getenv("POWER_BI_WORKER_ONLY", "").strip().lower() in {"1", "true", "yes"}:
+        from scripts.power_bi_worker import main as worker_main
+        worker_main()
+    else:
+        main()

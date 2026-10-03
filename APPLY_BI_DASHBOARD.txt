@@ -1,0 +1,11 @@
+cd /d/Bot/Market_Survey_Git
+unzip -o /c/Users/User/Downloads/Market_Survey_BI_Dashboard_Full.zip -d .
+PYTHONPATH=. python -X utf8 -m pytest tests/test_dashboard_feed.py tests/test_power_bi_backfill.py tests/test_power_bi_worker.py -q
+python -m compileall -q app scripts
+
+# Only after checks pass:
+git add app/web/power_bi.py app/services/dashboard_feed.py app/services/offline_locations.py app/data/boundaries/cambodia_communes.json.gz app/bot/run_bot.py scripts/power_bi_worker.py docs/power_bi/dashboard.pq tests/test_dashboard_feed.py tests/test_power_bi_worker.py POWER_BI_DASHBOARD_SETUP.md APPLY_BI_DASHBOARD.txt
+git commit -m "Add dashboard CSV and automatic Kobo BI worker"
+git push origin main
+
+# Then complete POWER_BI_DASHBOARD_SETUP.md (BI_Sync worker + Power BI credentials).
