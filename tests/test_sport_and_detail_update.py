@@ -25,7 +25,7 @@ def test_sport_group_normalized_and_zero_excluded():
 
 
 def test_detail_columns_coordinates_cache_and_literals():
-    rows=[SimpleNamespace(outlet_name='=2+2',phone_number='012345678',gps_latitude=11.5,gps_longitude=104.9,region='R1',dealer='CA2',outlet_type='Drink Shop')]*2
+    rows=[SimpleNamespace(outlet_name='=2+2',phone_number='012345678',gps_latitude=11.5,gps_longitude=104.9,region='R1',dealer='CA2',outlet_type='Drink Shop',product_metrics=[SimpleNamespace(product_name='CB LITE ORD',available=True,movement_score=10)])]*2
     calls=[]
     def resolve(*pin):calls.append(pin);return ['Province','District','Commune']
     with tempfile.TemporaryDirectory() as folder:

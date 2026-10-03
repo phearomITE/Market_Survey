@@ -5,12 +5,12 @@ The existing command registration stays unchanged. No additional dependency or A
 
 ## Output
 `Export_detail_YYYY-MM-DD.xlsx`: Date, Region, Dealer, Outlet Name, Outlet Type,
-Phone Number Outlet, Latitude, Longitude, Province, District, Commune, Product, Movement Rate.
-One row per outlet visit and own product; summary-marker submissions are excluded as before.
-Product lists follow GT/HORECA form parsing. Movement Rate uses the per-outlet
+Phone Number Outlet, Latitude, Longitude, Province, District, Commune, Product_Beer, Movement Rate.
+One row per outlet visit and own beer product; summary-marker submissions are excluded as before.
+Beer filter: GT CB LITE ORD, CBC 4.4 NCP, CB Original NCP, CB LITE NCP, CB BLACK NCP; HORECA CB Pint, CBL Pint, CB SUPEEME/SUPREME Pint, CB Black Pint. Competitor products are not added. Movement Rate uses the per-outlet
 movement_score, not the dealer-level normalized comparison score. Unavailable
 products have rate 0. Available products with missing scores stay blank. Outlets
-without product metrics retain one row with blank Product/Movement Rate.
+without beer metrics are excluded; a date with no beer metrics produces headers only.
 Repeated outlet details are expected; the completion count remains outlet visits.
 Region and Dealer remain Kobo values; location mapping does not reassign dealers.
 
@@ -49,7 +49,7 @@ Use a date with collected data; no artificial records are created.
     python -X utf8 scripts/build_detail_boundaries.py Location_All.xlsx Map_KML.kml CambodiaCommuneBoundaries.geojson app/data/boundaries/cambodia_communes.json.gz
 
 ## Validation
-Five offline tests passed, existing Sport/detail checks passed, app compilation
+Seven offline/product tests passed, existing Sport/detail checks passed, app compilation
 passed. Includes export without API key, real boundary points, invalid/reversed
 GPS, polygon holes/edges, ambiguous matches, source priority, no-data date,
 phone leading zero and literal cell text. Live Kobo/Telegram/Railway execution

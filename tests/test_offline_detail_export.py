@@ -45,8 +45,8 @@ class OfflineDetailTests(unittest.TestCase):
         config = ModuleType('app.core.config')
         sync = ModuleType('app.kobo.sync')
         rows = [SimpleNamespace(outlet_name='=Literal outlet', phone_number='012345678',
-                    gps_latitude=11.55, gps_longitude=104.93, region='R1', dealer='CA2', outlet_type='GT'),
-                SimpleNamespace(outlet_name='No GPS', phone_number='098765432')]
+                    gps_latitude=11.55, gps_longitude=104.93, region='R1', dealer='CA2', outlet_type='GT',product_metrics=[SimpleNamespace(product_name='CB LITE ORD',available=True,movement_score=10)]),
+                SimpleNamespace(outlet_name='No GPS', phone_number='098765432',product_metrics=[SimpleNamespace(product_name='CB LITE ORD',available=False,movement_score=0)])]
         calls = []
         def fetch(dealer, requested, metadata_only=False):
             calls.append((dealer,requested,metadata_only))
