@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -31,9 +32,9 @@ class KoboSubmission(Base):
 
     region: Mapped[str | None] = mapped_column(String(30), index=True)
     dealer: Mapped[str | None] = mapped_column(String(30), index=True)
-    group_no: Mapped[int | None] = mapped_column(Integer)
-    member_no: Mapped[int | None] = mapped_column(Integer)
-    total_outlet_visit_target: Mapped[int | None] = mapped_column(Integer)
+    group_no: Mapped[int | None] = mapped_column(BigInteger)
+    member_no: Mapped[int | None] = mapped_column(BigInteger)
+    total_outlet_visit_target: Mapped[int | None] = mapped_column(BigInteger)
 
     outlet_name: Mapped[str | None] = mapped_column(String(255))
     outlet_type: Mapped[str | None] = mapped_column(String(80), index=True)

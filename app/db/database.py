@@ -19,7 +19,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def _safe_exec(conn, sql: str) -> None:
     try:
-        conn.execute(text(sql))
+        with conn.begin_nested():
+            conn.execute(text(sql))
     except Exception as exc:
         # Keep startup safe; print migration warnings instead of crashing bot.
         print(f"⚠️ DB migration warning: {exc} | SQL={sql[:80]}")
@@ -35,9 +36,9 @@ def _ensure_light_migrations() -> None:
     with engine.begin() as conn:
         # Core columns added after early demo versions.
         for col, ddl in [
-            ("group_no", "INTEGER"),
-            ("member_no", "INTEGER"),
-            ("total_outlet_visit_target", "INTEGER"),
+            ("group_no", "BIGINT"),
+            ("member_no", "BIGINT"),
+            ("total_outlet_visit_target", "BIGINT"),
             ("is_new_outlet", "BOOLEAN"),
             ("submitter_name", "VARCHAR(255)"),
             ("phone_number", "VARCHAR(80)"),
@@ -61,22 +62,20 @@ def _ensure_light_migrations() -> None:
         """)
 
 
-        # Ensure numeric columns stay numeric even when older versions created them as VARCHAR.
-        _safe_exec(conn, """
-            ALTER TABLE IF EXISTS kobo_submissions
-            ALTER COLUMN group_no TYPE INTEGER
-            USING NULLIF(regexp_replace(group_no::text, '[^0-9-]', '', 'g'), '')::integer
-        """)
-        _safe_exec(conn, """
-            ALTER TABLE IF EXISTS kobo_submissions
-            ALTER COLUMN member_no TYPE INTEGER
-            USING NULLIF(regexp_replace(member_no::text, '[^0-9-]', '', 'g'), '')::integer
-        """)
-        _safe_exec(conn, """
-            ALTER TABLE IF EXISTS kobo_submissions
-            ALTER COLUMN total_outlet_visit_target TYPE INTEGER
-            USING NULLIF(regexp_replace(total_outlet_visit_target::text, '[^0-9-]', '', 'g'), '')::integer
-        """)
+        # Widen form integers without rewriting an already migrated table.
+        # Fail clearly if this required migration cannot complete.
+        for column in ("group_no", "member_no", "total_outlet_visit_target"):
+            kind = conn.execute(text("""
+                SELECT data_type FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'kobo_submissions' AND column_name = :column
+            """), {"column": column}).scalar()
+            if kind != "bigint":
+                conn.execute(text(f"""
+                    ALTER TABLE kobo_submissions
+                    ALTER COLUMN {column} TYPE BIGINT
+                    USING NULLIF(btrim({column}::text), '')::bigint
+                """))
 
         # Remove old raw payload JSONB column per user's production requirement.
         _safe_exec(conn, "ALTER TABLE IF EXISTS kobo_submissions DROP COLUMN IF EXISTS payload")
