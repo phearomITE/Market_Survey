@@ -464,6 +464,12 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     with SessionLocal() as db:
         existing_hashes = dict(db.execute(select(KoboSubmission.submission_id, KoboSubmission.source_hash)).all())
 
+        if full_history:
+            db.add(SyncLog(source="kobo_bi_full", status="running",
+                           message="Full sync started; saving changes in batches of 250.",
+                           fetched=len(rows), synced=0, skipped=0))
+            db.commit()
+
         for raw in rows:
             data = normalize_submission(raw)
             flat = data.pop("_flat", {}) or {}
@@ -491,7 +497,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 continue
 
             data["updated_at"] = datetime.utcnow()
-            upsert_wide_submission(flat, data, mapping=wide_mapping)
+            upsert_wide_submission(flat, data, mapping=wide_mapping, connection=db.connection())
             stmt = insert(KoboSubmission).values(**data).on_conflict_do_update(
                 index_elements=["submission_id"],
                 set_={k: v for k, v in data.items() if k != "submission_id"},
@@ -508,8 +514,12 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             _replace_metric_rows(db, sub_id, flat)
             existing_hashes[data["submission_id"]] = source_hash
             synced += 1
-            if synced % 250 == 0:
-                print(f"BI sync prepared {synced} changed submissions; final commit pending", flush=True)
+            if full_history and synced % 250 == 0:
+                db.add(SyncLog(source="kobo_bi_full", status="running",
+                               message=f"Committed {synced} changed submissions; {unchanged} unchanged.",
+                               fetched=len(rows), synced=synced, skipped=skipped))
+                db.commit()
+                print(f"BI sync SAVED {synced} changed submissions; {unchanged} unchanged", flush=True)
 
         message = (
             f"fetched {len(rows)}, matched {matched}, synced {synced}, "

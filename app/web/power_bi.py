@@ -23,7 +23,7 @@ OUTLET_FIELDS = (
     "id", "submission_id", "report_date", "submission_time", "region", "dealer",
     "group_no", "member_no", "total_outlet_visit_target", "outlet_name",
     "outlet_type", "report_type", "is_new_outlet", "submitter_name",
-    "location_text", "gps_latitude", "gps_longitude", "key_issue_text",
+    "phone_number", "location_text", "gps_latitude", "gps_longitude", "key_issue_text",
     "suggestion_text", "updated_at",
 )
 METRICS = {
@@ -157,3 +157,25 @@ def public_dashboard_csv(start_date: date | None = None):
     if not settings.power_bi_public_csv_enabled:
         raise HTTPException(status_code=404, detail="Public CSV is disabled")
     return _dashboard_csv(start_date)
+
+
+@router.get("/powerbi/market_survey_submissions.csv")
+def public_submissions_csv():
+    """One row per stored Kobo submission, including summary/incomplete rows."""
+    if not settings.power_bi_public_csv_enabled:
+        raise HTTPException(404, detail="Public CSV is disabled")
+    with SessionLocal() as db:
+        latest = db.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full")
+                           .order_by(SyncLog.id.desc()).limit(1))
+        if latest is None or latest.status != "success":
+            raise HTTPException(503, detail="Full BI sync has not completed successfully.")
+    def stream():
+        yield _line((*OUTLET_FIELDS, "is_summary"))
+        with SessionLocal() as db:
+            rows = db.execute(select(*(getattr(KoboSubmission, f) for f in OUTLET_FIELDS))
+                              .order_by(KoboSubmission.id)).yield_per(1000)
+            name_index = OUTLET_FIELDS.index("outlet_name")
+            for row in rows:
+                yield _line((*row, is_summary_name(row[name_index])))
+    return StreamingResponse(stream(), media_type="text/csv; charset=utf-8",
+                             headers={"Cache-Control": "no-store"})

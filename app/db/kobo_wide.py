@@ -129,7 +129,7 @@ def ensure_wide_columns(flat: dict[str, Any]) -> dict[str, str]:
     return mapping
 
 
-def upsert_wide_submission(flat: dict[str, Any], normalized: dict[str, Any], *, mapping: dict[str, str] | None = None) -> None:
+def upsert_wide_submission(flat: dict[str, Any], normalized: dict[str, Any], *, mapping: dict[str, str] | None = None, connection=None) -> None:
     """Upsert one Kobo submission into the dynamic wide table.
 
     This stores every Kobo field as a separate SQL column, not JSONB.
@@ -165,5 +165,8 @@ def upsert_wide_submission(flat: dict[str, Any], normalized: dict[str, Any], *, 
         ON CONFLICT (submission_id) DO UPDATE SET {updates}
     """
 
-    with engine.begin() as conn:
-        conn.execute(text(sql), values)
+    if connection is not None:
+        connection.execute(text(sql), values)
+    else:
+        with engine.begin() as conn:
+            conn.execute(text(sql), values)

@@ -71,3 +71,30 @@ def test_postgres_binds_large_form_numbers_as_bigint():
     )
     compiled = str(statement.compile(dialect=psycopg.dialect()))
     assert "%(member_no)s::BIGINT" in compiled
+
+
+def test_interrupted_full_sync_keeps_committed_batch(tmp_path):
+    engine = create_engine('sqlite:///' + str(tmp_path / 'resume.db'))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False)
+    rows = [{"_id": i, "report_date": "2026-10-03", "dealer": "CA1"} for i in range(1, 252)]
+    original = sync.normalize_submission
+    def fail_last(raw):
+        if raw["_id"] == 251:
+            raise RuntimeError("simulated interruption")
+        return original(raw)
+    with patch.object(sync, "SessionLocal", factory), patch.object(sync, "init_db"), \
+         patch.object(sync, "ensure_wide_columns", return_value={}), \
+         patch.object(sync, "upsert_wide_submission"), \
+         patch.object(sync, "_replace_metric_rows"), \
+         patch.object(KoboClient, "fetch_submissions", return_value=rows):
+        with patch.object(sync, "normalize_submission", side_effect=fail_last):
+            with pytest.raises(RuntimeError, match="simulated"):
+                sync.sync_kobo(full_history=True)
+        with factory() as db:
+            assert len(list(db.scalars(select(KoboSubmission.id)))) == 250
+        result = sync.sync_kobo(full_history=True)
+        assert result["unchanged"] == 250
+        assert result["synced"] == 1
+        assert result["audit"]["missing_source_ids"] == 0
+    engine.dispose()

@@ -38,6 +38,11 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
         with patch.object(settings, 'power_bi_public_csv_enabled', True):
             public_response=client.get(public_url)
             assert public_response.status_code == 200
+            submissions = client.get("/powerbi/market_survey_submissions.csv")
+            assert submissions.status_code == 200
+            records = list(csv.DictReader(io.StringIO(submissions.text)))
+            assert any(r["submission_id"] == "100" for r in records)
+            assert "phone_number" in records[0]
             assert len(list(csv.DictReader(io.StringIO(public_response.text)))) == 2
             assert client.get(url).status_code == 401  # Protected route remains protected.
         response=client.get(url,params={'api_key':'test-key'})
