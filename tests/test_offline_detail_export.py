@@ -58,7 +58,7 @@ class OfflineDetailTests(unittest.TestCase):
             Path(folder,'outlet_detail_geocode_cache.json').write_text('{"11.550000,104.930000":["WRONG","WRONG","WRONG"]}')
             with patch.dict(os.environ, {'BIGDATACLOUD_API_KEY':''}), patch.dict('sys.modules', {'app.core.config':config,'app.kobo.sync':sync}):
                 path, count, unresolved = generate_outlet_detail_export(day)
-            self.assertEqual(calls, [(None,day,True)])
+            self.assertEqual(calls, [(None,day,False)])
             self.assertEqual((count,unresolved),(2,1))
             wb = load_workbook(path); ws = wb.active
             self.assertEqual([c.value for c in ws[1]], HEADERS)

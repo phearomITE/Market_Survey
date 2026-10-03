@@ -5,8 +5,13 @@ The existing command registration stays unchanged. No additional dependency or A
 
 ## Output
 `Export_detail_YYYY-MM-DD.xlsx`: Date, Region, Dealer, Outlet Name, Outlet Type,
-Phone Number Outlet, Latitude, Longitude, Province, District, Commune.
-One row per outlet visit; summary-marker submissions are excluded as before.
+Phone Number Outlet, Latitude, Longitude, Province, District, Commune, Product, Movement Rate.
+One row per outlet visit and own product; summary-marker submissions are excluded as before.
+Product lists follow GT/HORECA form parsing. Movement Rate uses the per-outlet
+movement_score, not the dealer-level normalized comparison score. Unavailable
+products have rate 0. Available products with missing scores stay blank. Outlets
+without product metrics retain one row with blank Product/Movement Rate.
+Repeated outlet details are expected; the completion count remains outlet visits.
 Region and Dealer remain Kobo values; location mapping does not reassign dealers.
 
 ## Boundary data
@@ -35,7 +40,7 @@ it does not delete templates, nested folders, or other project changes.
     PYTHONPATH=. python -X utf8 tests/test_sport_and_detail_update.py
     python -m compileall -q app
 
-Commit the seven files in this ZIP and push. Wait for Railway deployment success
+Commit the eight files in this ZIP and push. Wait for Railway deployment success
 for that commit, then send `/export_detail 2026-01-03` to Telegram.
 If Kobo has no submissions for that exact report date, the bot reports that fact.
 Use a date with collected data; no artificial records are created.

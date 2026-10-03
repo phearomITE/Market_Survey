@@ -32,7 +32,7 @@ def test_detail_columns_coordinates_cache_and_literals():
         path,n,bad=create_detail_export(rows,date(2026,1,3),folder,resolve)
         assert (n,bad,len(calls))==(2,0,1)
         wb=load_workbook(path);ws=wb.active
-        assert ws.max_column==11 and ws.max_row==3
+        assert ws.max_column==13 and ws.max_row==3
         assert ws['D2'].value=='=2+2' and ws['D2'].data_type=='s'
         assert ws['F2'].value=='012345678'
         assert ws['K2'].value=='Commune';wb.close()
