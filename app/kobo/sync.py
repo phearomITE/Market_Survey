@@ -16,6 +16,7 @@ from app.db.models import (
     KoboProductMetric,
     KoboRingPullMetric,
     KoboSubmission,
+    KoboReconciliationArchive,
     SyncLog,
 )
 from app.kobo.client import KoboClient
@@ -271,12 +272,14 @@ def _replace_metric_rows(db, submission_db_id: int, flat: dict) -> None:
     db.execute(delete(KoboCompetitorMetric).where(KoboCompetitorMetric.submission_id == submission_db_id))
     db.execute(delete(KoboRingPullMetric).where(KoboRingPullMetric.submission_id == submission_db_id))
 
-    for row in _product_metrics_from_flat(flat):
-        db.add(KoboProductMetric(submission_id=submission_db_id, **row))
-    for row in _competitor_metrics_from_flat(flat):
-        db.add(KoboCompetitorMetric(submission_id=submission_db_id, **row))
-    for row in _ring_pull_metrics_from_flat(flat):
-        db.add(KoboRingPullMetric(submission_id=submission_db_id, **row))
+    for model, values in (
+        (KoboProductMetric, _product_metrics_from_flat(flat)),
+        (KoboCompetitorMetric, _competitor_metrics_from_flat(flat)),
+        (KoboRingPullMetric, _ring_pull_metrics_from_flat(flat)),
+    ):
+        payloads = [dict(submission_id=submission_db_id, **row) for row in values]
+        if payloads:
+            db.execute(insert(model), payloads)
 
 
 def _source_hash(raw: dict) -> str:
@@ -442,6 +445,8 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     When dealer/report_date are supplied, only matching rows are processed. This
     makes an on-demand /report sync fast even when the Kobo asset contains many rows.
     """
+    if full_history and (dealer is not None or report_date is not None):
+        raise ValueError("Full-history reconciliation cannot use date/dealer filters")
     init_db()
     rows = KoboClient().fetch_submissions(
         report_date=report_date,
@@ -451,6 +456,8 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
         page_limit=10000 if full_history else 20,
         use_cache=False,
     )
+    if full_history and not rows:
+        raise RuntimeError("Empty Kobo snapshot: reconciliation refused; existing records retained")
     synced = 0
     unchanged = 0
     hash_backfilled = 0
@@ -529,7 +536,26 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             message += " | " + " || ".join(skipped_reasons[:5])
         db.flush()
         stored_ids = set(db.scalars(select(KoboSubmission.submission_id)))
+        archived = 0
+        stale_ids = stored_ids - source_ids
+        # Reconcile only after every fetched record has been processed successfully.
+        if full_history and not skipped and not (source_ids - stored_ids):
+            for source_id in sorted(stale_ids):
+                sub = db.scalar(select(KoboSubmission).where(KoboSubmission.submission_id == source_id))
+                payload = {"submission": {c.name: getattr(sub, c.name) for c in sub.__table__.columns}}
+                for model in (KoboProductMetric, KoboCompetitorMetric, KoboRingPullMetric):
+                    children = db.scalars(select(model).where(model.submission_id == sub.id)).all()
+                    payload[model.__tablename__] = [{c.name: getattr(child, c.name) for c in model.__table__.columns} for child in children]
+                db.add(KoboReconciliationArchive(submission_id=source_id,
+                    payload=json.dumps(payload, ensure_ascii=False, default=str)))
+                for model in (KoboProductMetric, KoboCompetitorMetric, KoboRingPullMetric):
+                    db.execute(delete(model).where(model.submission_id == sub.id))
+                db.execute(delete(KoboSubmission).where(KoboSubmission.id == sub.id))
+                archived += 1
+            stored_ids -= stale_ids
+        audit_archived = archived
         audit = {
+            "archived_database_only_records": audit_archived,
             "database_rows": len(stored_ids),
             "source_distinct_ids": len(source_ids),
             "missing_source_ids": len(source_ids - stored_ids),

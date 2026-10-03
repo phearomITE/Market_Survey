@@ -130,3 +130,12 @@ class SyncLog(Base):
     synced: Mapped[int | None] = mapped_column(Integer)
     skipped: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class KoboReconciliationArchive(Base):
+    """Backup of normalized records absent from a complete Kobo snapshot."""
+    __tablename__ = "kobo_reconciliation_archive"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    submission_id: Mapped[str] = mapped_column(String(100), index=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    payload: Mapped[str] = mapped_column(Text)

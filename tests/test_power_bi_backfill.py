@@ -98,3 +98,39 @@ def test_interrupted_full_sync_keeps_committed_batch(tmp_path):
         assert result["synced"] == 1
         assert result["audit"]["missing_source_ids"] == 0
     engine.dispose()
+
+
+def test_complete_snapshot_reconciles_dates_and_archives_removed_rows(tmp_path):
+    from datetime import date
+    from app.db.models import KoboReconciliationArchive
+    engine = create_engine('sqlite:///' + str(tmp_path / 'reconcile.db'))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False)
+    rows = [{'_id': 1, 'report_date': '2026-07-18'}, {'_id': 2, 'report_date': '2026-10-03'}]
+    with patch.object(sync, 'SessionLocal', factory), patch.object(sync, 'init_db'), \
+         patch.object(sync, 'ensure_wide_columns', return_value={}), \
+         patch.object(sync, 'upsert_wide_submission'), \
+         patch.object(KoboClient, 'fetch_submissions', return_value=rows):
+        sync.sync_kobo(full_history=True)
+        rows[:] = [{'_id': 1, 'report_date': '2026-09-26'}, {'_id': 3, 'report_date': '2026-10-03'}]
+        result = sync.sync_kobo(full_history=True)
+        assert result['audit']['database_only_ids'] == 0
+        assert result['audit']['missing_source_ids'] == 0
+        assert result['audit']['archived_database_only_records'] == 1
+        with factory() as db:
+            assert set(db.scalars(select(KoboSubmission.submission_id))) == {'1', '3'}
+            assert db.scalar(select(KoboSubmission.report_date).where(KoboSubmission.submission_id == '1')) == date(2026, 9, 26)
+            archive = db.scalar(select(KoboReconciliationArchive))
+            assert archive.submission_id == '2'
+            assert '2026-10-03' in archive.payload
+        rows[:] = [{'_id': 1}, {}]
+        result = sync.sync_kobo(full_history=True)
+        assert result['skipped'] == 1
+        with factory() as db:
+            assert '3' in set(db.scalars(select(KoboSubmission.submission_id)))
+        rows.clear()
+        with pytest.raises(RuntimeError, match='Empty Kobo'):
+            sync.sync_kobo(full_history=True)
+        with pytest.raises(ValueError, match='filters'):
+            sync.sync_kobo(full_history=True, report_date=date(2026, 10, 3))
+    engine.dispose()
