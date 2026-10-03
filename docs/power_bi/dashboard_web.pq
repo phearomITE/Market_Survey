@@ -10,7 +10,7 @@ let
         {"Phone Number Outlet", type text}, {"Latitude", type number},
         {"Longitude", type number}, {"Province", type text}, {"District", type text},
         {"Commune", type text}, {"Product", type text}, {"Movement Rate", type number},
-        {"Key Issues Detail", type text}, {"Suggestion", type text}, {"Submission ID", type text}
+        {"Key Issues Detail", type text}, {"Suggestion", type text}, {"Submission ID", type text}, {"submit_time", type datetime}, {"id", type text}
     }, "en-US")
 in
     Types

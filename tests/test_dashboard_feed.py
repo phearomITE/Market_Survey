@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 import pytest
 from fastapi import FastAPI
@@ -27,7 +27,7 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
         assert initial.headers['X-BI-Sync-State'] == 'initial-sync-in-progress'
         with factory() as db:
             sub=KoboSubmission(submission_id='100',report_date=date(2026,10,3),region='R1',dealer='CA2',
-                outlet_name='Shop, Khmer',outlet_type='Drink Shop',report_type='GT',phone_number='012345678',
+                submission_time=datetime(2026, 10, 3, 12, 28), outlet_name='Shop, Khmer',outlet_type='Drink Shop',report_type='GT',phone_number='012345678',
                 gps_latitude=11.55,gps_longitude=104.93,key_issue_text='Issue, one\nIssue two',suggestion_text='Suggestion')
             db.add(sub);db.flush()
             db.add_all([KoboProductMetric(submission_id=sub.id,product_name='CB LITE ORD',available=True,movement_score=7),
@@ -65,6 +65,8 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
         assert data[0]['Key Issues Detail']=='Issue, one\nIssue two'
         assert data[1]['Movement Rate']=='0'
         assert data[0]['Submission ID']=='100'
+        assert data[0]['id']=='100'
+        assert data[0]['submit_time']=='2026-10-03 12:28:00'
         with factory() as db:
             sub=KoboSubmission(submission_id='101',report_date=date(2026,10,4),outlet_name='New visit',report_type='HORECA')
             db.add(sub);db.flush();db.add(KoboProductMetric(submission_id=sub.id,product_name='CBL Pint',available=True,movement_score=10));db.commit()

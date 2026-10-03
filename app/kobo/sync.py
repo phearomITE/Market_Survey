@@ -468,7 +468,11 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     skipped_reasons: list[str] = []
 
     # Prepare dynamic field columns once per run, not once per submission.
+    if full_history:
+        print("BI sync: preparing form-field columns", flush=True)
     wide_mapping = ensure_wide_columns({key: None for raw in rows for key in flatten_dict(raw)})
+    if full_history:
+        print("BI sync: columns ready; importing all report dates", flush=True)
     with SessionLocal() as db:
         existing_rows = db.execute(select(KoboSubmission.submission_id,
             KoboSubmission.source_hash, KoboSubmission.report_date)).all()
@@ -481,7 +485,9 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                            fetched=len(rows), synced=0, skipped=0))
             db.commit()
 
-        for raw in rows:
+        for processed, raw in enumerate(rows, 1):
+            if full_history and processed % 250 == 0:
+                print(f"BI sync processing {processed}/{len(rows)}; changed={synced}; unchanged={unchanged}", flush=True)
             data = normalize_submission(raw)
             flat = data.pop("_flat", {}) or {}
 

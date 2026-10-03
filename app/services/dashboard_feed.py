@@ -5,7 +5,7 @@ from app.reports.aggregator import OWN_PRODUCTS, HORECA_OWN_PRODUCTS
 
 HEADERS = ('Date', 'Region', 'Dealer', 'Outlet Name', 'Outlet Type',
            'Phone Number Outlet', 'Latitude', 'Longitude', 'Province', 'District',
-           'Commune', 'Product', 'Movement Rate', 'Key Issues Detail', 'Suggestion', 'Submission ID')
+           'Commune', 'Product', 'Movement Rate', 'Key Issues Detail', 'Suggestion', 'Submission ID', 'submit_time', 'id')
 
 
 def dashboard_values(rows):
@@ -26,4 +26,5 @@ def dashboard_values(rows):
         rate = 0 if row['available'] is False else row['movement_score']
         yield (row['report_date'], row['region'], row['dealer'], row['outlet_name'],
                row['outlet_type'], row['phone_number'], *pin, *names,
-               row['product_name'], rate, row['key_issue_text'], row['suggestion_text'], row['submission_id'])
+               row['product_name'], rate, row['key_issue_text'], row['suggestion_text'], row['submission_id'],
+               row['submission_time'], row['submission_id'])

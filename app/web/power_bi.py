@@ -125,7 +125,7 @@ def _dashboard_csv(start_date=None):
     get_boundary_index()  # Fail before sending a CSV header if map is missing.
     fields = ("report_date", "region", "dealer", "outlet_name", "outlet_type",
               "phone_number", "gps_latitude", "gps_longitude", "key_issue_text",
-              "suggestion_text", "submission_id", "report_type")
+              "suggestion_text", "submission_id", "report_type", "submission_time")
     stmt = select(*(getattr(KoboSubmission, name) for name in fields),
                   KoboProductMetric.product_name, KoboProductMetric.available,
                   KoboProductMetric.movement_score).join(
