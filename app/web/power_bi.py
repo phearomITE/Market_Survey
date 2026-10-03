@@ -136,9 +136,8 @@ def _dashboard_csv(start_date=None):
     with SessionLocal() as session:
         latest = session.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full", SyncLog.status == "success")
                                 .order_by(SyncLog.id.desc()).limit(1))
-        if latest is None or latest.status != "success":
-            raise HTTPException(status_code=503, detail="A successful full BI sync is required. Check sync_status and the BI worker logs.")
-        synced_at = str(latest.created_at)
+        synced_at = str(latest.created_at) if latest else ""
+        sync_state = "ready" if latest else "initial-sync-in-progress"
     def dashboard_stream():
         yield _line(HEADERS)
         with SessionLocal() as session:
@@ -146,7 +145,7 @@ def _dashboard_csv(start_date=None):
             for values in dashboard_values(rows):
                 yield _line(values)
     return StreamingResponse(dashboard_stream(), media_type="text/csv; charset=utf-8",
-        headers={"Cache-Control": "private, no-store", "X-BI-Last-Sync-UTC": synced_at,
+        headers={"Cache-Control": "private, no-store", "X-BI-Last-Sync-UTC": synced_at, "X-BI-Sync-State": sync_state,
                  "Content-Disposition": 'attachment; filename="market_survey_dashboard.csv"'})
 
 
@@ -167,8 +166,7 @@ def public_submissions_csv():
     with SessionLocal() as db:
         latest = db.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full", SyncLog.status == "success")
                            .order_by(SyncLog.id.desc()).limit(1))
-        if latest is None or latest.status != "success":
-            raise HTTPException(503, detail="Full BI sync has not completed successfully.")
+        sync_state = "ready" if latest else "initial-sync-in-progress"
     def stream():
         yield _line((*OUTLET_FIELDS, "is_summary"))
         with SessionLocal() as db:
@@ -178,4 +176,4 @@ def public_submissions_csv():
             for row in rows:
                 yield _line((*row, is_summary_name(row[name_index])))
     return StreamingResponse(stream(), media_type="text/csv; charset=utf-8",
-                             headers={"Cache-Control": "no-store"})
+                             headers={"Cache-Control": "no-store", "X-BI-Sync-State": sync_state})

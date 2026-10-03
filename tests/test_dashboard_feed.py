@@ -22,7 +22,9 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
         client = TestClient(app)
         url='/api/power-bi/dashboard'
         assert client.get(url).status_code == 401
-        assert client.get(url, params={'api_key':'test-key'}).status_code == 503
+        initial = client.get(url, params={'api_key':'test-key'})
+        assert initial.status_code == 200
+        assert initial.headers['X-BI-Sync-State'] == 'initial-sync-in-progress'
         with factory() as db:
             sub=KoboSubmission(submission_id='100',report_date=date(2026,10,3),region='R1',dealer='CA2',
                 outlet_name='Shop, Khmer',outlet_type='Drink Shop',report_type='GT',phone_number='012345678',
@@ -31,6 +33,14 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
             db.add_all([KoboProductMetric(submission_id=sub.id,product_name='CB LITE ORD',available=True,movement_score=7),
                 KoboProductMetric(submission_id=sub.id,product_name='WURKZ ORD',available=False,movement_score=9),
                 KoboProductMetric(submission_id=sub.id,product_name='CBL Pint',available=True,movement_score=8)])
+            db.commit()
+        with patch.object(settings, 'power_bi_public_csv_enabled', True):
+            partial = client.get('/powerbi/market_survey_dashboard.csv')
+            assert partial.status_code == 200
+            assert 'Shop, Khmer' in partial.text
+            assert partial.headers['X-BI-Sync-State'] == 'initial-sync-in-progress'
+            assert client.get('/powerbi/market_survey_submissions.csv').status_code == 200
+        with factory() as db:
             db.add(SyncLog(source='kobo_bi_full',status='success',fetched=1,synced=1,skipped=0));db.commit()
         public_url='/powerbi/market_survey_dashboard.csv'
         with patch.object(settings, 'power_bi_public_csv_enabled', False):
