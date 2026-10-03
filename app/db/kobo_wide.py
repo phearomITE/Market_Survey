@@ -178,3 +178,25 @@ def upsert_wide_submission(flat: dict[str, Any], normalized: dict[str, Any], *, 
     else:
         with engine.begin() as conn:
             conn.execute(text(sql), values)
+
+
+def upsert_wide_submissions_batch(items, *, mapping, connection):
+    """Execute one prepared statement for a batch on the caller's transaction."""
+    values = []
+    for normalized, flat in items:
+        row = {"submission_id": str(normalized["submission_id"]),
+               "dealer": normalized.get("dealer"), "region": normalized.get("region"),
+               "report_date": normalized.get("report_date"),
+               "submission_time": normalized.get("submission_time"),
+               "updated_at": normalized["updated_at"]}
+        row.update({column: _value_to_text(flat.get(key)) for key, column in mapping.items()})
+        values.append(row)
+    if not values:
+        return
+    columns = list(values[0])
+    names = ", ".join(_quote_ident(c) for c in columns)
+    placeholders = ", ".join(":" + c for c in columns)
+    updates = ", ".join(f"{_quote_ident(c)} = EXCLUDED.{_quote_ident(c)}"
+                        for c in columns if c != "submission_id")
+    connection.execute(text(f"INSERT INTO kobo_submissions_wide ({names}) VALUES ({placeholders}) "
+                            f"ON CONFLICT (submission_id) DO UPDATE SET {updates}"), values)

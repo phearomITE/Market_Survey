@@ -20,7 +20,7 @@ def test_full_sync_keeps_incomplete_rows_and_rebuilds(tmp_path):
     rows = [{'_id': 1, 'report_date': '2026-09-19', 'dealer': 'CA1', 'member_no': 90968793801}, {'_id': 2}]
     with patch.object(sync, 'SessionLocal', factory), patch.object(sync, 'init_db'), \
          patch.object(sync, 'ensure_wide_columns', return_value={}), \
-         patch.object(sync, 'upsert_wide_submission'), \
+         patch.object(sync, 'upsert_wide_submission'), patch.object(sync, 'upsert_wide_submissions_batch'), \
          patch.object(KoboClient, 'fetch_submissions', return_value=rows) as fetch:
         result = sync.sync_kobo(full_history=True, force=True)
         assert result['synced'] == 2 and result['skipped'] == 0
@@ -85,7 +85,7 @@ def test_interrupted_full_sync_keeps_committed_batch(tmp_path):
         return original(raw)
     with patch.object(sync, "SessionLocal", factory), patch.object(sync, "init_db"), \
          patch.object(sync, "ensure_wide_columns", return_value={}), \
-         patch.object(sync, "upsert_wide_submission"), \
+         patch.object(sync, "upsert_wide_submission"), patch.object(sync, "upsert_wide_submissions_batch"), \
          patch.object(sync, "_replace_metric_rows"), \
          patch.object(KoboClient, "fetch_submissions", return_value=rows):
         with patch.object(sync, "normalize_submission", side_effect=fail_last):
@@ -109,7 +109,7 @@ def test_complete_snapshot_reconciles_dates_and_archives_removed_rows(tmp_path):
     rows = [{'_id': 1, 'report_date': '2026-07-18'}, {'_id': 2, 'report_date': '2026-10-03'}]
     with patch.object(sync, 'SessionLocal', factory), patch.object(sync, 'init_db'), \
          patch.object(sync, 'ensure_wide_columns', return_value={}), \
-         patch.object(sync, 'upsert_wide_submission'), \
+         patch.object(sync, 'upsert_wide_submission'), patch.object(sync, 'upsert_wide_submissions_batch'), \
          patch.object(KoboClient, 'fetch_submissions', return_value=rows):
         sync.sync_kobo(full_history=True)
         rows[:] = [{'_id': 1, 'report_date': '2026-09-26'}, {'_id': 3, 'report_date': '2026-10-03'}]
@@ -147,7 +147,7 @@ def test_all_report_dates_and_unchanged_date_repair(tmp_path):
     rows = [{'_id': i, 'report_date': d} for i, d in enumerate(dates, 1)]
     with patch.object(sync, 'SessionLocal', factory), patch.object(sync, 'init_db'), \
          patch.object(sync, 'ensure_wide_columns', return_value={}), \
-         patch.object(sync, 'upsert_wide_submission'), \
+         patch.object(sync, 'upsert_wide_submission'), patch.object(sync, 'upsert_wide_submissions_batch'), \
          patch.object(KoboClient, 'fetch_submissions', return_value=rows):
         result = sync.sync_kobo(full_history=True)
         assert result['audit']['report_date_mismatches'] == 0
@@ -169,3 +169,54 @@ def test_all_report_dates_and_unchanged_date_repair(tmp_path):
             assert record['Last Report Date'] == '2026-10-12'
             assert record['Sync Status'] == 'success'
     engine.dispose()
+
+
+def test_full_import_uses_batch_writes_and_rolls_back_failed_batch(tmp_path):
+    from sqlalchemy import event, func
+    from app.db.models import KoboCompetitorMetric, KoboRingPullMetric
+    engine = create_engine('sqlite:///' + str(tmp_path / 'batch.db'))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False)
+    inserts = []
+    @event.listens_for(engine, 'before_cursor_execute')
+    def record_insert(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith('INSERT INTO kobo_submissions '):
+            inserts.append(statement)
+    rows = [{'_id': i, 'report_date': '2026-10-03'} for i in range(1, 252)]
+    with patch.object(sync, 'SessionLocal', factory), patch.object(sync, 'init_db'), \
+         patch.object(sync, 'ensure_wide_columns', return_value={}), \
+         patch.object(sync, 'upsert_wide_submissions_batch') as wide, \
+         patch.object(sync, '_product_metrics_from_flat', return_value=[{'product_name': 'CB LITE ORD', 'movement_score': 7}]), \
+         patch.object(sync, '_competitor_metrics_from_flat', return_value=[]), \
+         patch.object(sync, '_ring_pull_metrics_from_flat', return_value=[]), \
+         patch.object(KoboClient, 'fetch_submissions', return_value=rows):
+        result = sync.sync_kobo(full_history=True)
+        assert result['synced'] == 251
+        assert len(inserts) == 2  # 250 parents, then final parent: not 251 requests.
+        assert wide.call_count == 2
+        with factory() as db:
+            assert db.scalar(select(func.count(KoboProductMetric.id))) == 251
+        rows.append({'_id': 252, 'report_date': '2026-10-03'})
+        with patch.object(sync, '_product_metrics_from_flat', side_effect=RuntimeError('metric failure')):
+            with pytest.raises(RuntimeError, match='metric failure'):
+                sync.sync_kobo(full_history=True)
+        with factory() as db:
+            assert db.scalar(select(KoboSubmission.id).where(KoboSubmission.submission_id == '252')) is None
+        result = sync.sync_kobo(full_history=True)
+        assert result['unchanged'] == 251 and result['synced'] == 1
+    engine.dispose()
+
+
+def test_wide_batch_executes_once_with_null_clearing():
+    from unittest.mock import Mock
+    from datetime import datetime
+    from app.db.kobo_wide import upsert_wide_submissions_batch
+    conn = Mock()
+    updated = datetime(2026, 10, 3)
+    items = [({'submission_id': '1', 'updated_at': updated}, {'question': 'answer'}),
+             ({'submission_id': '2', 'updated_at': updated}, {})]
+    upsert_wide_submissions_batch(items, mapping={'question': 'k_question'}, connection=conn)
+    assert conn.execute.call_count == 1
+    values = conn.execute.call_args.args[1]
+    assert values[0]['k_question'] == 'answer'
+    assert values[1]['k_question'] is None

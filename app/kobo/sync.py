@@ -30,7 +30,7 @@ from app.kobo.parser import (
     to_int,
     yes_value,
 )
-from app.db.kobo_wide import upsert_wide_submission, ensure_wide_columns
+from app.db.kobo_wide import upsert_wide_submission, upsert_wide_submissions_batch, ensure_wide_columns
 from app.core.config import settings
 _SYNC_LOCK = Lock()
 _SYNC_FINISHED = Event()
@@ -282,6 +282,29 @@ def _replace_metric_rows(db, submission_db_id: int, flat: dict) -> None:
             db.execute(insert(model), payloads)
 
 
+def _save_sync_batch(db, items, wide_mapping):
+    """Replace parent and metric rows in one atomic checkpoint batch."""
+    # Last source occurrence wins if an API snapshot repeats an ID.
+    items = list({data["submission_id"]: (data, flat) for data, flat in items}.values())
+    if not items:
+        return
+    upsert_wide_submissions_batch(items, mapping=wide_mapping, connection=db.connection())
+    statement = insert(KoboSubmission).values([data for data, _ in items])
+    statement = statement.on_conflict_do_update(index_elements=["submission_id"],
+        set_={key: getattr(statement.excluded, key) for key in items[0][0] if key != "submission_id"})
+    ids = dict(db.execute(statement.returning(KoboSubmission.submission_id, KoboSubmission.id)).all())
+    if len(ids) != len(items):
+        raise RuntimeError("Batch upsert did not return every submission ID")
+    for model, resolver in ((KoboProductMetric, _product_metrics_from_flat),
+                            (KoboCompetitorMetric, _competitor_metrics_from_flat),
+                            (KoboRingPullMetric, _ring_pull_metrics_from_flat)):
+        db.execute(delete(model).where(model.submission_id.in_(list(ids.values()))))
+        payloads = [dict(submission_id=ids[data["submission_id"]], **metric)
+                    for data, flat in items for metric in resolver(flat)]
+        if payloads:
+            db.execute(insert(model), payloads)
+
+
 def _source_hash(raw: dict) -> str:
     payload = json.dumps(raw, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -485,6 +508,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                            fetched=len(rows), synced=0, skipped=0))
             db.commit()
 
+        pending = []
         for processed, raw in enumerate(rows, 1):
             if full_history and processed % 250 == 0:
                 print(f"BI sync processing {processed}/{len(rows)}; changed={synced}; unchanged={unchanged}", flush=True)
@@ -516,28 +540,33 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 continue
 
             data["updated_at"] = datetime.utcnow()
-            upsert_wide_submission(flat, data, mapping=wide_mapping, connection=db.connection())
-            stmt = insert(KoboSubmission).values(**data).on_conflict_do_update(
-                index_elements=["submission_id"],
-                set_={k: v for k, v in data.items() if k != "submission_id"},
-            )
-            sub_id = db.scalar(stmt.returning(KoboSubmission.id))
-            if sub_id is None:
-                skipped += 1
-                skipped_reasons.append(f"could not re-read submission_id={data['submission_id']}")
-                continue
-
-            _replace_metric_rows(db, sub_id, flat)
+            if full_history:
+                pending.append((data, flat))
+            else:
+                upsert_wide_submission(flat, data, mapping=wide_mapping, connection=db.connection())
+                stmt = insert(KoboSubmission).values(**data).on_conflict_do_update(
+                    index_elements=["submission_id"],
+                    set_={k: v for k, v in data.items() if k != "submission_id"})
+                sub_id = db.scalar(stmt.returning(KoboSubmission.id))
+                if sub_id is None:
+                    raise RuntimeError("Submission upsert returned no ID")
+                _replace_metric_rows(db, sub_id, flat)
             existing_hashes[data["submission_id"]] = source_hash
             existing_dates[data["submission_id"]] = data.get("report_date")
             synced += 1
             if full_history and synced % 250 == 0:
+                print(f"BI sync: saving batch of {len(pending)} submissions", flush=True)
+                _save_sync_batch(db, pending, wide_mapping)
+                pending.clear()
                 db.add(SyncLog(source="kobo_bi_full", status="running",
                                message=f"Committed {synced} changed submissions; {unchanged} unchanged.",
                                fetched=len(rows), synced=synced, skipped=skipped))
                 db.commit()
                 print(f"BI sync SAVED {synced} changed submissions; {unchanged} unchanged", flush=True)
 
+        if pending:
+            print(f"BI sync: saving final batch of {len(pending)} submissions", flush=True)
+            _save_sync_batch(db, pending, wide_mapping)
         message = (
             f"fetched {len(rows)}, matched {matched}, synced {synced}, "
             f"hash_backfilled {hash_backfilled}, unchanged {unchanged}, skipped {skipped}"
