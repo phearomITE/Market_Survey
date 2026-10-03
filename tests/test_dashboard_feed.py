@@ -65,5 +65,5 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
         assert len(data)==1
         with factory() as db:
             db.add(SyncLog(source='kobo_bi_full',status='failed'));db.commit()
-        assert client.get(url,params={'api_key':'test-key'}).status_code==503
+        assert client.get(url,params={'api_key':'test-key'}).status_code==200  # Prior successful backfill remains readable.
     engine.dispose()

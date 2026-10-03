@@ -134,7 +134,7 @@ def _dashboard_csv(start_date=None):
     if start_date:
         stmt = stmt.where(KoboSubmission.report_date >= start_date)
     with SessionLocal() as session:
-        latest = session.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full")
+        latest = session.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full", SyncLog.status == "success")
                                 .order_by(SyncLog.id.desc()).limit(1))
         if latest is None or latest.status != "success":
             raise HTTPException(status_code=503, detail="A successful full BI sync is required. Check sync_status and the BI worker logs.")
@@ -165,7 +165,7 @@ def public_submissions_csv():
     if not settings.power_bi_public_csv_enabled:
         raise HTTPException(404, detail="Public CSV is disabled")
     with SessionLocal() as db:
-        latest = db.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full")
+        latest = db.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full", SyncLog.status == "success")
                            .order_by(SyncLog.id.desc()).limit(1))
         if latest is None or latest.status != "success":
             raise HTTPException(503, detail="Full BI sync has not completed successfully.")

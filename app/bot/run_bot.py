@@ -94,7 +94,7 @@ async def _auto_sync_loop() -> None:
 async def _post_init(app: Application) -> None:
     """Never start a full-history sync beside interactive reports."""
     print(
-        "ℹ️ Automatic full Kobo sync disabled; "
+        "ℹ️ BI background sync starts through the web application; "
         "reports use fast date-filtered Kobo reads."
     )
 

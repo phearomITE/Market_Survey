@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from app.db.database import init_db
@@ -14,6 +15,11 @@ app.include_router(power_bi_router)
 @app.on_event('startup')
 def startup():
     init_db()
+    if os.getenv("POWER_BI_AUTO_SYNC_ENABLED", "true").strip().lower() in {"1", "true", "yes"}:
+        from app.services.automatic_bi_sync import AutomaticBISync
+        service = AutomaticBISync()
+        app.state.bi_sync = service
+        service.start()
 
 @app.get('/')
 def root():
@@ -32,3 +38,10 @@ def api_report(dealer: str, report_date: str):
 def api_report_today(report_date: str):
     path, message = generate_today_all_dealers(report_date)
     return {'message': message, 'path': str(path)}
+
+
+@app.on_event("shutdown")
+def shutdown():
+    service = getattr(app.state, "bi_sync", None)
+    if service is not None:
+        service.stop()
