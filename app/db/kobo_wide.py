@@ -102,6 +102,11 @@ def ensure_wide_columns(flat: dict[str, Any]) -> dict[str, str]:
     ensure_wide_tables()
     mapping: dict[str, str] = {}
     with engine.begin() as conn:
+        existing_columns = set(conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = 'kobo_submissions_wide'"
+        )).scalars())
+        existing_keys = set(conn.execute(text("SELECT kobo_key FROM kobo_field_map")).scalars())
         for kobo_key in sorted(flat.keys(), key=str.lower):
             if not kobo_key:
                 continue
@@ -109,9 +114,12 @@ def ensure_wide_columns(flat: dict[str, Any]) -> dict[str, str]:
             if column_name in SYSTEM_COLUMNS:
                 column_name = f"k_{column_name}"
             mapping[kobo_key] = column_name
-            conn.execute(text(
-                f"ALTER TABLE kobo_submissions_wide ADD COLUMN IF NOT EXISTS {_quote_ident(column_name)} TEXT"
-            ))
+            if column_name not in existing_columns:
+                conn.execute(text(
+                    f"ALTER TABLE kobo_submissions_wide ADD COLUMN IF NOT EXISTS {_quote_ident(column_name)} TEXT"
+                ))
+            if str(kobo_key) in existing_keys:
+                continue
             conn.execute(
                 text("""
                     INSERT INTO kobo_field_map (column_name, kobo_key, question_label)

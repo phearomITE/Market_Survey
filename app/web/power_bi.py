@@ -177,3 +177,22 @@ def public_submissions_csv():
                 yield _line((*row, is_summary_name(row[name_index])))
     return StreamingResponse(stream(), media_type="text/csv; charset=utf-8",
                              headers={"Cache-Control": "no-store", "X-BI-Sync-State": sync_state})
+
+
+@router.get("/powerbi/market_survey_sync_status.csv")
+def public_sync_status_csv():
+    """Public aggregate progress only; no credentials or outlet details."""
+    if not settings.power_bi_public_csv_enabled:
+        raise HTTPException(404, detail="Public CSV is disabled")
+    with SessionLocal() as db:
+        count, first, last = db.execute(select(func.count(KoboSubmission.id),
+            func.min(KoboSubmission.report_date), func.max(KoboSubmission.report_date))).one()
+        log = db.scalar(select(SyncLog).where(SyncLog.source == "kobo_bi_full")
+                        .order_by(SyncLog.id.desc()).limit(1))
+        content = _line(("Saved Submissions", "First Report Date", "Last Report Date",
+                         "Sync Status", "Fetched Submissions", "Changed Submissions", "Skipped Submissions"))
+        content += _line((count, first, last, log.status if log else "not_started",
+                         log.fetched if log else None, log.synced if log else None,
+                         log.skipped if log else None))
+    return StreamingResponse(iter([content]), media_type="text/csv; charset=utf-8",
+                             headers={"Cache-Control": "no-store"})

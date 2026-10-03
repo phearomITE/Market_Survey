@@ -134,3 +134,38 @@ def test_complete_snapshot_reconciles_dates_and_archives_removed_rows(tmp_path):
         with pytest.raises(ValueError, match='filters'):
             sync.sync_kobo(full_history=True, report_date=date(2026, 10, 3))
     engine.dispose()
+
+
+def test_all_report_dates_and_unchanged_date_repair(tmp_path):
+    from datetime import date
+    engine = create_engine('sqlite:///' + str(tmp_path / 'dates.db'))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False)
+    dates = ['2026-07-04', '2026-08-08', '2026-08-15', '2026-08-22',
+             '2026-08-29', '2026-09-05', '2026-09-12', '2026-09-19',
+             '2026-09-26', '2026-10-03', '2026-10-08', '2026-10-12']
+    rows = [{'_id': i, 'report_date': d} for i, d in enumerate(dates, 1)]
+    with patch.object(sync, 'SessionLocal', factory), patch.object(sync, 'init_db'), \
+         patch.object(sync, 'ensure_wide_columns', return_value={}), \
+         patch.object(sync, 'upsert_wide_submission'), \
+         patch.object(KoboClient, 'fetch_submissions', return_value=rows):
+        result = sync.sync_kobo(full_history=True)
+        assert result['audit']['report_date_mismatches'] == 0
+        assert set(result['audit']['report_date_counts']) == set(dates)
+        with factory() as db:
+            sub = db.scalar(select(KoboSubmission).where(KoboSubmission.submission_id == '12'))
+            sub.report_date = date(2026, 8, 8)
+            db.commit()
+        result = sync.sync_kobo(full_history=True)
+        assert result['synced'] == 1  # Same source hash, wrong saved date repaired.
+        assert result['audit']['report_date_mismatches'] == 0
+        app = FastAPI(); app.include_router(power_bi.router)
+        with patch.object(power_bi, 'SessionLocal', factory), \
+             patch.object(settings, 'power_bi_public_csv_enabled', True):
+            response = TestClient(app).get('/powerbi/market_survey_sync_status.csv')
+            assert response.status_code == 200
+            record = list(csv.DictReader(io.StringIO(response.text)))[0]
+            assert record['Saved Submissions'] == '12'
+            assert record['Last Report Date'] == '2026-10-12'
+            assert record['Sync Status'] == 'success'
+    engine.dispose()

@@ -7,7 +7,7 @@ from datetime import date, datetime
 from types import SimpleNamespace
 from time import monotonic
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, update, func
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.database import SessionLocal, init_db
@@ -464,12 +464,16 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
     skipped = 0
     matched = 0
     source_ids = set()
+    source_dates = {}
     skipped_reasons: list[str] = []
 
     # Prepare dynamic field columns once per run, not once per submission.
     wide_mapping = ensure_wide_columns({key: None for raw in rows for key in flatten_dict(raw)})
     with SessionLocal() as db:
-        existing_hashes = dict(db.execute(select(KoboSubmission.submission_id, KoboSubmission.source_hash)).all())
+        existing_rows = db.execute(select(KoboSubmission.submission_id,
+            KoboSubmission.source_hash, KoboSubmission.report_date)).all()
+        existing_hashes = {sid: digest for sid, digest, _ in existing_rows}
+        existing_dates = {sid: value for sid, _, value in existing_rows}
 
         if full_history:
             db.add(SyncLog(source="kobo_bi_full", status="running",
@@ -488,6 +492,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             matched += 1
             if data.get("submission_id"):
                 source_ids.add(data["submission_id"])
+                source_dates[data["submission_id"]] = str(data.get("report_date") or "")
 
             missing = [k for k in ("submission_id",) if not data.get(k)]
             if missing:
@@ -499,7 +504,8 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             source_hash = _source_hash(raw)
             data["source_hash"] = source_hash
             existing_hash = existing_hashes.get(data["submission_id"])
-            if not force and existing_hash == source_hash:
+            if (not force and existing_hash == source_hash
+                    and existing_dates.get(data["submission_id"]) == data.get("report_date")):
                 unchanged += 1
                 continue
 
@@ -509,10 +515,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
                 index_elements=["submission_id"],
                 set_={k: v for k, v in data.items() if k != "submission_id"},
             )
-            db.execute(stmt)
-            db.flush()
-
-            sub_id = db.scalar(select(KoboSubmission.id).where(KoboSubmission.submission_id == data["submission_id"]))
+            sub_id = db.scalar(stmt.returning(KoboSubmission.id))
             if sub_id is None:
                 skipped += 1
                 skipped_reasons.append(f"could not re-read submission_id={data['submission_id']}")
@@ -520,6 +523,7 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
 
             _replace_metric_rows(db, sub_id, flat)
             existing_hashes[data["submission_id"]] = source_hash
+            existing_dates[data["submission_id"]] = data.get("report_date")
             synced += 1
             if full_history and synced % 250 == 0:
                 db.add(SyncLog(source="kobo_bi_full", status="running",
@@ -561,9 +565,22 @@ def _sync_kobo_unlocked(dealer: str | None = None, report_date: date | None = No
             "missing_source_ids": len(source_ids - stored_ids),
             "database_only_ids": len(stored_ids - source_ids) if full_history else None,
         }
+        if full_history:
+            expected_dates = {}
+            for value in source_dates.values():
+                expected_dates[value] = expected_dates.get(value, 0) + 1
+            actual_dates = {str(d or ""): n for d, n in db.execute(
+                select(KoboSubmission.report_date, func.count(KoboSubmission.id))
+                .group_by(KoboSubmission.report_date))}
+            audit["report_date_counts"] = {
+                key: {"kobo": expected_dates.get(key, 0), "database": actual_dates.get(key, 0)}
+                for key in sorted(set(expected_dates) | set(actual_dates))
+            }
+            audit["report_date_mismatches"] = sum(
+                item["kobo"] != item["database"] for item in audit["report_date_counts"].values())
         message += " | " + json.dumps(audit)
         db.add(SyncLog(source="kobo_bi_full" if full_history else "kobo",
-                      status="warning" if skipped or audit["missing_source_ids"] else "success",
+                      status="warning" if skipped or audit["missing_source_ids"] or audit.get("report_date_mismatches", 0) else "success",
                       message=message, fetched=len(rows), synced=synced, skipped=skipped))
         db.commit()
 
