@@ -32,6 +32,14 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
                 KoboProductMetric(submission_id=sub.id,product_name='WURKZ ORD',available=False,movement_score=9),
                 KoboProductMetric(submission_id=sub.id,product_name='CBL Pint',available=True,movement_score=8)])
             db.add(SyncLog(source='kobo_bi_full',status='success',fetched=1,synced=1,skipped=0));db.commit()
+        public_url='/powerbi/market_survey_dashboard.csv'
+        with patch.object(settings, 'power_bi_public_csv_enabled', False):
+            assert client.get(public_url).status_code == 404
+        with patch.object(settings, 'power_bi_public_csv_enabled', True):
+            public_response=client.get(public_url)
+            assert public_response.status_code == 200
+            assert len(list(csv.DictReader(io.StringIO(public_response.text)))) == 2
+            assert client.get(url).status_code == 401  # Protected route remains protected.
         response=client.get(url,params={'api_key':'test-key'})
         assert response.status_code==200
         data=list(csv.DictReader(io.StringIO(response.text)))

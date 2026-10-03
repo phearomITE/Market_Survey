@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     map_viewer_token: str = ""
     map_editor_token: str = ""
     power_bi_api_key: str = ""
+    power_bi_public_csv_enabled: bool = False
 
     template_path: str = "templates/template_by_dealer.xlsx"
     horeca_template_path: str = "templates/template_horeca_products.xlsx"
