@@ -7,7 +7,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, literal, union_all
 
 from app.core.config import settings
 from app.core.summary_marker import is_summary_name
@@ -126,11 +126,25 @@ def _dashboard_csv(start_date=None):
     fields = ("report_date", "region", "dealer", "outlet_name", "outlet_type",
               "phone_number", "gps_latitude", "gps_longitude", "key_issue_text",
               "suggestion_text", "submission_id", "report_type", "submission_time")
+    product_rows = union_all(
+        select(KoboProductMetric.submission_id.label("parent_id"),
+               KoboProductMetric.id.label("metric_id"),
+               KoboProductMetric.product_name, KoboProductMetric.available,
+               KoboProductMetric.movement_score,
+               literal("Own Product").label("product_type")),
+        select(KoboCompetitorMetric.submission_id.label("parent_id"),
+               KoboCompetitorMetric.id.label("metric_id"),
+               KoboCompetitorMetric.product_name,
+               literal(None).label("available"),
+               KoboCompetitorMetric.movement_score,
+               literal("Competitor").label("product_type")),
+    ).subquery()
     stmt = select(*(getattr(KoboSubmission, name) for name in fields),
-                  KoboProductMetric.product_name, KoboProductMetric.available,
-                  KoboProductMetric.movement_score).join(
-                      KoboProductMetric, KoboProductMetric.submission_id == KoboSubmission.id
-                  ).order_by(KoboSubmission.id, KoboProductMetric.id)
+                  product_rows.c.product_name, product_rows.c.available,
+                  product_rows.c.movement_score, product_rows.c.product_type).join(
+                      product_rows, product_rows.c.parent_id == KoboSubmission.id
+                  ).order_by(KoboSubmission.id, product_rows.c.product_type,
+                             product_rows.c.metric_id)
     if start_date:
         stmt = stmt.where(KoboSubmission.report_date >= start_date)
     with SessionLocal() as session:

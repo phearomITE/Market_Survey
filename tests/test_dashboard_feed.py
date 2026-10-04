@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.db.models import Base, KoboSubmission, KoboProductMetric, SyncLog
+from app.db.models import Base, KoboSubmission, KoboProductMetric, KoboCompetitorMetric, SyncLog
 from app.core.config import settings
 from app.web import power_bi
 from app.services.dashboard_feed import HEADERS
@@ -83,3 +83,59 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
             db.add(SyncLog(source='kobo_bi_full',status='failed'));db.commit()
         assert client.get(url,params={'api_key':'test-key'}).status_code==200  # Prior successful backfill remains readable.
     engine.dispose()
+
+
+def test_dashboard_includes_gt_and_horeca_competitors(tmp_path):
+    engine = create_engine('sqlite:///' + str(tmp_path / 'competitors.db'))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    app = FastAPI()
+    app.include_router(power_bi.router)
+    with factory() as db:
+        for sid, channel, own, rival in [('201', 'GT', 'CAMBODIA Sport 500mL ORD', 'Pocari Sweat'),
+                                         ('202', 'HORECA', 'CBL Pint', 'Tiger Crystal Pint')]:
+            sub = KoboSubmission(submission_id=sid, report_date=date(2026,10,3),
+                                 outlet_name='Shop', report_type=channel)
+            db.add(sub)
+            db.flush()
+            db.add(KoboProductMetric(submission_id=sub.id, product_name=own,
+                                    available=False, movement_score=9))
+            db.add(KoboCompetitorMetric(submission_id=sub.id, product_name=rival,
+                                       status='available', movement_score=6))
+            # Wrong-channel placeholder must not appear.
+            if channel == 'GT':
+                db.add(KoboCompetitorMetric(submission_id=sub.id, product_name='Tiger Pint'))
+        db.commit()
+    with patch.object(power_bi, 'SessionLocal', factory), patch.object(settings, 'power_bi_public_csv_enabled', True):
+        response = TestClient(app).get('/powerbi/market_survey_dashboard.csv')
+        assert response.status_code == 200
+        rows = list(csv.DictReader(io.StringIO(response.text)))
+        assert len(rows) == 4
+        rivals = [r for r in rows if r['Product Type'] == 'Competitor']
+        assert {r['Product'] for r in rivals} == {'Pocari Sweat', 'Tiger Crystal Pint'}
+        assert all(r['Movement Rate'] == '6' for r in rivals)
+        assert {r['Report Type'] for r in rows} == {'GT', 'HORECA'}
+        assert all(r['Movement Rate'] == '0' for r in rows if r['Product Type'] == 'Own Product')
+    engine.dispose()
+
+
+def test_every_mapped_form_product_reaches_dashboard():
+    from app.services.dashboard_feed import dashboard_values
+    from app.reports.aggregator import (OWN_PRODUCTS, COMPETITOR_PRODUCTS,
+                                      HORECA_OWN_PRODUCTS, HORECA_COMPETITOR_PRODUCTS)
+    rows = []
+    for channel, kind, products in [('GT','Own Product',OWN_PRODUCTS),
+                                    ('GT','Competitor',COMPETITOR_PRODUCTS),
+                                    ('HORECA','Own Product',HORECA_OWN_PRODUCTS),
+                                    ('HORECA','Competitor',HORECA_COMPETITOR_PRODUCTS)]:
+        for product in products:
+            rows.append(dict(report_date=date(2026,10,3), region='R1', dealer='CA2',
+                outlet_name='Shop', outlet_type='Shop', phone_number='',
+                gps_latitude=None, gps_longitude=None, product_name=product,
+                report_type=channel, product_type=kind, available=True,
+                movement_score=7, key_issue_text='', suggestion_text='',
+                submission_id='1', submission_time=None))
+    result = [dict(zip(HEADERS, r)) for r in dashboard_values(rows)]
+    assert len(result) == len(rows)
+    assert {(r['Report Type'],r['Product Type'],r['Product']) for r in result} == {
+        (r['report_type'],r['product_type'],r['product_name']) for r in rows}
