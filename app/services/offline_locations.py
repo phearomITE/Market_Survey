@@ -50,13 +50,13 @@ class BoundaryIndex:
                     for iy in range(math.floor(box[1]*4), math.floor(box[3]*4)+1):
                         self.cells.setdefault((ix, iy), []).append(item)
 
-    def resolve(self, latitude, longitude):
+    def resolve_admin(self, latitude, longitude):
         try:
             y, x = float(latitude), float(longitude)
         except (TypeError, ValueError):
-            return ['', '', '']
+            return ['', '', '', '', '', '']
         if not math.isfinite(x) or not math.isfinite(y) or not (-180 <= x <= 180 and -90 <= y <= 90):
-            return ['', '', '']
+            return ['', '', '', '', '', '']
         candidates = self.cells.get((math.floor(x*4), math.floor(y*4)), [])
         for priority in (0, 1):
             matches = {}
@@ -64,8 +64,20 @@ class BoundaryIndex:
                 if rank == priority and left <= x <= right and bottom <= y <= top and polygon_contains(x, y, polygon):
                     matches[code] = names
             if matches:
-                return list(next(iter(matches.values()))) if len(matches) == 1 else ['', '', '']
-        return ['', '', '']
+                if len(matches) != 1:
+                    return ['', '', '', '', '', '']
+                code, names = next(iter(matches.items()))
+                code = str(code).strip()
+                if code.isdigit() and len(code) in (5, 6):
+                    code = code.zfill(6)
+                    return [*names, code[:2], code[:4], code]
+                return [*names, '', '', '']
+        return ['', '', '', '', '', '']
+
+
+    def resolve(self, latitude, longitude):
+        """Compatibility API for existing exports: names only."""
+        return self.resolve_admin(latitude, longitude)[:3]
 
 
 @lru_cache(maxsize=1)

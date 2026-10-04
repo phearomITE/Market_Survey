@@ -61,6 +61,9 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
         assert list(data[0])==list(HEADERS)
         assert len(data)==2  # GT excludes HORECA placeholders, includes non-beer.
         assert data[0]['Province']=='Phnom Penh' and data[0]['Commune']=='Tonle Basak'
+        assert data[0]['Code_Province']=='12'
+        assert data[0]['Code_District']=='1201'
+        assert data[0]['Code_Commune']=='120101'
         assert data[0]['Phone Number Outlet']=='012345678'
         assert data[0]['Key Issues Detail']=='Issue, one\nIssue two'
         assert data[1]['Movement Rate']=='0'
@@ -73,6 +76,7 @@ def test_dashboard_auth_location_products_and_new_data(tmp_path):
         data=list(csv.DictReader(io.StringIO(client.get(url,params={'api_key':'test-key'}).text)))
         assert len(data)==3 and data[-1]['Submission ID']=='101'
         assert data[-1]['Commune']==''
+        assert all(data[-1][k]=='' for k in ('Code_Province','Code_District','Code_Commune'))
         data=list(csv.DictReader(io.StringIO(client.get(url,params={'api_key':'test-key','start_date':'2026-10-04'}).text)))
         assert len(data)==1
         with factory() as db:
