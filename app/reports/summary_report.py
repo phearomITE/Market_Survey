@@ -43,10 +43,10 @@ SUMMARY_HEADERS = [
     "Product Competitor",
     "Movement Lead",
 ]
-SUMMARY_COMPETITORS = ("GB SNOW NCP", "Hanuman LITE NCP", "Greet LITE NCP")
+SUMMARY_COMPETITORS = ("GB SNOW ORD", "Hanuman LITE ORD", "Greet LITE ORD")
 SUMMARY_MOVEMENT_CONFIG = {
     "GT": {
-        "own": "CB LITE NCP",
+        "own": "CB LITE ORD",
         "competitors": SUMMARY_COMPETITORS,
     },
     "HORECA": {

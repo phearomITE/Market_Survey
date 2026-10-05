@@ -75,14 +75,15 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
         gps_longitude=104.91,
         product_metrics=[
             SimpleNamespace(
-                product_name="CB LITE NCP",
+                product_name="CB LITE ORD",
+                available=True,
                 movement_score=8,
                 stock_status="full",
                 bbe_date="07/2027",
             )
         ],
         competitor_metrics=[
-            SimpleNamespace(product_name="GB SNOW NCP", movement_score=9)
+            SimpleNamespace(product_name="GB SNOW ORD", movement_score=9)
         ],
     )
     output = create_summary_report(
@@ -111,11 +112,11 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
     ]
     assert ws["A4"].value == "Total Regions"
     assert ws["F4"].value == "<5"
-    assert ws["I4"].value == "GB SNOW NCP"
+    assert ws["I4"].value == "GB SNOW ORD"
     assert ws["C9"].value == 1
     # Final Movement is normalized inside its comparison row. The own product
     # is in the 9-to-10 band and the leading competitor is exactly 10.
     assert ws["I9"].value == 9
-    assert ws["J9"].value == "GB SNOW NCP"
+    assert ws["J9"].value == "GB SNOW ORD"
     assert ws["K9"].value == 10
     assert ws["A1"].fill.fgColor.rgb.endswith("1F4E78")

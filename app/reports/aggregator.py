@@ -39,6 +39,7 @@ OWN_PRODUCTS = [
 COMPETITOR_PRODUCTS = [
     "GB SNOW ORD",
     "HANUMAN LITE ORD",
+    "Greet LITE ORD",
     "Krud LITE ORD",
     "CB Original NCP",
     "GB Original NCP",
@@ -103,7 +104,7 @@ OFFTAKE_COMPARE_GROUPS = [
     ["CB Pint", "Angkor Pint", "Tiger Pint"],
     ["CBL Pint", "CB SUPEEME Pint", "Tiger Crystal Pint", "HANUMAN LITE Pint", "Vathanac LITE Pint"],
     ["CB Black Pint", "ABC Pint", "HANUMAN Black Pint", "Dragon Pint"],
-    ["CB LITE ORD", "GB SNOW ORD", "HANUMAN LITE ORD", "Krud LITE ORD"],
+    ["CB LITE ORD", "GB SNOW ORD", "HANUMAN LITE ORD", "Greet LITE ORD", "Krud LITE ORD"],
     ["CBC 4.4 NCP", "CB Original NCP", "GB Original NCP", "Krud NCP"],
     ["CB LITE NCP", "GB SNOW NCP", "Hanuman LITE NCP", "Krud LITE NCP", "Greet LITE NCP"],
     ["CB BLACK NCP", "Hanuman Black NCP"],
@@ -157,6 +158,7 @@ COMPETITOR_CODES = {
     "Dragon Pint": ["dragon_beer"],
     "GB SNOW ORD": ["gb_snow_ord"],
     "HANUMAN LITE ORD": ["hanuman_lite_ord"],
+    "Greet LITE ORD": ["greet_lite_ord", "great_lite_ord"],
     "Krud LITE ORD": ["krud_lite_ord"],
     "CB Original NCP": ["cb_original_ncp", "cb_original"],
     "GB Original NCP": ["gb_original_ncp", "gb_original"],
@@ -1010,6 +1012,8 @@ def _canonical_product_name(name: Any) -> str:
         "Ganzberg  500ml": "Ganzberg 500ml",
     }
     for current in ALL_OWN_PRODUCTS + ALL_COMPETITOR_PRODUCTS:
+        if value.casefold() == current.casefold():
+            return current
         if current.endswith(" ORD") and value.casefold() == current[:-4].casefold():
             return current
     return aliases.get(value, value)

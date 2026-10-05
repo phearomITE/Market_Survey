@@ -305,9 +305,14 @@ def _save_sync_batch(db, items, wide_mapping):
             db.execute(insert(model), payloads)
 
 
+NORMALIZED_PRODUCT_MAPPING_VERSION = "gt-summary-ord-greet-v1"
+
+
 def _source_hash(raw: dict) -> str:
     payload = json.dumps(raw, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        (NORMALIZED_PRODUCT_MAPPING_VERSION + "\n" + payload).encode("utf-8")
+    ).hexdigest()
 
 
 def fetch_report_submissions_fast(
