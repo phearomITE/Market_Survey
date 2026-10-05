@@ -72,3 +72,33 @@ def test_mapping_revision_invalidates_old_cache_hashes():
         default=str, separators=(",", ":")).encode("utf-8")).hexdigest()
     assert _source_hash(raw) != old
     assert _source_hash(raw) == _source_hash(dict(reversed(list(raw.items()))))
+
+
+@pytest.mark.parametrize('winner', ['CB LITE ORD', 'GB SNOW ORD', 'Hanuman LITE ORD', 'Greet LITE ORD'])
+def test_fast_summary_fetch_parses_ord_from_kobo(monkeypatch, winner):
+    from app.kobo import sync
+    from app.kobo.client import KoboClient
+    codes = {'CB LITE ORD': 'cb_lite_ord', 'GB SNOW ORD': 'gb_snow_ord',
+             'Hanuman LITE ORD': 'hanuman_lite_ord', 'Greet LITE ORD': 'greet_lite_ord'}
+    raw = {'_id': 432, 'report_date': '2026-10-03', 'dealer': 'CA1',
+           'region': 'R1', 'outlet_name': 'Test shop', 'outlet_type': 'Wholesale',
+                      'fresh_movement_score_cb_lite_ord': 10 if winner == 'CB LITE ORD' else 2,
+           'fresh_movement_score_cb_lite_ncp': 10}
+    for product, code in codes.items():
+        if product != 'CB LITE ORD':
+            raw['comp_movement_score_' + code] = 10 if winner == product else 2
+    monkeypatch.setattr(KoboClient, 'fetch_submissions', lambda *a, **kw: [raw])
+    rows = sync._build_report_submissions(dealer=None, report_date=date(2026, 10, 3),
+        wanted=set(), summary_only=True, metadata_only=False)
+    assert len(rows) == 1
+    assert [m.product_name for m in rows[0].product_metrics] == ['CB LITE ORD']
+    assert [m.product_name for m in rows[0].competitor_metrics] == [
+        'GB SNOW ORD', 'Hanuman LITE ORD', 'Greet LITE ORD']
+    result = _dealer_movement(rows, wide_map={})
+    if winner == 'CB LITE ORD':
+        assert result['own_display'] == 10
+        assert result['competitor'] is None
+    else:
+        assert result['competitor'] == winner
+        assert result['competitor_display'] == 10
+        assert 0 < result['own_display'] < 10

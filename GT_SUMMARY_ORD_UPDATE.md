@@ -1,4 +1,4 @@
-# GT summary ORD update
+# GT summary ORD fast-fetch fix (v2)
 
 GT summaries now compare CB LITE ORD with GB SNOW ORD, Hanuman LITE ORD and Greet LITE ORD. Applies to all GT report dates, including 2026-10-03. HORECA continues to compare Pint products.
 
@@ -8,11 +8,15 @@ A product-mapping revision is included in source hashes: existing records are re
 
 Regression tests cover conflicting ORD/NCP values, each competitor winning, own-product winning, generated workbook headers, Greet field aliases, HORECA and cache invalidation. Three unrelated legacy assertions in test_v105_business_movement.py and test_v35_outlet_name_summary.py also fail in the original uploaded project (old product names and expected own-product count).
 
+## Why the previous report showed zeros
+
+The summary-only fast-fetch branch in app/kobo/sync.py still built CB LITE NCP and competitor NCP metrics. The summary then looked for ORD metrics, which were absent. This version also switches that fetch branch to ORD, with four regression cases passing raw Kobo rows through the actual summary parser and aggregation. 21 focused tests pass; app compilation passes. The patch does not copy the example screenshot values into the report.
+
 ## Git Bash
 
 ```bash
 cd /d/Bot/Market_Survey_Git
-unzip -o /c/Users/User/Downloads/Market_Survey_GT_Summary_ORD_Fix.zip -d .
+unzip -o /c/Users/User/Downloads/Market_Survey_GT_Summary_ORD_Fast_Fetch_Fix.zip -d .
 
 .venv/Scripts/python.exe -m pytest tests/test_gt_summary_ord.py tests/test_v92_export_commands_summary.py tests/test_power_bi_backfill.py -q --basetemp="exports/pytest-summary-ord-$(date +%Y%m%d_%H%M%S)" &&
 .venv/Scripts/python.exe -m compileall -q app &&
@@ -21,4 +25,4 @@ git commit -m "Use ORD products in GT summary comparison" &&
 git push origin main
 ```
 
-After Railway deploys and its background sync completes, run `/summary GT 2026-10-03` in Telegram. This patch has not been run against your production database.
+After Railway deploys, the summary fetch reads and parses the requested date directly from Kobo. Run `/summary GT 2026-10-03` in Telegram. This patch has not been run against your production database.

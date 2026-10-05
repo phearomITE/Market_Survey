@@ -422,15 +422,15 @@ def _build_report_submissions(
 
         report_type = str(data.get("report_type") or "GT").strip().upper()
         if summary_only:
-            own_products = ["CBL Pint"] if report_type == "HORECA" else ["CB LITE NCP"]
+            own_products = ["CBL Pint"] if report_type == "HORECA" else ["CB LITE ORD"]
             competitor_products = [
                 "Tiger Crystal Pint",
                 "HANUMAN LITE Pint",
                 "Vathanac LITE Pint",
             ] if report_type == "HORECA" else [
-                "GB SNOW NCP",
-                "Hanuman LITE NCP",
-                "Greet LITE NCP",
+                "GB SNOW ORD",
+                "Hanuman LITE ORD",
+                "Greet LITE ORD",
             ]
         elif report_type == "HORECA":
             own_products = HORECA_OWN_PRODUCTS
