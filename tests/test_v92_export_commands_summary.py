@@ -94,15 +94,14 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
         submissions=[submission],
     )
     workbook = load_workbook(output, data_only=True)
-    assert workbook.sheetnames == ["Summary"]
-    ws = workbook["Summary"]
+    assert workbook.sheetnames == ["Summary_beer"]
+    ws = workbook["Summary_beer"]
     assert ws["A1"].value == "KB Market Survey - GT Region & Dealer Submission Summary"
-    assert [ws.cell(8, column).value for column in range(1, 12)] == [
+    assert [ws.cell(7, column).value for column in range(1, 11)] == [
         "Region",
         "Dealer",
         "Member",
         "Total Submissions",
-        "Total Outlets",
         "Status",
         "<5",
         "5 to 8",
@@ -111,12 +110,12 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
         "Movement Lead",
     ]
     assert ws["A4"].value == "Total Regions"
-    assert ws["F4"].value == "<5"
-    assert ws["I4"].value == "GB SNOW ORD"
-    assert ws["C9"].value == 1
+    assert ws["E4"].value == "<5"
+    assert ws["H4"].value == "GB SNOW ORD"
+    assert ws["C8"].value == 1
     # Final Movement is normalized inside its comparison row. The own product
     # is in the 9-to-10 band and the leading competitor is exactly 10.
-    assert ws["I9"].value == 9
-    assert ws["J9"].value == "GB SNOW ORD"
-    assert ws["K9"].value == 10
+    assert ws["H8"].value == 9
+    assert ws["I8"].value == "GB SNOW ORD"
+    assert ws["J8"].value == 10
     assert ws["A1"].fill.fgColor.rgb.endswith("1F4E78")

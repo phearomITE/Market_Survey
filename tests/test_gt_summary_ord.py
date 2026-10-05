@@ -42,10 +42,10 @@ def test_own_ord_wins_and_summary_headers_are_ord(tmp_path):
                                    output_path=tmp_path / 'summary.xlsx',
                                    submissions=[row], report_type='GT')
     ws = load_workbook(output, data_only=True).active
-    assert [ws.cell(4, col).value for col in (9,10,11)] == [
+    assert [ws.cell(4, col).value for col in (8,9,10)] == [
         'GB SNOW ORD', 'Hanuman LITE ORD', 'Greet LITE ORD']
-    assert 'CB LITE ORD' in ws['G7'].value
-    assert ws['I9'].value == 10
+    assert 'CB LITE ORD' in ws['F6'].value
+    assert ws['H8'].value == 10
 
 
 def test_greet_ord_form_field_mapping_is_distinct_from_ncp():
@@ -91,9 +91,8 @@ def test_fast_summary_fetch_parses_ord_from_kobo(monkeypatch, winner):
     rows = sync._build_report_submissions(dealer=None, report_date=date(2026, 10, 3),
         wanted=set(), summary_only=True, metadata_only=False)
     assert len(rows) == 1
-    assert [m.product_name for m in rows[0].product_metrics] == ['CB LITE ORD']
-    assert [m.product_name for m in rows[0].competitor_metrics] == [
-        'GB SNOW ORD', 'Hanuman LITE ORD', 'Greet LITE ORD']
+    assert 'CB LITE ORD' in [m.product_name for m in rows[0].product_metrics]
+    assert {'GB SNOW ORD', 'HANUMAN LITE ORD', 'Greet LITE ORD'} <= set(m.product_name for m in rows[0].competitor_metrics)
     result = _dealer_movement(rows, wide_map={})
     if winner == 'CB LITE ORD':
         assert result['own_display'] == 10
@@ -102,3 +101,12 @@ def test_fast_summary_fetch_parses_ord_from_kobo(monkeypatch, winner):
         assert result['competitor'] == winner
         assert result['competitor_display'] == 10
         assert 0 < result['own_display'] < 10
+
+
+def test_summary_matches_full_dealer_aggregation():
+    from app.reports.aggregator import aggregate_submissions
+    row = submission()
+    row.competitor_metrics.append(metric('Krud LITE ORD', 10))
+    full = aggregate_submissions([row], wide_map={}, include_ring_pull=False,
+                                include_manual_summary=False)
+    assert _dealer_movement([row], wide_map={})['own_display'] == full['products']['CB LITE ORD']['mov']

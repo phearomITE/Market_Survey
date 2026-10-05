@@ -142,17 +142,16 @@ def _dealer_movement(
     agg = aggregate_submissions(
         submission_rows,
         wide_map=wide_map,
-        own_product_names=[config["own"]],
-        competitor_product_names=list(config["competitors"]),
         include_ring_pull=False,
         include_manual_summary=False,
     )
     own_data = (agg.get("products") or {}).get(config["own"]) or {}
     own_display = own_data.get("mov")
+    competitor_data = {_product_key(k): v for k, v in (agg.get("competitors") or {}).items()}
     ranked_competitors = [
-        (product, (agg.get("competitors") or {}).get(product, {}).get("mov"))
+        (product, competitor_data.get(_product_key(product), {}).get("mov"))
         for product in config["competitors"]
-        if (agg.get("competitors") or {}).get(product, {}).get("mov") == 10
+        if competitor_data.get(_product_key(product), {}).get("mov") == 10
     ]
     ranked_competitors.sort(key=lambda item: (-item[1], item[0].casefold()))
     leader_name, leader_display = ranked_competitors[0] if ranked_competitors else (None, None)
@@ -356,6 +355,52 @@ def _create_gt_template_report(
     # Keep the Summary table range valid after replacing old template rows.
     for table in ws.tables.values():
         table.ref = f"A1:K{max(current_row - 1, 8)}"
+
+    if report_type == "GT":
+        # Match the supplied ten-column Summary_beer reference.
+        for merged in list(ws.merged_cells.ranges):
+            ws.unmerge_cells(str(merged))
+        ws.delete_cols(5)  # Total Outlets stays in internal status logic only.
+        ws.delete_rows(6)  # Header row 7; dealer rows start at 8.
+        ws.title = "Summary_beer"
+        for area in ("A1:J1", "A2:J2", "F6:J6"):
+            ws.merge_cells(area)
+        ws["F6"] = f"Movement {config['own']} compared with competitors"
+        labels = ["Total Regions", "Total Dealers", "Submitted Dealers",
+                  "Total Submissions", "<5", "5 to 8", "9 to 10",
+                  *config["competitors"]]
+        values = [len(REGION_DEALERS), total_dealers, submitted_dealers,
+                  total_submissions,
+                  sum(x < 5 for x in own_display_scores),
+                  sum(5 <= x <= 8 for x in own_display_scores),
+                  sum(x >= 9 for x in own_display_scores),
+                  *[competitor_counts[x] for x in config["competitors"]]]
+        for col, (label, value) in enumerate(zip(labels, values), 1):
+            ws.cell(4, col, label)
+            ws.cell(5, col, value)
+        for r in range(8, current_row - 1):
+            if ws.cell(r, 2).value == "Region Total":
+                region = ws.cell(r, 1).value
+                scores = [movements[d]["own_display"]
+                          for d in REGION_DEALERS[region]
+                          if d in movements and movements[d]["own_display"] is not None]
+                for col, count in zip((6, 7, 8),
+                    (sum(x < 5 for x in scores), sum(5 <= x <= 8 for x in scores),
+                     sum(x >= 9 for x in scores))):
+                    ws.cell(r, col).value = count or None
+        colors = {6: "60497A", 7: "963634", 8: "00B050"}
+        for col in range(1, 11):
+            ws.cell(7, col).fill = PatternFill("solid", fgColor=colors.get(col, HEADER_FILL))
+            ws.cell(7, col).font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            ws.cell(7, col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            ws.cell(4, col).fill = PatternFill("solid", fgColor={5:"60497A",6:"963634",7:"00B050"}.get(col,"F8FBFD"))
+        for col, width in zip("ABCDEFGHIJ", (12,14,14,21,24,14,14,14,23,17)):
+            ws.column_dimensions[col].width = width
+        ws.freeze_panes = "C8"
+        ws.print_area = f"A1:J{current_row - 2}"
+        ws.print_title_rows = "1:7"
+        for table in list(ws.tables):
+            del ws.tables[table]
 
     wb.save(output_path)
     return output_path
