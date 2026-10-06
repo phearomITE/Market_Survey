@@ -42,10 +42,10 @@ def test_own_ord_wins_and_summary_headers_are_ord(tmp_path):
                                    output_path=tmp_path / 'summary.xlsx',
                                    submissions=[row], report_type='GT')
     ws = load_workbook(output, data_only=True).active
-    assert [ws.cell(4, col).value for col in (8,9,10)] == [
+    assert [ws.cell(4, col).value for col in (11,12,13)] == [
         'GB SNOW ORD', 'Hanuman LITE ORD', 'Greet LITE ORD']
-    assert 'CB LITE ORD' in ws['F6'].value
-    assert ws['H8'].value == 10
+    assert 'CB LITE ORD' in ws['I6'].value
+    assert ws['K8'].value == 10
 
 
 def test_greet_ord_form_field_mapping_is_distinct_from_ncp():
@@ -110,3 +110,49 @@ def test_summary_matches_full_dealer_aggregation():
     full = aggregate_submissions([row], wide_map={}, include_ring_pull=False,
                                 include_manual_summary=False)
     assert _dealer_movement([row], wide_map={})['own_display'] == full['products']['CB LITE ORD']['mov']
+
+
+@pytest.mark.parametrize('name', ['សរុបរួម', 'បូកសរុបរួម10', 'សរុបចុងក្រោយ CA1', 'បូកសរុបរួម5ម៉ូយចុងក្រោយ'])
+def test_summary_counts_only_ordinary_outlets(name, tmp_path, monkeypatch):
+    from app.reports import summary_report as sr
+    ordinary = submission()
+    ordinary2 = submission()
+    ordinary2.dealer = 'CA8'
+    ordinary2.product_metrics[0].available = False
+    control = submission()
+    control.outlet_name = name
+    monkeypatch.setattr(sr, '_coverage_admin_keys', lambda s: ('0101', '010101'))
+    records = [ordinary, ordinary2, control]
+    rows = sr.build_summary_rows(records)
+    assert next(r for r in rows if r['dealer'] == 'CA1')['total_submissions'] == 1
+    out = sr.create_summary_report(rows, ordinary.report_date,
+        output_path=tmp_path/'coverage.xlsx', submissions=records)
+    ws = load_workbook(out, data_only=True).active
+    assert ws.max_column == 13
+    assert ws['F5'].value == 2
+    assert ws['G5'].value == 1
+    assert ws['D5'].value == 1  # shared district counted once, not twice
+    assert ws['E5'].value == 1
+    assert ws['F8'].value == 1
+    assert ws['G8'].value == 1
+    assert ws['D18'].value == 1
+    assert ws['E18'].value == 1
+    assert ws['F18'].value == 2
+    assert ws['G18'].value == 1
+
+
+def test_missing_gps_not_counted_as_an_area():
+    from app.reports.summary_report import _coverage_admin_keys
+    row = submission()
+    row.gps_latitude = None
+    assert _coverage_admin_keys(row) == (None, None)
+
+
+def test_final_summary_only_is_not_a_submitted_dealer():
+    from app.reports.summary_report import build_summary_rows
+    row = submission()
+    row.outlet_name = 'សរុបចុងក្រោយ10 CA1'
+    result = next(r for r in build_summary_rows([row]) if r['dealer'] == 'CA1')
+    assert result['total_submissions'] == 0
+    assert result['total_outlets'] == 0
+    assert 'No Submit' in result['status']
