@@ -604,7 +604,10 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
         for cell in row:
             cell.border = border
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.font = Font(name="Calibri", size=11, bold=cell.row in (1,4,7) or cell.column in (1,2))
+            is_region_total = ws.cell(cell.row, 2).value == "Region Total"
+            cell.font = Font(name="Calibri", size=11,
+                             bold=is_region_total or cell.row in (1,4,7) or cell.column in (1,2),
+                             color="FF0000" if is_region_total else "000000")
     for col in range(1,14):
         for r, colors in ((4,{8:"60497A",9:"963634",10:"00B050"}),
                           (7,{9:"60497A",10:"963634",11:"00B050"})):
