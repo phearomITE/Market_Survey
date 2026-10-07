@@ -158,7 +158,7 @@ def test_final_summary_only_is_not_a_submitted_dealer():
     assert 'No Submit' in result['status']
 
 
-def test_cb_only_areas_gb_count_missing_sheet_and_villages(tmp_path, monkeypatch):
+def test_all_visit_areas_and_cb_only_communes(tmp_path, monkeypatch):
     from app.reports import summary_report as sr
     present = submission()
     present.village = 'Village One'
@@ -174,9 +174,11 @@ def test_cb_only_areas_gb_count_missing_sheet_and_villages(tmp_path, monkeypatch
     output = sr.create_summary_report([], present.report_date, output_path=tmp_path/'test.xlsx', submissions=[present, absent, summary])
     wb = load_workbook(output)
     ws = wb['Summary_beer']
-    assert ws['D5'].value == 1
-    assert ws['E5'].value == 1
+    assert ws['D5'].value == 2
+    assert ws['E5'].value == 2
     assert ws['F5'].value == 1
+    assert ws['F4'].value == 'CB LITE ORD Commune'
+    assert 'Total Village' not in [c.value for c in ws[7]]
     assert ws['G5'].value == 2
     assert ws['H5'].value == 1
     assert ws['I5'].value == 1

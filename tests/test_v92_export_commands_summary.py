@@ -103,7 +103,7 @@ def test_gt_summary_uses_uploaded_template_layout(tmp_path):
         "Member",
         "Total District",
         "Total Commune",
-        "Total Village",
+        "CB LITE ORD Commune",
         "Total Submissions",
         "CB LITE ORD Outlet",
         "GB SNOW ORD Outlet",

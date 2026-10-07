@@ -577,18 +577,18 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
     geo = {}
     for dealer, items in grouped.items():
         available = [item for item in items if _has_cb_lite(item)]
-        pairs = [_coverage_admin_keys(item) for item in available]
-        villages = {_coverage_village_key(item) for item in available}
+        pairs = [_coverage_admin_keys(item) for item in items]
+        cb_communes = {_coverage_admin_keys(item)[1] for item in available}
         geo[dealer] = ({d for d, c in pairs if d}, {c for d, c in pairs if c},
-                       {v for v in villages if v})
+                       {c for c in cb_communes if c})
     def area_totals(dealers):
-        districts, communes, villages = set(), set(), set()
+        districts, communes, cb_communes = set(), set(), set()
         for dealer in dealers:
             d, c, v = geo.get(dealer, (set(), set(), set()))
             districts.update(d)
             communes.update(c)
-            villages.update(v)
-        return len(districts), len(communes), len(villages)
+            cb_communes.update(v)
+        return len(districts), len(communes), len(cb_communes)
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary_beer"
@@ -599,17 +599,17 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
     ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
     ws["K6"] = "Movement CB LITE ORD compared with competitors"
     headers = ["Region", "Dealer", "Member", "Total District", "Total Commune",
-               "Total Village", "Total Submissions", "CB LITE ORD Outlet", "GB SNOW ORD Outlet", "Status", "<5",
+               "CB LITE ORD Commune", "Total Submissions", "CB LITE ORD Outlet", "GB SNOW ORD Outlet", "Status", "<5",
                "5 to 8", "9 to 10", "Product Competitor", "Movement Lead"]
     scores = [m["own_display"] for m in movement.values() if m["own_display"] is not None]
     leaders = Counter(m["competitor"] for m in movement.values() if m["competitor"])
     dealers = [r["dealer"] for r in rows]
-    district_count, commune_count, village_count = area_totals(dealers)
+    district_count, commune_count, cb_commune_count = area_totals(dealers)
     labels = ["Total Regions", "Total Dealers", "Submitted Dealers", "Total District",
-              "Total Commune", "Total Village", "Total Submissions", "CB LITE ORD Outlet", "GB SNOW ORD Outlet", "<5",
+              "Total Commune", "CB LITE ORD Commune", "Total Submissions", "CB LITE ORD Outlet", "GB SNOW ORD Outlet", "<5",
               "5 to 8", "9 to 10", *SUMMARY_COMPETITORS]
     values = [len(REGION_DEALERS), len(rows), sum(r["total_submissions"] > 0 for r in rows),
-              district_count, commune_count, village_count, sum(r["total_submissions"] for r in rows),
+              district_count, commune_count, cb_commune_count, sum(r["total_submissions"] for r in rows),
               sum(movement[d]["own_outlets"] for d in dealers if d in movement),
               sum(movement[d]["gb_outlets"] for d in dealers if d in movement),
               sum(x < 5 for x in scores), sum(5 <= x <= 8 for x in scores),
