@@ -21,6 +21,7 @@ from app.reports.aggregator import (
     aggregate_submissions,
     is_final_summary_outlet_name,
     load_wide_payloads,
+    _metric_or_payload_available,
 )
 
 
@@ -159,6 +160,7 @@ def _dealer_movement(
     return {
         "member_count": len(members) or None,
         "own_outlets": sum((own_data.get("availability") or {}).values()),
+        "gb_outlets": sum((competitor_data.get(_product_key("GB SNOW ORD"), {}).get("availability") or {}).values()),
         "own_adjusted": own_display,
         "own_display": own_display,
         "competitor": leader_name,
@@ -517,6 +519,52 @@ def _coverage_admin_keys(submission):
     return district_key, commune_key
 
 
+def _has_cb_lite(submission):
+    metric = _metric_map(submission, "product_metrics").get(_product_key("CB LITE ORD"))
+    return _metric_or_payload_available(submission, metric, "CB LITE ORD")
+
+
+def _coverage_village_key(submission):
+    village = _clean(getattr(submission, "village", None) or getattr(submission, "village_name", None))
+    if not village:
+        return None
+    _, commune = _coverage_admin_keys(submission)
+    return (commune, village.casefold()) if commune else None
+
+
+def _add_no_cb_lite_sheet(wb, records, report_date):
+    from app.services.offline_locations import get_boundary_index
+    ws = wb.create_sheet("Location_no_CB_LITE")
+    ws.append(["Date", "Region", "Dealer", "Outlet Name", "Phone", "Province",
+               "District", "Commune", "Latitude", "Longitude", "Link Map", "Status"])
+    for item in records:
+        if _has_cb_lite(item):
+            continue
+        lat, lon = getattr(item, "gps_latitude", None), getattr(item, "gps_longitude", None)
+        names = get_boundary_index().resolve_admin(lat, lon)[:3] if lat not in (None, "") and lon not in (None, "") else ["", "", ""]
+        ws.append([getattr(item, "report_date", report_date), getattr(item, "region", ""),
+                   getattr(item, "dealer", ""), getattr(item, "outlet_name", ""),
+                   _clean(getattr(item, "phone_number", "")), *names, lat, lon, None, "No"])
+        r = ws.max_row
+        ws.cell(r,1).number_format = "yyyy-mm-dd"
+        ws.cell(r,5).number_format = "@"
+        try:
+            import math
+            y, x = float(lat), float(lon)
+            if math.isfinite(y) and math.isfinite(x) and -90 <= y <= 90 and -180 <= x <= 180:
+                ws.cell(r,11, "Open Map").hyperlink = f"https://www.google.com/maps?q={y},{x}"
+                ws.cell(r,11).style = "Hyperlink"
+        except (ValueError, TypeError):
+            pass
+    for cell in ws[1]:
+        cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
+        cell.font = Font(name="Calibri", bold=True, color="FFFFFF")
+    for col, width in zip("ABCDEFGHIJKL",(14,12,14,30,18,24,24,24,16,16,16,12)):
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:L{ws.max_row}"
+
+
 def _create_gt_coverage_report(submissions, report_date, output_path):
     records = [s for s in submissions
                if not is_final_summary_outlet_name(getattr(s, "outlet_name", None))]
@@ -528,37 +576,42 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
                 for dealer, items in grouped.items()}
     geo = {}
     for dealer, items in grouped.items():
-        pairs = [_coverage_admin_keys(item) for item in items]
-        geo[dealer] = ({d for d, c in pairs if d}, {c for d, c in pairs if c})
+        available = [item for item in items if _has_cb_lite(item)]
+        pairs = [_coverage_admin_keys(item) for item in available]
+        villages = {_coverage_village_key(item) for item in available}
+        geo[dealer] = ({d for d, c in pairs if d}, {c for d, c in pairs if c},
+                       {v for v in villages if v})
     def area_totals(dealers):
-        districts, communes = set(), set()
+        districts, communes, villages = set(), set(), set()
         for dealer in dealers:
-            d, c = geo.get(dealer, (set(), set()))
+            d, c, v = geo.get(dealer, (set(), set(), set()))
             districts.update(d)
             communes.update(c)
-        return len(districts), len(communes)
+            villages.update(v)
+        return len(districts), len(communes), len(villages)
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary_beer"
-    ws.merge_cells("A1:M1")
-    ws.merge_cells("A2:M2")
-    ws.merge_cells("I6:M6")
+    ws.merge_cells("A1:O1")
+    ws.merge_cells("A2:O2")
+    ws.merge_cells("K6:O6")
     ws["A1"] = "KB Market Survey - GT Region & Dealer Submission Summary"
     ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
-    ws["I6"] = "Movement CB LITE ORD compared with competitors"
+    ws["K6"] = "Movement CB LITE ORD compared with competitors"
     headers = ["Region", "Dealer", "Member", "Total District", "Total Commune",
-               "Total Submissions", "CB LITE ORD Outlet", "Status", "<5",
+               "Total Village", "Total Submissions", "CB LITE ORD Outlet", "GB SNOW ORD Outlet", "Status", "<5",
                "5 to 8", "9 to 10", "Product Competitor", "Movement Lead"]
     scores = [m["own_display"] for m in movement.values() if m["own_display"] is not None]
     leaders = Counter(m["competitor"] for m in movement.values() if m["competitor"])
     dealers = [r["dealer"] for r in rows]
-    district_count, commune_count = area_totals(dealers)
+    district_count, commune_count, village_count = area_totals(dealers)
     labels = ["Total Regions", "Total Dealers", "Submitted Dealers", "Total District",
-              "Total Commune", "Total Submissions", "CB LITE ORD Outlet", "<5",
+              "Total Commune", "Total Village", "Total Submissions", "CB LITE ORD Outlet", "GB SNOW ORD Outlet", "<5",
               "5 to 8", "9 to 10", *SUMMARY_COMPETITORS]
     values = [len(REGION_DEALERS), len(rows), sum(r["total_submissions"] > 0 for r in rows),
-              district_count, commune_count, sum(r["total_submissions"] for r in rows),
+              district_count, commune_count, village_count, sum(r["total_submissions"] for r in rows),
               sum(movement[d]["own_outlets"] for d in dealers if d in movement),
+              sum(movement[d]["gb_outlets"] for d in dealers if d in movement),
               sum(x < 5 for x in scores), sum(5 <= x <= 8 for x in scores),
               sum(x >= 9 for x in scores), *[leaders[c] for c in SUMMARY_COMPETITORS]]
     for col, (label, value) in enumerate(zip(labels, values), 1):
@@ -576,9 +629,9 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
             score = m.get("own_display")
             if score is not None:
                 region_scores.append(score)
-            d, c = area_totals([dealer])
-            values = [region, dealer, m.get("member_count"), d, c,
-                      row["total_submissions"], m.get("own_outlets", 0), row["status"],
+            d, c, v = area_totals([dealer])
+            values = [region, dealer, m.get("member_count"), d, c, v,
+                      row["total_submissions"], m.get("own_outlets", 0), m.get("gb_outlets", 0), row["status"],
                       score if score is not None and score < 5 else None,
                       score if score is not None and 5 <= score <= 8 else None,
                       score if score is not None and score >= 9 else None,
@@ -587,11 +640,12 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
                 ws.cell(rnum, col).value = value
                 ws.cell(rnum, col).fill = PatternFill("solid", fgColor=OK_FILL if row["total_submissions"] else ZERO_FILL)
             rnum += 1
-        d, c = area_totals(region_dealers)
+        d, c, v = area_totals(region_dealers)
         submitted = sum(by_dealer[x]["total_submissions"] > 0 for x in region_dealers)
-        values = [region, "Region Total", None, d, c,
+        values = [region, "Region Total", None, d, c, v,
                   sum(by_dealer[x]["total_submissions"] for x in region_dealers),
                   sum(movement[x]["own_outlets"] for x in region_dealers if x in movement),
+                  sum(movement[x]["gb_outlets"] for x in region_dealers if x in movement),
                   f"{submitted}/{len(region_dealers)} dealers submitted",
                   sum(x < 5 for x in region_scores), sum(5 <= x <= 8 for x in region_scores),
                   sum(x >= 9 for x in region_scores), None, None]
@@ -608,9 +662,9 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
             cell.font = Font(name="Calibri", size=11,
                              bold=is_region_total or cell.row in (1,4,7) or cell.column in (1,2),
                              color="FF0000" if is_region_total else "000000")
-    for col in range(1,14):
-        for r, colors in ((4,{8:"60497A",9:"963634",10:"00B050"}),
-                          (7,{9:"60497A",10:"963634",11:"00B050"})):
+    for col in range(1,16):
+        for r, colors in ((4,{10:"60497A",11:"963634",12:"00B050"}),
+                          (7,{11:"60497A",12:"963634",13:"00B050"})):
             cell = ws.cell(r,col)
             cell.fill = PatternFill("solid", fgColor=colors.get(col, HEADER_FILL if r == 7 else "F8FBFD"))
             if r == 7 or col in colors:
@@ -618,21 +672,22 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
     ws["A1"].fill = PatternFill("solid", fgColor=HEADER_FILL)
     ws["A1"].font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
     ws["A2"].font = Font(name="Calibri", size=11, italic=True, color="666666")
-    ws["I6"].font = Font(name="Calibri", size=14, color="FF0000")
-    for col, width in zip("ABCDEFGHIJKLM", (12,14,13,15,15,21,22,26,13,13,13,25,18)):
+    ws["K6"].font = Font(name="Calibri", size=14, color="FF0000")
+    for col, width in zip("ABCDEFGHIJKLMNO", (12,14,13,15,15,15,21,22,23,26,13,13,13,25,18)):
         ws.column_dimensions[col].width = width
     for r in range(1,rnum):
         ws.row_dimensions[r].height = 26
     ws.row_dimensions[7].height = 34
     ws.row_dimensions[4].height = 34
     ws.freeze_panes = "C8"
-    ws.print_area = f"A1:M{rnum-1}"
+    ws.print_area = f"A1:O{rnum-1}"
     ws.print_title_rows = "1:7"
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A3
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
+    _add_no_cb_lite_sheet(wb, records, report_date)
     wb.save(output_path)
     return output_path
 

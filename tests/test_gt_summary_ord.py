@@ -42,10 +42,10 @@ def test_own_ord_wins_and_summary_headers_are_ord(tmp_path):
                                    output_path=tmp_path / 'summary.xlsx',
                                    submissions=[row], report_type='GT')
     ws = load_workbook(output, data_only=True).active
-    assert [ws.cell(4, col).value for col in (11,12,13)] == [
+    assert [ws.cell(4, col).value for col in (13,14,15)] == [
         'GB SNOW ORD', 'Hanuman LITE ORD', 'Greet LITE ORD']
-    assert 'CB LITE ORD' in ws['I6'].value
-    assert ws['K8'].value == 10
+    assert 'CB LITE ORD' in ws['K6'].value
+    assert ws['M8'].value == 10
 
 
 def test_greet_ord_form_field_mapping_is_distinct_from_ncp():
@@ -128,17 +128,17 @@ def test_summary_counts_only_ordinary_outlets(name, tmp_path, monkeypatch):
     out = sr.create_summary_report(rows, ordinary.report_date,
         output_path=tmp_path/'coverage.xlsx', submissions=records)
     ws = load_workbook(out, data_only=True).active
-    assert ws.max_column == 13
-    assert ws['F5'].value == 2
-    assert ws['G5'].value == 1
+    assert ws.max_column == 15
+    assert ws['G5'].value == 2
+    assert ws['H5'].value == 1
     assert ws['D5'].value == 1  # shared district counted once, not twice
     assert ws['E5'].value == 1
-    assert ws['F8'].value == 1
     assert ws['G8'].value == 1
+    assert ws['H8'].value == 1
     assert ws['D18'].value == 1
     assert ws['E18'].value == 1
-    assert ws['F18'].value == 2
-    assert ws['G18'].value == 1
+    assert ws['G18'].value == 2
+    assert ws['H18'].value == 1
 
 
 def test_missing_gps_not_counted_as_an_area():
@@ -156,3 +156,39 @@ def test_final_summary_only_is_not_a_submitted_dealer():
     assert result['total_submissions'] == 0
     assert result['total_outlets'] == 0
     assert 'No Submit' in result['status']
+
+
+def test_cb_only_areas_gb_count_missing_sheet_and_villages(tmp_path, monkeypatch):
+    from app.reports import summary_report as sr
+    present = submission()
+    present.village = 'Village One'
+    absent = submission()
+    absent.outlet_name = 'No beer shop'
+    absent.phone_number = '012000111'
+    absent.product_metrics[0].available = False
+    absent.competitor_metrics[0].movement_score = 0
+    absent.village = 'Village Two'
+    summary = submission()
+    summary.outlet_name = 'សរុបរួម10'
+    monkeypatch.setattr(sr, '_coverage_admin_keys', lambda s: ('0101','010101') if s is present else ('0201','020101'))
+    output = sr.create_summary_report([], present.report_date, output_path=tmp_path/'test.xlsx', submissions=[present, absent, summary])
+    wb = load_workbook(output)
+    ws = wb['Summary_beer']
+    assert ws['D5'].value == 1
+    assert ws['E5'].value == 1
+    assert ws['F5'].value == 1
+    assert ws['G5'].value == 2
+    assert ws['H5'].value == 1
+    assert ws['I5'].value == 1
+    detail = wb['Location_no_CB_LITE']
+    assert detail.max_row == 2
+    assert detail['D2'].value == 'No beer shop'
+    assert detail['E2'].value == '012000111'
+    assert detail['L2'].value == 'No'
+    assert detail['K2'].hyperlink.target.startswith('https://www.google.com/maps?q=')
+    assert ws['D18'].font.color.rgb == '00FF0000'
+
+
+def test_unknown_village_is_not_replaced_by_commune():
+    from app.reports.summary_report import _coverage_village_key
+    assert _coverage_village_key(submission()) is None

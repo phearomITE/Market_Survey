@@ -413,6 +413,7 @@ def _build_report_submissions(
             continue
 
         submission = SimpleNamespace(**data)
+        submission.village = flat.parser_value(["village", "village_name", "village_text"], "")
         if metadata_only:
             submission.product_metrics = []
             submission.competitor_metrics = []
