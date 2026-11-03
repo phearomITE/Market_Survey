@@ -1,0 +1,22 @@
+V160 report template correction
+
+The supplied template has freshness rows 7-29, movement header 31, movement data 32-47 and summary header 49. Khmer summary headings were not recognized, causing legacy row fallback 26/45 and overwriting products. The writer now recognizes English and Khmer headings and rejects partially recognized layouts. The uploaded template is included unchanged.
+
+A single-dealer report now explains when only final-summary rows exist instead of exporting an all-zero report. Summary control rows continue to be excluded from outlet totals. A screenshot cannot verify the actual CA1 submissions; check the selected date, report type, actual outlet names and submitted records.
+
+Run in Git Bash:
+cd /d/Bot
+unzip -o ~/Downloads/Market_Survey_Git_V160_REPORT_FIXED_FULL.zip -d .
+cd Market_Survey_Git
+python verify_v160_report_layout.py
+python verify_v157_ncp_volume.py
+git diff --stat
+git add app/reports/excel_report.py app/services/report_service.py templates/template_general.xlsx verify_v160_report_layout.py V160_REPORT_TEMPLATE_FIX.txt
+git commit -m "Fix bilingual report layout and explain summary-only data"
+git push origin main
+
+After deployment, Telegram:
+/report CA1 GT 2026-10-31
+Use your submission's actual Report Date when testing. Cached data may take up to three minutes to refresh.
+
+Verified offline: production aggregation with synthetic outlet plus summary, grouped NCP volume fields, all five NCP quantities, 23 freshness rows, 16 movement rows, summary location, HORECA coordinate discovery and summary-only service response. No live Kobo data or production deployment tested.

@@ -214,12 +214,22 @@ def generate_dealer_report(dealer: str, report_date_str: str, report_type: Repor
         )
 
     agg = aggregate_submissions(submissions, wide_map={})
+    if not agg["total_outlets"]:
+        return None, (
+            f"No outlet visits found for {dealer} {report_type} on {d}. "
+            f"Found {agg['summary_control_count']} final-summary submission(s) only. "
+            "Summary rows are excluded from product totals. Submit individual outlet "
+            "visits with the actual Outlet Name, matching Report Date and Report Type, "
+            "then run the report again."
+        )
     agg["report_type"] = report_type
     agg["channel"] = report_type
 
     path = create_single_report(agg)
     label = report_type
-    return path, f"Generated {label} {dealer} report for {d}: {len(submissions)} outlet submissions"
+    return path, (f"Generated {label} {dealer} report for {d}: "
+                  f"{agg['total_outlets']} outlet visits; "
+                  f"{agg['summary_control_count']} summary submissions")
 
 
 def generate_today_all_dealers(report_date_str: str | None = None):

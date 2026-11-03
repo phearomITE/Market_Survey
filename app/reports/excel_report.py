@@ -169,10 +169,15 @@ def _find_movement_header_row(ws: Worksheet) -> int | None:
 
 
 def _find_summary_header_row(ws: Worksheet) -> int | None:
+    headings = {"key issues", "បញ្ហាទីផ្សារ"}
     for row in range(1, min(ws.max_row, 90) + 1):
         for col in range(1, min(ws.max_column, 27) + 1):
-            if _clean(ws.cell(row, col).value).casefold() == "key issues":
+            if _clean(ws.cell(row, col).value).casefold() in headings:
                 return row
+        # Uploaded templates may translate both summary headings. The left
+        # guidance title still identifies the same three-block summary row.
+        if _clean(ws.cell(row, 1).value).casefold() in {"no compromise", "don't", "don’t", "ចំណុចដួល"}:
+            return row
     return None
 
 
@@ -206,6 +211,9 @@ def _layout_rows(ws: Worksheet, agg: dict) -> dict[str, int]:
             "print_end": issue_start + 3,
         }
 
+    # A partially recognized layout must never write into fixed legacy rows.
+    if movement_header or summary_header:
+        raise ValueError("Report template layout is incomplete: movement and summary headers are both required.")
     # Backward-safe fallback for an unexpected custom template.
     return {
         "freshness_end": FRESHNESS_END_ROW,
