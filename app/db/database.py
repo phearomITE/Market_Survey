@@ -105,6 +105,7 @@ def _ensure_light_migrations() -> None:
             "Wurkz Ice": "Wurkz Ice ORD",
             "CAMBODIA Sport 500mL": "CAMBODIA Sport 500mL ORD",
             "WURKZ": "WURKZ ORD",
+            "IZE COLA 500ml": "IZE COLA 500ml ORD",
         }
         competitor_renames = {
             "GB Original": "GB Original NCP",

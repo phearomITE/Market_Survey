@@ -42,8 +42,8 @@ ISSUE_START_ROW = 45
 SUGGESTION_START_ROW = 45
 
 # Report logo rendering. Increase these values if the logo still appears small in the PNG preview.
-REPORT_LOGO_WIDTH_PX = 110
-REPORT_LOGO_HEIGHT_PX = 110
+REPORT_LOGO_WIDTH_PX = 190
+REPORT_LOGO_HEIGHT_PX = 97
 REPORT_LOGO_ANCHOR = "A1"
 
 # Summary text display settings.
@@ -73,21 +73,31 @@ PRODUCT_NAME_MAP = {
     "CBC LITE ORD": "CB LITE ORD",
     "CB LITE ORD": "CB LITE ORD",
     "CBC 4.4": "CBC 4.4 NCP",
+    "CBC 4.4 ORD": "CBC 4.4 NCP",
     "CBC 4.4 NCP": "CBC 4.4 NCP",
     "CB Original": "CB Original NCP",
+    "CB Original ORD": "CB Original NCP",
     "CB Original NCP": "CB Original NCP",
     "CB LITE": "CB LITE NCP",
     "CB LITE NCP": "CB LITE NCP",
     "CB BLACK": "CB BLACK NCP",
+    "CB BLACK ORD": "CB BLACK NCP",
     "CB BLACK NCP": "CB BLACK NCP",
     "CAMBODIA COLA 330ml": "CAMBODIA COLA",
     "CAMBODIA COLA 330ML": "CAMBODIA COLA",
+    "CAMBODIA ED": "CAMBODIA ED ORD",
     "CAMBODIA ED ORD": "CAMBODIA ED ORD",
     "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED ORD",
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
     "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
     "EXPREZ Can 330ml ORD": "EXPREZ Can 330ml ORD",
+    "EXPREZ Can 330ml NCP": "EXPREZ Can 330ml NCP",
+    "WURKZ NCP": "WURKZ NCP",
+    "DAZZ NCP": "DAZZ NCP",
+    "IZE COLA 500ml": "IZE COLA 500ml ORD",
+    "IZE COLA 500ml ORD": "IZE COLA 500ml ORD",
+    "IZE COLA 500ml NCP": "IZE COLA 500ml NCP",
     "CAMBODIA Sport 500ml": "CAMBODIA Sport 500mL ORD",
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL ORD",
     "CAMBODIA SPORT 500ML ORD": "CAMBODIA Sport 500mL ORD",

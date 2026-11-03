@@ -1,0 +1,61 @@
+1) Open Git Bash and go to the REAL Git repo:
+
+cd /d/Bot/Market_Survey_Git
+
+2) Extract the update ZIP:
+
+unzip -o \
+  /c/Users/User/Downloads/KB_Market_Survey_V157_NCP_VOLUME_LOGO.zip \
+  -d .
+
+3) Validate Python syntax:
+
+python -m py_compile \
+  app/reports/aggregator.py \
+  app/reports/excel_report.py \
+  app/db/database.py \
+  app/kobo/sync.py \
+  app/web/router.py
+
+4) Run the dependency-free V157 check:
+
+python verify_v157_ncp_volume.py
+
+Expected:
+V157 verification OK
+
+5) Review:
+
+git status
+git diff --stat
+
+6) Commit only this update:
+
+git add \
+  app/reports/aggregator.py \
+  app/reports/excel_report.py \
+  app/db/database.py \
+  app/kobo/sync.py \
+  app/web/router.py \
+  templates/KB_Market_Improvement_XLSForm.xlsx \
+  templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx \
+  templates/template_general.xlsx \
+  templates/kb_logo.png \
+  verify_v157_ncp_volume.py \
+  V157_NCP_VOLUME_LOGO_UPDATE.txt \
+  V157_GIT_BASH_STEPS.txt
+
+git commit -m "Add NCP volume products and Chip Mong FoodBev logo"
+git push origin main
+
+7) KoboToolbox
+Upload/deploy:
+templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx
+
+If Kobo creates a NEW asset, update Railway KOBO_ASSET_UID.
+If you replace/deploy the SAME Kobo project, keep the existing asset UID.
+
+8) After Railway redeploys, run one sync so the new mapping is used:
+/sync_kobo
+
+Then test a GT report with a date containing new-form submissions.

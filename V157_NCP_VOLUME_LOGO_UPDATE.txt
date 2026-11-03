@@ -1,0 +1,36 @@
+KB Market Survey V157 - NCP Status -> Volume + IZE 500 ORD + Chip Mong FoodBev logo
+
+NEW / UPDATED GT PRODUCTS
+- CB LITE NCP (existing product, simplified input flow)
+- WURKZ NCP
+- DAZZ NCP
+- EXPREZ Can 330ml NCP
+- IZE COLA 500ml NCP
+- IZE COLA 500ml ORD
+
+KOBO FLOW FOR THE FIVE NCP PRODUCTS
+1. User opens the product.
+2. User sees only Sale Status:
+   - អត់មានលក់
+   - មានលក់
+   - លក់ដាច់
+3. If status = មានលក់ or លក់ដាច់, Volume (ctn) appears.
+4. If status = អត់មានលក់, Volume stays hidden.
+5. No manual Movement Score / Stock / Buy In / Sell Out questions for these five NCP products.
+
+IZE COLA 500ml ORD
+- Added as a GT own product with the normal GT own-product fields.
+- Report template label changed from IZE COLA 500ml to IZE COLA 500ml ORD.
+
+GENERAL REPORT TEMPLATE
+- Existing layout, merged cells, widths, heights, colors and sections are preserved.
+- Existing NCP rows are mapped to backend product names.
+- Accidental placeholder values in the new NCP rows were reset.
+- Chip Mong FoodBev logo replaces the previous report logo.
+
+CODE
+- New own-product mappings added to aggregator.
+- Template aliases added to Excel report generator.
+- New product categories added for map/dashboard data.
+- Existing DB alias IZE COLA 500ml migrates to IZE COLA 500ml ORD.
+- Kobo normalization mapping version bumped so stored submissions can be rebuilt.
