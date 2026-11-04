@@ -1,0 +1,23 @@
+V162 fixes the accidental extra generate_summary_volume_date argument inside the existing /summary handler's _run_fast call. /summary needs only report_type and date. The volume handler remains separately registered.
+
+The installer edits only that erroneous line, preserves other local handler code, creates a .pre_v162.bak backup on the first repair and updates verifier source reads to explicit UTF-8 for Windows. The compact ZIP does not replace the whole handlers.py file.
+
+Git Bash:
+cd /d/Bot/Market_Survey_Git
+unzip -o ~/Downloads/CMFB_V162_SUMMARY_FIX.zip -d .
+python APPLY_V162_SUMMARY_FIX.py
+python -X utf8 verify_v162_summary_handler.py
+python -X utf8 verify_v161_volume_summary.py
+git add app/bot/handlers.py verify_v161_volume_summary.py verify_v162_summary_handler.py APPLY_V162_SUMMARY_FIX.py V162_SUMMARY_FIX.txt
+git commit -m "Fix extra summary argument and Windows UTF-8 verifier"
+git push origin main
+
+If Git rejects the push, use git pull --rebase --autostash origin main, resolve any conflicts, then push. Do not force push. Existing unstaged deletions and unrelated local changes are not staged by these commands.
+
+After Railway finishes deployment:
+/summary GT 2026-10-03
+/summary_volume_date GT 2026-11-04
+
+No Kobo form replacement is needed for this patch.
+
+Verification: production async handlers are executed offline with fake message uploads and network/DB services isolated. Both GT/HORECA summary calls and the separate daily volume handler are exercised. V161 data/export regression checks pass as well. Live Telegram, Kobo data and Railway deployment have not been tested here.

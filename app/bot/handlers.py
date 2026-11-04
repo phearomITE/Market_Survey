@@ -396,7 +396,6 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _maybe_sync_before_report(update.effective_message)
         path, text = await _run_fast(
             generate_region_dealer_summary,
-    generate_summary_volume_date,
             report_type,
             rdate,
             timeout_seconds=50,

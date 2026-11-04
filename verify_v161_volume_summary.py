@@ -53,7 +53,7 @@ for args in [[],['bad'],['GT','2026-02-30'],['BAD','2026-11-04']]:
     except ValueError:pass
     else:raise AssertionError(args)
 # Service date/type selection runs the actual function; external I/O is stubbed.
-service_tree=ast.parse((ROOT/'app/services/report_service.py').read_text())
+service_tree=ast.parse((ROOT/'app/services/report_service.py').read_text(encoding='utf-8'))
 fn=next(n for n in service_tree.body if isinstance(n,ast.FunctionDef) and n.name=='generate_summary_volume_date')
 fn.body=[n for n in fn.body if not isinstance(n,ast.ImportFrom)]
 captured=[]
@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert next(r for r in ew.worksheets[0].values if r[1]=='Grand Total')[8]==0
 # Exercise raw nested Kobo payloads through the real fast parser for both types.
 parser=load('app/kobo/parser.py')
-sync_tree=ast.parse((ROOT/'app/kobo/sync.py').read_text())
+sync_tree=ast.parse((ROOT/'app/kobo/sync.py').read_text(encoding='utf-8'))
 wanted={'_status_to_mov','_product_metrics_from_flat','_competitor_metrics_from_flat','_build_report_submissions'}
 sync_nodes=[n for n in sync_tree.body if isinstance(n,ast.FunctionDef) and n.name in wanted]
 class FakeClient:
@@ -120,7 +120,7 @@ summarymod=load('app/reports/summary_report.py',{**aggregator,**dealers,**brandi
 class StripInfrastructure(ast.NodeTransformer):
     def visit_ImportFrom(self,node):
         return None if (node.module or '').startswith(('app.','sqlalchemy')) else node
-summary_tree=StripInfrastructure().visit(ast.parse((ROOT/'app/reports/summary_report.py').read_text()))
+summary_tree=StripInfrastructure().visit(ast.parse((ROOT/'app/reports/summary_report.py').read_text(encoding='utf-8')))
 summarymod['get_boundary_index']=lambda:None
 exec(compile(summary_tree,'summary layout regression','exec'),summarymod)
 with tempfile.TemporaryDirectory() as tmp:
@@ -135,7 +135,7 @@ with tempfile.TemporaryDirectory() as tmp:
         shutil.copyfile(out,ROOT/'exports/V161_SYNTHETIC_SUMMARY.xlsx')
 
 # Registration and async handler: parse/import wiring validated independently.
-handlers=(ROOT/'app/bot/handlers.py').read_text();run=(ROOT/'app/bot/run_bot.py').read_text()
+handlers=(ROOT/'app/bot/handlers.py').read_text(encoding='utf-8');run=(ROOT/'app/bot/run_bot.py').read_text(encoding='utf-8')
 assert 'async def summary_volume_date_cmd(' in handlers
 assert 'CommandHandler("summary_volume_date", summary_volume_date_cmd)' in run
 for p in (ROOT/'app').rglob('*.py'):ast.parse(p.read_text(encoding='utf-8'), filename=str(p))
