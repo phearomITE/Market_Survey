@@ -745,13 +745,14 @@ def _set_number_cell(ws: Worksheet, row: int, col: int, value) -> None:
 
 
 def _find_report_logo() -> Path | None:
-    """Return the first available KB logo path.
+    """Return the first available CMFB logo path.
 
     openpyxl does not copy images when copy_worksheet() is used, so generated
     sheets must insert the logo from an image file every time. The project now
     ships the logo in templates/kb_logo.png; fallbacks keep older folders working.
     """
     candidates = [
+        settings.template_file.parent / "cmfb_logo.png",
         settings.template_file.parent / "kb_logo.png",
         settings.template_file.parent.parent / "media" / "kb_logo.png",
         settings.template_file.parent.parent / "app" / "Logo" / "khmer_beverages_co_ltd_logo.jpg",
@@ -763,10 +764,10 @@ def _find_report_logo() -> Path | None:
 
 
 def _add_report_logo(ws: Worksheet) -> None:
-    """Add a visible Khmer Beverages logo to generated report sheets."""
+    """Add a visible CMFB logo to generated report sheets."""
     logo_path = _find_report_logo()
     if not logo_path:
-        print("⚠️ KB logo not found. Expected templates/kb_logo.png")
+        print("⚠️ CMFB logo not found. Expected templates/kb_logo.png")
         return
 
     try:
@@ -783,7 +784,7 @@ def _add_report_logo(ws: Worksheet) -> None:
         ws.row_dimensions[1].height = max(ws.row_dimensions[1].height or 15, 82)
         ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 7, 15)
     except Exception as exc:
-        print(f"⚠️ Could not add KB logo to report sheet: {exc}")
+        print(f"⚠️ Could not add CMFB logo to report sheet: {exc}")
 
 
 def _summary_visual_length(text: str) -> int:

@@ -24,6 +24,7 @@ from app.bot.handlers import (
     start,
     status_cmd,
     summary_cmd,
+    summary_volume_date_cmd,
     sync_kobo_cmd,
 )
 from app.core.config import settings
@@ -158,6 +159,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))
     app.add_handler(CommandHandler("summary", summary_cmd))
+    app.add_handler(CommandHandler("summary_volume_date", summary_volume_date_cmd))
     app.add_handler(CommandHandler("raw_movement", raw_movement_cmd))
     app.add_handler(CommandHandler("alert_submit", alert_submit_cmd))
     app.add_handler(CommandHandler("export_status", export_status_cmd))
@@ -193,7 +195,7 @@ def main() -> None:
 
     app = _build_application()
 
-    print("✅ KB Market Survey Bot running...")
+    print("✅ CMFB Market Survey Bot running...")
 
     # Python 3.12 with uvloop does not automatically create an event loop.
     event_loop = asyncio.new_event_loop()

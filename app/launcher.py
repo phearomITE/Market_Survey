@@ -37,7 +37,7 @@ async def _run() -> None:
         if telegram.updater is None:
             raise RuntimeError("Telegram updater is unavailable")
         await telegram.updater.start_polling(drop_pending_updates=False)
-        print("✅ KB Market Survey Bot running...")
+        print("✅ CMFB Market Survey Bot running...")
         stop_task = asyncio.create_task(stop.wait())
         done, _ = await asyncio.wait(
             {web_task, stop_task}, return_when=asyncio.FIRST_COMPLETED

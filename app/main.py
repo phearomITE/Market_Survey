@@ -7,7 +7,7 @@ from app.services.report_service import generate_dealer_report, generate_today_a
 from app.web.router import router as web_router
 from app.web.power_bi import router as power_bi_router
 
-app = FastAPI(title='KB Market Survey')
+app = FastAPI(title='CMFB Market Survey')
 app.add_middleware(GZipMiddleware, minimum_size=800, compresslevel=5)
 app.include_router(web_router)
 app.include_router(power_bi_router)
@@ -23,7 +23,7 @@ def startup():
 
 @app.get('/')
 def root():
-    return {'status': 'ok', 'app': 'KB Market Survey'}
+    return {'status': 'ok', 'app': 'CMFB Market Survey'}
 
 @app.post('/sync_kobo')
 def api_sync_kobo():

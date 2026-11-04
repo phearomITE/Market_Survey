@@ -17,6 +17,7 @@ from app.services.report_service import (
     generate_multi_dealer_reports,
     generate_today_all_dealers_with_pngs,
     generate_region_dealer_summary,
+    generate_summary_volume_date,
     generate_raw_movement_export,
     generate_daily_data_export,
     generate_movement_multi_export,
@@ -29,7 +30,7 @@ from app.services.export_status_service import format_export_status
 from app.services.submission_alert_service import format_submission_alert, local_today
 
 HELP_TEXT = """
-✅ KB Market Survey Bot
+✅ CMFB Market Survey Bot
 
 Commands:
 /start
@@ -43,6 +44,8 @@ Commands:
 /report_today 2026-06-06
 /summary GT 2026-07-25
 /summary HORECA 2026-07-25
+/summary_volume_date 2026-10-03
+/summary_volume_date GT 2026-10-03
 /raw_movement 2026-07-25
 /export_detail 2026-01-03
 /export 2026-07-25
@@ -393,6 +396,7 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _maybe_sync_before_report(update.effective_message)
         path, text = await _run_fast(
             generate_region_dealer_summary,
+    generate_summary_volume_date,
             report_type,
             rdate,
             timeout_seconds=50,
@@ -568,3 +572,21 @@ async def export_detail_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             jobs.discard(str(day))
     context.application.create_task(finish(), update=update)
+
+
+async def summary_volume_date_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from app.reports.volume_summary import parse_volume_args
+    try:
+        scope, day = parse_volume_args(context.args)
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ {exc}")
+        return
+    wait = await update.effective_message.reply_text(
+        f"📦 Generating CMFB {scope} NCP volume summary for {day}...")
+    try:
+        path, text = await _run_fast(generate_summary_volume_date, day.isoformat(), scope, timeout_seconds=50)
+        with path.open("rb") as handle:
+            await update.effective_message.reply_document(document=InputFile(handle, filename=path.name))
+        await wait.edit_text(f"✅ {text}")
+    except Exception as exc:
+        await wait.edit_text(f"❌ Volume summary failed: {exc}")

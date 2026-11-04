@@ -420,3 +420,13 @@ def generate_summary_status_export(report_date_str: str):
         f"{len(ALL_DEALERS) - len(completed)} missing, "
         f"{len(ALL_DEALERS)} dealers checked"
     )
+
+
+def generate_summary_volume_date(report_date_str: str, report_type: str = "ALL"):
+    from app.reports.volume_summary import create_volume_summary, parse_volume_args
+    scope, day = parse_volume_args([report_type, report_date_str])
+    records = fetch_report_submissions_fast(None, day)
+    if scope != "ALL":
+        records = _filter_by_report_type(records, scope)
+    path, count = create_volume_summary(records, day, scope=scope)
+    return path, f"CMFB {scope} NCP volume {day}: {count} outlet visits; Summary_Volume + Detail_Volume; unit ctn."

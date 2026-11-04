@@ -400,7 +400,7 @@ def final_offtake_movement(values: list[Any]) -> int | None:
 
     Rule:
     1) Average valid submitted movement values.
-    2) Round using KB business rounding: .0-.4 down, .5-.9 up.
+    2) Round using CMFB business rounding: .0-.4 down, .5-.9 up.
     3) Keep that rounded score here.
 
     The comparison-row goal rule is applied later by

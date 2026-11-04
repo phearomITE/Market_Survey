@@ -13,6 +13,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from app.reports.branding import brand_summary_workbook
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
 
@@ -54,7 +55,7 @@ def create_gt_submission_summary(
     completion = submitted_dealers / total_dealers if total_dealers else 0
 
     sheet.merge_cells("A1:H1")
-    sheet["A1"] = "KB Market Survey - GT Region & Dealer Submission Summary"
+    sheet["A1"] = "CMFB Market Survey - GT Region & Dealer Submission Summary"
     sheet.merge_cells("A2:H2")
     sheet["A2"] = (
         f"Report Date: {report_date:%Y-%m-%d} | "
@@ -133,6 +134,7 @@ def create_gt_submission_summary(
         row_number += 1
 
     _apply_simple_style(sheet)
+    brand_summary_workbook(workbook)
     workbook.save(output_path)
     _validate_simple_workbook(output_path)
     return output_path

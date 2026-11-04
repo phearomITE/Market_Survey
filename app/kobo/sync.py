@@ -424,7 +424,11 @@ def _build_report_submissions(
         report_type = str(data.get("report_type") or "GT").strip().upper()
         # Use the same product parser for summary and dealer exports.
         if report_type == "HORECA":
-            own_products = HORECA_OWN_PRODUCTS
+            # CB LITE NCP is also present in the HORECA form. Keep all five
+            # volume products in the shared fast cache for volume exports.
+            ncp_volume = ["CB LITE NCP", "WURKZ NCP", "DAZZ NCP",
+                          "EXPREZ Can 330ml NCP", "IZE COLA 500ml NCP"]
+            own_products = list(dict.fromkeys([*HORECA_OWN_PRODUCTS, *ncp_volume]))
             competitor_products = HORECA_COMPETITOR_PRODUCTS
         else:
             own_products = OWN_PRODUCTS

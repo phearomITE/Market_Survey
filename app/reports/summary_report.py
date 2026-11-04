@@ -15,6 +15,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.reports.branding import brand_summary_workbook
 from app.core.config import settings
 from app.data.dealers import REGION_DEALERS
 from app.reports.aggregator import (
@@ -251,7 +252,7 @@ def _create_gt_template_report(
     total_outlets = sum(row["total_outlets"] for row in rows)
 
     ws["A1"] = (
-        f"KB Market Survey - {report_type} Region & Dealer Submission Summary"
+        f"CMFB Market Survey - {report_type} Region & Dealer Submission Summary"
     )
     ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
     ws["A4"] = "Total Regions"
@@ -405,6 +406,7 @@ def _create_gt_template_report(
         for table in list(ws.tables):
             del ws.tables[table]
 
+    brand_summary_workbook(wb)
     wb.save(output_path)
     return output_path
 
@@ -595,7 +597,7 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
     ws.merge_cells("A1:O1")
     ws.merge_cells("A2:O2")
     ws.merge_cells("K6:O6")
-    ws["A1"] = "KB Market Survey - GT Region & Dealer Submission Summary"
+    ws["A1"] = "CMFB Market Survey - GT Region & Dealer Submission Summary"
     ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
     ws["K6"] = "Movement CB LITE ORD compared with competitors"
     headers = ["Region", "Dealer", "Member", "Total District", "Total Commune",
@@ -688,6 +690,7 @@ def _create_gt_coverage_report(submissions, report_date, output_path):
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
     _add_no_cb_lite_sheet(wb, records, report_date)
+    brand_summary_workbook(wb)
     wb.save(output_path)
     return output_path
 
@@ -727,7 +730,7 @@ def create_summary_report(
     completion = submitted_dealers / total_dealers if total_dealers else 0
 
     ws.merge_cells("A1:H1")
-    ws["A1"] = f"KB Market Survey - {report_type} Region & Dealer Submission Summary"
+    ws["A1"] = f"CMFB Market Survey - {report_type} Region & Dealer Submission Summary"
     ws.merge_cells("A2:H2")
     ws["A2"] = f"Report Date: {report_date} | Generated: {datetime.now():%d/%m/%Y %H:%M:%S}"
 
@@ -772,5 +775,6 @@ def create_summary_report(
         current_row += 1
 
     _style_summary_sheet(ws)
+    brand_summary_workbook(wb)
     wb.save(output_path)
     return output_path
