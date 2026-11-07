@@ -959,25 +959,45 @@ def _latest_summary_submission(submissions: list):
     candidates = [s for s in submissions if _is_summary_submission(s)]
     if not candidates:
         return None
-    return max(
-        candidates,
-        key=lambda s: (
-            getattr(s, "submission_time", None) or datetime.min,
-            getattr(s, "id", 0) or 0,
-        ),
-    )
+    def ordering(item):
+        index, submission = item
+        value = getattr(submission, "submission_time", None)
+        if isinstance(value, datetime):
+            from datetime import timezone
+            value = value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo is not None else value
+        else:
+            value = datetime.min
+        return value, index
+    return max(enumerate(candidates), key=ordering)[1]
 
 
 def _latest_manual_summary(submissions: list) -> tuple[list[str], list[str]]:
-    # Summary selection is controlled only by Outlet Name. The Key Issues and
-    # Suggestion fields contain the actual summary text and need no keyword.
-    latest = _latest_summary_submission(submissions)
-    if latest is None:
-        return [], []
-    return (
-        _summary_points(getattr(latest, "key_issue_text", None)),
-        _summary_points(getattr(latest, "suggestion_text", None)),
-    )
+    """Use the latest non-empty answer per field, preferring final-summary rows.
+
+    An empty newer control row cannot erase already submitted answers. If no
+    control row contains that field, use the latest written outlet answer in
+    this already dealer/date/report-type-filtered set. Never synthesize text.
+    """
+    def ordering(item):
+        position, submission = item
+        value = getattr(submission, "submission_time", None)
+        if isinstance(value, datetime):
+            from datetime import timezone
+            value = (value.astimezone(timezone.utc).replace(tzinfo=None)
+                     if value.tzinfo is not None else value)
+        else:
+            value = datetime.min
+        return value, position
+    ordered = [s for _,s in sorted(enumerate(submissions), key=ordering, reverse=True)]
+    controls = [s for s in ordered if _is_summary_submission(s)]
+    outlets = [s for s in ordered if not _is_summary_submission(s)]
+    def latest_answer(field):
+        for s in controls + outlets:
+            points = _summary_points(getattr(s, field, None))
+            if points:
+                return points
+        return []
+    return latest_answer("key_issue_text"), latest_answer("suggestion_text")
 
 
 def _latest_fall_points(submissions: list) -> list[str]:

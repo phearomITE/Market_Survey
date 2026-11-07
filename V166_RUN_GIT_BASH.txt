@@ -1,0 +1,22 @@
+V166 - retain submitted market issues and solutions in dealer reports.
+
+The old aggregator used only the newest final-summary control row. V166 reads the latest non-empty answer independently for market issues and solutions, preferring summary control rows. A newer blank control row no longer erases earlier written text. If no control row contains that field, the latest written answer from the report's outlet submissions is used. Existing dealer/date/report-type filtering remains in force. Up to four written points per field are kept; no text is invented.
+
+The Kobo parser now explicitly supports current group keys, Khmer labels and HTML-labelled exports. Group/note instructions are not treated as answers. Normalized mapping version is bumped so future syncs reparse corrected metadata. Mixed timezone timestamps cannot break summary selection.
+
+Run in Git Bash; stop on conflicts or failed tests:
+cd /d/Bot/Market_Survey_Git
+git pull --rebase --autostash origin main
+unzip -o ~/Downloads/CMFB_V166_SUMMARY_TEXT_FIX.zip -d .
+python -X utf8 verify_v166_summary_text.py
+python -X utf8 verify_v165_report_files.py
+git add app/kobo/parser.py app/kobo/sync.py app/reports/aggregator.py verify_v166_summary_text.py V166_RUN_GIT_BASH.txt
+git commit -m "Keep submitted market issues and solutions in reports"
+git push origin main
+
+After Railway deploys, rerun your original report date:
+/report SMR5 GT 2026-10-31
+
+/report returns Excel + PDF as before. No new Kobo form deployment is needed for V166. If an answer was never submitted/saved in Kobo or belongs to a different dealer/date/report type, it cannot be recovered by a report renderer.
+
+Verified offline: nested machine keys, HTML labels, Khmer labels, blank duplicate keys, summary text priority, latest non-empty values per field, outlet fallback, summary rows excluded from outlet counts, actual written Khmer values in I50 and S50, existing report handler file delivery, and /summary handler signatures. Production Kobo records and live PDF conversion were not accessed.

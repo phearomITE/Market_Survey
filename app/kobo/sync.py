@@ -305,7 +305,7 @@ def _save_sync_batch(db, items, wide_mapping):
             db.execute(insert(model), payloads)
 
 
-NORMALIZED_PRODUCT_MAPPING_VERSION = "gt-ncp-volume-ize500-v2-ord-coca650-v164"
+NORMALIZED_PRODUCT_MAPPING_VERSION = "gt-ncp-volume-ize500-v2-ord-coca650-v164-summary-v166"
 
 
 def _source_hash(raw: dict) -> str:

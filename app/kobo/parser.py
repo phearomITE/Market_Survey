@@ -85,24 +85,18 @@ ALIASES = {
     "key_issue_text": [
         "key_issues_detail", "key_issue_text", "key_issue_detail", "key_issues", "key_issue",
         "Key Issue Text", "Key Issues", "Key Issues Detail",
-        "បញ្ហាទីផ្សារ",
         "issue_suggestion/key_issue_detail", "observation_group/key_issue_text",
         "issue_suggestion/key_issues_detail", "key_issues_group/key_issues_detail",
         "5. Key Issues and Initiative Idea / Suggestion / Key Issues Detail",
         "5. Key Issues and Initiative Idea / Suggestion/Key Issues Detail",
-        "3. FINAL បញ្ហាទីផ្សារ & បញ្ហាត្រូវដោះស្រាយ / បញ្ហាទីផ្សារ",
-        "3. FINAL បញ្ហាទីផ្សារ & បញ្ហាត្រូវដោះស្រាយ/បញ្ហាទីផ្សារ",
     ],
     "suggestion_text": [
         "initiative_idea_suggestion", "suggestion_text", "initiative_suggestion", "suggestion",
         "Suggestion Text", "Initiative Idea / Suggestion",
-        "បញ្ហាត្រូវដោះស្រាយ",
         "issue_suggestion/initiative_suggestion", "observation_group/suggestion_text",
         "issue_suggestion/initiative_idea_suggestion", "key_issues_group/initiative_idea_suggestion",
         "5. Key Issues and Initiative Idea / Suggestion / Initiative Idea / Suggestion",
         "5. Key Issues and Initiative Idea / Suggestion/Initiative Idea / Suggestion",
-        "3. FINAL បញ្ហាទីផ្សារ & បញ្ហាត្រូវដោះស្រាយ / បញ្ហាត្រូវដោះស្រាយ",
-        "3. FINAL បញ្ហាទីផ្សារ & បញ្ហាត្រូវដោះស្រាយ/បញ្ហាត្រូវដោះស្រាយ",
     ],
     "report_date": [
         "report_date", "survey_date", "date", "today", "report_info/report_date", "outlet_info/report_date",
@@ -110,6 +104,45 @@ ALIASES = {
         "1. OUTLET INFORMATION / Report Date", "1. OUTLET INFORMATION/Report Date",
     ],
 }
+
+
+# Current/older Kobo exports may expose machine keys or HTML-labelled columns.
+ALIASES["key_issue_text"] += [
+    "key_issues_suggestion_group/key_issues_detail", "final_key_issues_detail",
+    "final_key_issues", "key_issues_details", "បញ្ហាទីផ្សារ",
+    '3. FINAL KEY ISSUES & INITIATIVE IDEA / SUGGESTION / Key Issues Detail',
+]
+ALIASES["suggestion_text"] += [
+    "key_issues_suggestion_group/initiative_idea_suggestion",
+    "final_initiative_idea_suggestion", "final_suggestion_text",
+    "បញ្ហាត្រូវដោះស្រាយ",
+    '3. FINAL KEY ISSUES & INITIATIVE IDEA / SUGGESTION / Initiative Idea / Suggestion',
+]
+
+
+def summary_text_value(flat, field):
+    """Read only known answer fields; never treat a note/group header as an answer."""
+    import html
+    import re
+    keys = ALIASES[field]
+    value = flat.parser_value(keys)
+    if value is not None and str(value).strip():
+        return value
+    def clean(key):
+        return re.sub(r"<[^>]*>", "", html.unescape(str(key))).strip()
+    def normalized(key):
+        return "".join(c.casefold() for c in key if c.isalnum())
+    full = {normalized(clean(k)) for k in keys}
+    leaves = {normalized(clean(k).split("/")[-1]) for k in keys}
+    # An indexed duplicate leaf can point to a blank newer key. Inspect the
+    # known answer leaves directly so a non-empty value cannot disappear.
+    for key, candidate in flat.items():
+        if candidate is None or not str(candidate).strip() or isinstance(candidate, (dict,list)):
+            continue
+        cleaned = clean(key)
+        if normalized(cleaned) in full or normalized(cleaned.split("/")[-1]) in leaves:
+            return candidate
+    return None
 
 
 REGION_LABELS = {f"r{i}": f"R{i}" for i in range(1, 9)}
@@ -405,7 +438,7 @@ def normalize_submission(
         "gps_text": str(value(ALIASES["gps_text"], "") or "") or None,
         "gps_latitude": to_float(value(ALIASES["gps_latitude"])),
         "gps_longitude": to_float(value(ALIASES["gps_longitude"])),
-        "key_issue_text": value(ALIASES["key_issue_text"]),
-        "suggestion_text": value(ALIASES["suggestion_text"]),
+        "key_issue_text": summary_text_value(flat, "key_issue_text"),
+        "suggestion_text": summary_text_value(flat, "suggestion_text"),
         "_flat": flat,  # transient only; sync.py converts it to SQL metric rows, not DB JSON.
     }
