@@ -38,7 +38,6 @@ Commands:
 /debug_kobo
 /status
 /report CA3 GT 2026-07-18
-/report_pdf KRG7 GT 2026-11-07
 /report CA3 HORECA 2026-07-18
 /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today
@@ -57,7 +56,7 @@ Commands:
 /map
 /help
 
-/report = send Excel first, then create one quick PNG preview.
+/report = send two files: Excel and PDF.
 /report_multi = fast Excel workbook with selected dealer sheets.
 /report_today = fast Excel workbook with 65 dealer sheets.
 /summary = generate management summary by Region + Dealer, including 0-submit dealers.
@@ -218,7 +217,7 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     report_label = report_type
     wait = await update.effective_message.reply_text(
-        f"📊 Generating {report_label} Excel report for {dealer} {rdate}..."
+        f"📊 Generating {report_label} Excel + PDF report for {dealer} {rdate}..."
     )
     started = monotonic()
     try:
@@ -240,39 +239,26 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 document=InputFile(f, filename=path.name)
             )
 
-        remaining = max(
-            0,
-            int(settings.command_timeout_seconds - (monotonic() - started)),
-        )
-        if remaining < 3:
-            await wait.edit_text(
-                f"✅ Completed {dealer} {report_label} {rdate}. "
-                "Excel sent; PNG skipped at the fast limit."
-            )
-            return
-        await wait.edit_text("✅ Excel sent. 🖼 Creating quick PNG preview...")
+        await wait.edit_text("✅ Excel sent. 📄 Creating PDF...")
         try:
-            png = await _run_fast(
-                excel_to_png,
+            pdf = await _run_fast(
+                excel_to_pdf,
                 path,
-                timeout_seconds=min(settings.png_render_timeout_seconds, remaining),
+                timeout_seconds=max(5, int(settings.png_render_timeout_seconds) + 5),
             )
         except TimeoutError:
-            png = None
-        if png:
-            # Send PNG as document, not photo. This keeps full resolution and shows
-            # a small preview thumbnail in Telegram, like the user's requested example.
-            with png.open("rb") as f:
-                await update.effective_message.reply_document(
-                    document=InputFile(f, filename=png.name),
-                    caption=f"🖼 {dealer} {report_label} {rdate} report preview"
-                )
-        else:
-            await update.effective_message.reply_text(
-                "⚠️ PNG preview was not created within the fast limit. "
-                "Excel was sent successfully."
+            pdf = None
+        if not pdf:
+            await wait.edit_text(
+                "⚠️ Excel was sent, but PDF conversion failed. Check the deployed LibreOffice renderer and retry /report."
             )
-        await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}.")
+            return
+        with pdf.open("rb") as f:
+            await update.effective_message.reply_document(
+                document=InputFile(f, filename=pdf.name),
+                caption=f"📄 {dealer} {report_label} {rdate} report PDF",
+            )
+        await wait.edit_text(f"✅ Completed {dealer} {report_label} {rdate}. Excel + PDF sent.")
     except Exception as e:
         await wait.edit_text(f"❌ Report failed: {e}")
 
