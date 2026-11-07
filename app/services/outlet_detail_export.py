@@ -12,8 +12,8 @@ HEADERS = ['Date', 'Region', 'Dealer', 'Outlet Name', 'Outlet Type',
 
 # Explicit own-brand beer allowlist; avoid matching energy/water brand names.
 BEER_PRODUCTS = frozenset(name.casefold() for name in (
-    'CB LITE ORD', 'CBC 4.4 NCP', 'CB Original NCP', 'CB LITE NCP',
-    'CB BLACK NCP', 'CB Pint', 'CBL Pint', 'CB SUPEEME Pint',
+    'CB LITE ORD', 'CBC 4.4 ORD', 'CB Original ORD', 'CB LITE NCP',
+    'CB BLACK ORD', 'CB Pint', 'CBL Pint', 'CB SUPEEME Pint',
     'CB SUPREME Pint', 'CB Black Pint',
 ))
 

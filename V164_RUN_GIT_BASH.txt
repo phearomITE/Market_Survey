@@ -1,0 +1,37 @@
+CMFB V164 - product corrections, automatic date, IZE/Coca comparison and PDF export
+
+Run in Git Bash from your existing repository. Stop if Git reports conflicts or a test fails.
+
+cd /d/Bot/Market_Survey_Git
+git status
+git pull --rebase --autostash origin main
+unzip -o ~/Downloads/CMFB_V164_UPDATE.zip -d .
+python -X utf8 verify_v164_products.py
+python -X utf8 verify_v162_summary_handler.py
+python scripts/stage_v164.py
+git diff --cached --stat
+git commit -m "Correct ORD products, IZE comparison, survey date and PDF export"
+git push origin main
+
+Kobo deployment:
+1. Open the EXISTING Kobo project, Replace form.
+2. Upload templates/CMFB_Market_Improvement_XLSForm_GT_HORECA.xlsx.
+3. Deploy and reopen the public form to create a NEW submission.
+4. Check the device date/time and Cambodia timezone. A new submission defaults to today's device date; an existing draft retains its saved date. The date remains editable.
+5. Keep the existing asset UID and credentials. Git push alone does not deploy the Kobo form.
+
+After Railway deploys, test:
+/report KRG7 GT 2026-11-07
+/report_pdf KRG7 GT 2026-11-07
+/summary GT 2026-11-07
+/summary_volume_date GT 2026-11-07
+
+Use the actual Report Date of your test submissions. Historical submissions do not gain answers to new Coca 650ml questions. Blank historical Coca data is not fabricated.
+
+Corrected labels: CBC 4.4 ORD; CB Original ORD; GB Original ORD; CB BLACK ORD; Hanuman Black ORD.
+Removed Kobo product groups: Krud NCP; GB SNOW NCP; Hanuman LITE NCP; Krud LITE NCP; Greet LITE NCP. Existing main comparison-row ORD products such as Krud LITE ORD are separate and remain.
+EXPREZ Can uses 500ml ORD/NCP throughout active labels. Existing field IDs are preserved for historical compatibility; old labels and field aliases remain readable. No quantities are converted or multiplied.
+
+IZE COLA 500ml ORD and Coca 650ml now share the existing coverage-weighted final-movement comparison rule. Five synthetic scenarios and the actual printed comparison cells were tested. Renamed field IDs, form settings/choices, group nesting, references, required NCP quantities and command signatures were checked locally.
+
+PDF export uses the existing LibreOffice renderer from the Docker image. Configure LIBREOFFICE_PATH for a local Windows run if needed. No live Kobo upload, production-data validation, Railway deployment or real LibreOffice conversion was performed here. The PDF guide was generated and visually inspected separately.

@@ -45,7 +45,7 @@ hl = writer['_layout_rows'](horeca, {'report_type':'HORECA'})
 assert hl['movement_header'] == writer['_find_movement_header_row'](horeca)
 
 keys = ['cb_lite_ncp','wurkz_ncp','dazz_ncp','exprez_can_330_ncp','ize_cola_500_ncp']
-labels = ['CB LITE NCP','WURKZ NCP','DAZZ NCP','EXPREZ Can 330ml NCP','IZE COLA 500ml NCP']
+labels = ['CB LITE NCP','WURKZ NCP','DAZZ NCP','EXPREZ Can 500ml NCP','IZE COLA 500ml NCP']
 payload = {f'product_check_by_type/fresh_{key}_group/fresh_volume_{key}': i+2 for i,key in enumerate(keys)}
 payload.update({f'product_check_by_type/fresh_{key}_group/fresh_status_{key}': 'sale' for key in keys})
 payload.update({'fresh_status_cb_lite_ord':'sale','fresh_movement_score_cb_lite_ord':8,

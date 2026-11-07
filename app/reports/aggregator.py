@@ -17,10 +17,10 @@ from app.db.database import SessionLocal
 
 OWN_PRODUCTS = [
     "CB LITE ORD",
-    "CBC 4.4 NCP",
-    "CB Original NCP",
+    "CBC 4.4 ORD",
+    "CB Original ORD",
     "CB LITE NCP",
-    "CB BLACK NCP",
+    "CB BLACK ORD",
     "CAMBODIA COLA",
     "WURKZ ORD",
     "WURKZ NCP",
@@ -33,8 +33,8 @@ OWN_PRODUCTS = [
     "IZE COLA 500ml ORD",
     "IZE COLA 500ml NCP",
     "EXPREZ Melon ORD",
-    "EXPREZ Can 330ml ORD",
-    "EXPREZ Can 330ml NCP",
+    "EXPREZ Can 500ml ORD",
+    "EXPREZ Can 500ml NCP",
     "Wurkz Ice ORD",
     "CAMBODIA Sport 500mL ORD",
     "CAMBODIA WATER 500mL",
@@ -46,14 +46,9 @@ COMPETITOR_PRODUCTS = [
     "HANUMAN LITE ORD",
     "Greet LITE ORD",
     "Krud LITE ORD",
-    "CB Original NCP",
-    "GB Original NCP",
-    "Krud NCP",
-    "GB SNOW NCP",
-    "Hanuman LITE NCP",
-    "Krud LITE NCP",
-    "Greet LITE NCP",
-    "Hanuman Black NCP",
+    "CB Original ORD",
+    "GB Original ORD",
+    "Hanuman Black ORD",
     "Coca Cola 330ml",
     "Boostrong ORD",
     "Krud ED ORD",
@@ -70,7 +65,8 @@ COMPETITOR_PRODUCTS = [
     "V Cola 350ml",
     "Coca 1.5L",
     "Big Cola 3L",
-    "EXPREZ Can 330ml ORD",
+    "Coca 650ml",
+    "EXPREZ Can 500ml ORD",
     "Sting Can 330ml",
     "Idol Can 330ml ORD",
     "Pocari Sweat",
@@ -110,9 +106,8 @@ OFFTAKE_COMPARE_GROUPS = [
     ["CBL Pint", "CB SUPEEME Pint", "Tiger Crystal Pint", "HANUMAN LITE Pint", "Vathanac LITE Pint"],
     ["CB Black Pint", "ABC Pint", "HANUMAN Black Pint", "Dragon Pint"],
     ["CB LITE ORD", "GB SNOW ORD", "HANUMAN LITE ORD", "Greet LITE ORD", "Krud LITE ORD"],
-    ["CBC 4.4 NCP", "CB Original NCP", "GB Original NCP", "Krud NCP"],
-    ["CB LITE NCP", "GB SNOW NCP", "Hanuman LITE NCP", "Krud LITE NCP", "Greet LITE NCP"],
-    ["CB BLACK NCP", "Hanuman Black NCP"],
+    ["CBC 4.4 ORD", "CB Original ORD", "GB Original ORD"],
+    ["CB BLACK ORD", "Hanuman Black ORD"],
     ["CAMBODIA COLA", "Coca Cola 330ml"],
     ["WURKZ ORD", "Boostrong ORD", "Krud ED ORD"],
     ["Wurkz Ice ORD", "Champion ORD", "King Kong Ice ORD", "Krud Ice ORD"],
@@ -121,7 +116,8 @@ OFFTAKE_COMPARE_GROUPS = [
     ["DAZZ Zero Sugar ORD", "BACCHUSE Sugar Free"],
     ["IZE PET 300ml Flavour", "POP Z Flavour", "V Cola 350ml"],
     ["IZE COLA PET 1.5L All SKUs", "Coca 1.5L", "Big Cola 3L"],
-    ["EXPREZ Melon ORD", "EXPREZ Can 330ml ORD", "Sting Can 330ml", "Idol Can 330ml ORD"],
+    ["IZE COLA 500ml ORD", "Coca 650ml"],
+    ["EXPREZ Melon ORD", "EXPREZ Can 500ml ORD", "Sting Can 330ml", "Idol Can 330ml ORD"],
     ["CAMBODIA Sport 500mL ORD", "Pocari Sweat", "V-Active Sport"],
     ["CAMBODIA WATER 500mL", "Vital 500mL", "Provida 500mL", "Ganzberg 500ml", "Hitech 500mL"],
     ["CAMBODIA WATER 1500mL", "Vital 1500mL", "Provida 1500mL", "Ganzberg 1500ml", "Hitech 1500mL"],
@@ -133,10 +129,10 @@ PRODUCT_CODES = {
     "CB SUPEEME Pint": ["cb_supeeme_pint", "cb_supreme_pint"],
     "CB Black Pint": ["cb_black_pint"],
     "CB LITE ORD": ["cb_lite_ord", "cbc_lite_ord"],
-    "CBC 4.4 NCP": ["cbc44_ncp", "cbc_4_4_ncp", "cbc44", "cbc_4_4"],
-    "CB Original NCP": ["cb_original_ncp", "cb_original", "cb_original_beer", "cb_original_can", "cb_ori"],
+    "CBC 4.4 ORD": ["cbc44_ncp", "cbc_4_4_ncp", "cbc44", "cbc_4_4"],
+    "CB Original ORD": ["cb_original_ncp", "cb_original", "cb_original_beer", "cb_original_can", "cb_ori"],
     "CB LITE NCP": ["cb_lite_ncp", "cbc_lite_ncp", "cb_lite", "cbc_lite"],
-    "CB BLACK NCP": ["cb_black_ncp", "cb_black"],
+    "CB BLACK ORD": ["cb_black_ncp", "cb_black"],
     "CAMBODIA COLA": ["cambodia_cola_330", "cambodia_cola", "cambodia_cola_330ml"],
     "WURKZ ORD": ["wurkz"],
     "WURKZ NCP": ["wurkz_ncp"],
@@ -149,8 +145,8 @@ PRODUCT_CODES = {
     "IZE COLA 500ml ORD": ["ize_cola_500_ord", "ize_cola_500"],
     "IZE COLA 500ml NCP": ["ize_cola_500_ncp", "ize_500_ncp"],
     "EXPREZ Melon ORD": ["exprez_melon", "exprez_cucumber", "exprez"],
-    "EXPREZ Can 330ml ORD": ["exprez_can_330"],
-    "EXPREZ Can 330ml NCP": ["exprez_can_330_ncp"],
+    "EXPREZ Can 500ml ORD": ["exprez_can_330", "exprez_can_500"],
+    "EXPREZ Can 500ml NCP": ["exprez_can_330_ncp", "exprez_can_500_ncp"],
     "Wurkz Ice ORD": ["wurkz_ice"],
     "CAMBODIA Sport 500mL ORD": ["cambodia_sport_500"],
     "CAMBODIA WATER 500mL": ["cambodia_water_500"],
@@ -158,6 +154,7 @@ PRODUCT_CODES = {
 }
 
 COMPETITOR_CODES = {
+    "Coca 650ml": ["coca_650", "coca_650ml", "coca_cola_650"],
     "Angkor Pint": ["angkor"],
     "Tiger Pint": ["tiger"],
     "Tiger Crystal Pint": ["tiger_crystal_pint"],
@@ -170,14 +167,14 @@ COMPETITOR_CODES = {
     "HANUMAN LITE ORD": ["hanuman_lite_ord"],
     "Greet LITE ORD": ["greet_lite_ord", "great_lite_ord"],
     "Krud LITE ORD": ["krud_lite_ord"],
-    "CB Original NCP": ["cb_original_ncp", "cb_original"],
-    "GB Original NCP": ["gb_original_ncp", "gb_original"],
+    "CB Original ORD": ["cb_original_ncp", "cb_original"],
+    "GB Original ORD": ["gb_original_ncp", "gb_original"],
     "Krud NCP": ["krud_ncp", "krud"],
     "GB SNOW NCP": ["gb_snow_ncp", "gb_snow"],
     "Hanuman LITE NCP": ["hanuman_lite_ncp", "hanuman_lite"],
     "Krud LITE NCP": ["krud_lite_ncp", "krud_lite"],
     "Greet LITE NCP": ["greet_lite_ncp", "greet_lite", "great_lite"],
-    "Hanuman Black NCP": ["hanuman_black_ncp", "hanuman_black"],
+    "Hanuman Black ORD": ["hanuman_black_ncp", "hanuman_black"],
     "Coca Cola 330ml": ["coca_cola_330"],
     "Boostrong ORD": ["boostrong"],
     "Krud ED ORD": ["krud_ed"],
@@ -194,7 +191,7 @@ COMPETITOR_CODES = {
     "V Cola 350ml": ["v_cola_350"],
     "Coca 1.5L": ["coca_1500", "coca_15l", "coca_1_5l"],
     "Big Cola 3L": ["big_cola_3l"],
-    "EXPREZ Can 330ml ORD": ["exprez_can_330"],
+    "EXPREZ Can 500ml ORD": ["exprez_can_330", "exprez_can_500"],
     "Sting Can 330ml": ["sting_can_330"],
     "Idol Can 330ml ORD": ["idol_can_330"],
     "Pocari Sweat": ["pocari_sweat"],
@@ -214,26 +211,26 @@ PRODUCT_LABEL_ALIASES = {
     "WURKZ NCP": ["WURKZ NCP"],
     "Dragon ORD": ["Dragon ORD", "Dragon"],
     "CB LITE ORD": ["CB LITE ORD", "CBC LITE ORD"],
-    "CBC 4.4 NCP": ["CBC 4.4 NCP", "CBC 4.4"],
-    "CB Original NCP": ["CB Original NCP", "CB Original"],
+    "CBC 4.4 ORD": ["CBC 4.4 ORD", "CBC 4.4"],
+    "CB Original ORD": ["CB Original ORD", "CB Original"],
     "CB LITE NCP": ["CB LITE NCP", "CB LITE", "CBC LITE"],
     "DAZZ NCP": ["DAZZ NCP"],
-    "CB BLACK NCP": ["CB BLACK NCP", "CB BLACK"],
+    "CB BLACK ORD": ["CB BLACK ORD", "CB BLACK"],
     "CAMBODIA COLA": ["CAMBODIA COLA", "CAMBODIA COLA 330ml"],
     "CAMBODIA ED ORD": ["CAMBODIA ED ORD", "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា"],
     "IZE PET 300ml Flavour": ["IZE PET 300ml Flavour", "IZE PET 300ml All SKUs"],
     "IZE COLA 500ml ORD": ["IZE COLA 500ml ORD", "IZE COLA 500ml"],
     "IZE COLA 500ml NCP": ["IZE COLA 500ml NCP", "IZE 500ml NCP"],
     "EXPREZ Melon ORD": ["EXPREZ Melon ORD", "EXPREZ ត្រសក់ផ្អែម"],
-    "EXPREZ Can 330ml NCP": ["EXPREZ Can 330ml NCP"],
+    "EXPREZ Can 500ml NCP": ["EXPREZ Can 500ml NCP"],
     "CAMBODIA Sport 500mL ORD": ["CAMBODIA Sport 500mL ORD", "CAMBODIA Sport 500ml"],
-    "GB Original NCP": ["GB Original NCP", "GB Original", "GB  Original"],
+    "GB Original ORD": ["GB Original ORD", "GB Original", "GB  Original"],
     "GB SNOW NCP": ["GB SNOW NCP", "GB SNOW"],
     "Hanuman LITE NCP": ["Hanuman LITE NCP", "Hanuman Lite"],
     "Krud NCP": ["Krud NCP", "Krud"],
     "Krud LITE NCP": ["Krud LITE NCP", "Krud Lite"],
     "Greet LITE NCP": ["Greet LITE NCP", "Greet Lite", "Great Lite"],
-    "Hanuman Black NCP": ["Hanuman Black NCP", "Hanuman Black"],
+    "Hanuman Black ORD": ["Hanuman Black ORD", "Hanuman Black"],
     "Ganzberg 500ml": ["Ganzberg 500ml", "Ganzberg  500ml"],
 }
 
@@ -469,8 +466,8 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     # columns in the movement table, so comparison promotion must update the
     # competitor bucket that Excel actually reads.
     if product in {
-        "CB Original NCP",
-        "EXPREZ Can 330ml ORD",
+        "CB Original ORD",
+        "EXPREZ Can 500ml ORD",
     } and product in competitors:
         return "competitors", competitors[product]
     if product in products:
@@ -763,6 +760,17 @@ def stock_summary(values: list[Any]) -> str | None:
 
 
 
+# Compatibility: corrected display names retain historic Kobo machine IDs.
+PRODUCT_LABEL_ALIASES["Coca 650ml"] = ["Coca 650ml", "Coca Cola 650ml"]
+PRODUCT_LABEL_ALIASES["EXPREZ Can 500ml ORD"] = ["EXPREZ Can 500ml ORD", "EXPREZ Can 330ml ORD", "EXPREZ Can 330ml"]
+PRODUCT_LABEL_ALIASES["EXPREZ Can 500ml NCP"] = ["EXPREZ Can 500ml NCP", "EXPREZ Can 330ml NCP"]
+PRODUCT_LABEL_ALIASES['CBC 4.4 ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('CBC 4.4 ORD', ['CBC 4.4 ORD']), 'CBC 4.4 NCP']))
+PRODUCT_LABEL_ALIASES['CB Original ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('CB Original ORD', ['CB Original ORD']), 'CB Original NCP']))
+PRODUCT_LABEL_ALIASES['GB Original ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('GB Original ORD', ['GB Original ORD']), 'GB Original NCP']))
+PRODUCT_LABEL_ALIASES['CB BLACK ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('CB BLACK ORD', ['CB BLACK ORD']), 'CB BLACK NCP']))
+PRODUCT_LABEL_ALIASES['Hanuman Black ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('Hanuman Black ORD', ['Hanuman Black ORD']), 'Hanuman Black NCP']))
+
+
 @lru_cache(maxsize=None)
 def _field_label_aliases(product: str, field: str) -> list[str]:
     """Return label aliases for current and legacy Kobo product names."""
@@ -993,6 +1001,10 @@ def _product_lookup_key(name: Any) -> str:
 def _canonical_product_name(name: Any) -> str:
     """Canonical product name used for current template and legacy DB rows."""
     value = " ".join(str(name or "").replace("\u200b", "").split()).strip()
+    # Translate historical metric labels to the corrected active product names.
+    legacy_names = {'CBC 4.4 NCP': 'CBC 4.4 ORD', 'CB Original NCP': 'CB Original ORD', 'GB Original NCP': 'GB Original ORD', 'CB BLACK NCP': 'CB BLACK ORD', 'Hanuman Black NCP': 'Hanuman Black ORD'}
+    value = next((v for k,v in legacy_names.items() if k.casefold() == value.casefold()), value)
+    value = re.sub(r"(?i)EXPREZ\s+Can\s+330ml", "EXPREZ Can 500ml", value)
     bacchuse_aliases = {
         "bacchuse ord": "BACCHUSE",
         "bacchuse sugar free ord": "BACCHUSE Sugar Free",
@@ -1005,25 +1017,25 @@ def _canonical_product_name(name: Any) -> str:
         "Dragon": "Dragon ORD",
         "CBC LITE ORD": "CB LITE ORD",
         "CB LITE ORD": "CB LITE ORD",
-        "CBC 4.4": "CBC 4.4 NCP",
-        "CB Original": "CB Original NCP",
+        "CBC 4.4": "CBC 4.4 ORD",
+        "CB Original": "CB Original ORD",
         "CB LITE": "CB LITE NCP",
         "CBC LITE": "CB LITE NCP",
-        "CB BLACK": "CB BLACK NCP",
+        "CB BLACK": "CB BLACK ORD",
         "CAMBODIA COLA 330ml": "CAMBODIA COLA",
         "ភេសជ្ជៈប៉ូវកម្លាំង_កម្ពុជា": "CAMBODIA ED ORD",
         "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED ORD",
         "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
         "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
-        "GB Original": "GB Original NCP",
-        "GB  Original": "GB Original NCP",
+        "GB Original": "GB Original ORD",
+        "GB  Original": "GB Original ORD",
         "GB SNOW": "GB SNOW NCP",
         "Hanuman Lite": "Hanuman LITE NCP",
         "Krud": "Krud NCP",
         "Krud Lite": "Krud LITE NCP",
         "Great Lite": "Greet LITE NCP",
         "Greet Lite": "Greet LITE NCP",
-        "Hanuman Black": "Hanuman Black NCP",
+        "Hanuman Black": "Hanuman Black ORD",
         "Ganzberg  500ml": "Ganzberg 500ml",
     }
     for current in ALL_OWN_PRODUCTS + ALL_COMPETITOR_PRODUCTS:
@@ -1536,17 +1548,17 @@ def aggregate_submissions(
         # labels such as "GB  Original" while the data key is "GB Original".
         result["competitors"][_product_lookup_key(product)] = cdata
         result["competitors"][_canonical_product_name(product)] = cdata
-        if product == "GB Original NCP":
+        if product == "GB Original ORD":
             result["competitors"]["GB  Original"] = cdata
             result["competitors"]["GB Original"] = cdata
-            result["competitors"]["GB Original NCP"] = cdata
+            result["competitors"]["GB Original ORD"] = cdata
             result["competitors"]["gboriginal"] = cdata
             result["competitors"]["gboriginalncp"] = cdata
 
     # Final hard-normalize GB Original after all competitor aliases are created.
     # This prevents any stale alias/metric row from making the Excel report show
     # the single raw value 2 when the actual submitted values are [7,2,10,10,10,10].
-    gb = result.get("competitors", {}).get("GB Original NCP") or result.get("competitors", {}).get("GB Original") or result.get("competitors", {}).get("gboriginalncp")
+    gb = result.get("competitors", {}).get("GB Original ORD") or result.get("competitors", {}).get("GB Original") or result.get("competitors", {}).get("gboriginalncp")
     if isinstance(gb, dict):
         gb_values = [
             v for v in list(gb.get("_movement_values") or [])
@@ -1556,12 +1568,12 @@ def aggregate_submissions(
         # If alias data somehow lost the values, recompute directly from every
         # submission/wide payload one more time.
         if not gb_values:
-            gb_metrics = [cm.get("GB Original NCP") or cm.get("GB Original") or cm.get("gboriginalncp") or cm.get("gboriginal") or cm.get("GB  Original") for cm in competitor_maps]
+            gb_metrics = [cm.get("GB Original ORD") or cm.get("GB Original") or cm.get("gboriginalncp") or cm.get("gboriginal") or cm.get("GB  Original") for cm in competitor_maps]
             gb_values = [
                 v
                 for s, m in zip(submissions, gb_metrics)
                 if _include_movement_value(
-                    (v := _movement_from_wide_or_metric(s, m, "GB Original NCP", is_competitor=True, wide_map=wide_map)),
+                    (v := _movement_from_wide_or_metric(s, m, "GB Original ORD", is_competitor=True, wide_map=wide_map)),
                     is_competitor=True,
                 )
             ]
@@ -1569,7 +1581,7 @@ def aggregate_submissions(
         gb.update(coverage_movement_stats(gb_values, total_outlets))
 
         # Re-point every known GB Original alias to the exact same final dict.
-        for alias in ("GB Original NCP", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original NCP")):
+        for alias in ("GB Original ORD", "GB Original", "GB  Original", "GBOriginal", "gb_original", "gboriginal", "gboriginalncp", _product_lookup_key("GB Original ORD")):
             result["competitors"][alias] = gb
 
     # Apply the comparison-row normalization after every raw average and

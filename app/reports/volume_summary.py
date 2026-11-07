@@ -18,7 +18,7 @@ from app.reports.aggregator import (
 from app.reports.branding import add_summary_logo
 
 VOLUME_PRODUCTS = ('CB LITE NCP', 'WURKZ NCP', 'DAZZ NCP',
-                   'EXPREZ Can 330ml NCP', 'IZE COLA 500ml NCP')
+                   'EXPREZ Can 500ml NCP', 'IZE COLA 500ml NCP')
 NOT_SOLD = {'no_sale', 'not_sale', 'not_sold', 'none', 'អត់មានលក់'}
 BLUE, PALE, GREEN = '1F4E78', 'D9EAF7', 'E2F0D9'
 

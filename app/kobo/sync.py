@@ -305,7 +305,7 @@ def _save_sync_batch(db, items, wide_mapping):
             db.execute(insert(model), payloads)
 
 
-NORMALIZED_PRODUCT_MAPPING_VERSION = "gt-ncp-volume-ize500-v2"
+NORMALIZED_PRODUCT_MAPPING_VERSION = "gt-ncp-volume-ize500-v2-ord-coca650-v164"
 
 
 def _source_hash(raw: dict) -> str:
@@ -427,7 +427,7 @@ def _build_report_submissions(
             # CB LITE NCP is also present in the HORECA form. Keep all five
             # volume products in the shared fast cache for volume exports.
             ncp_volume = ["CB LITE NCP", "WURKZ NCP", "DAZZ NCP",
-                          "EXPREZ Can 330ml NCP", "IZE COLA 500ml NCP"]
+                          "EXPREZ Can 500ml NCP", "IZE COLA 500ml NCP"]
             own_products = list(dict.fromkeys([*HORECA_OWN_PRODUCTS, *ncp_volume]))
             competitor_products = HORECA_COMPETITOR_PRODUCTS
         else:

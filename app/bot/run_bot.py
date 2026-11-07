@@ -18,6 +18,7 @@ from app.bot.handlers import (
     export_detail_cmd,
     map_cmd,
     report_cmd,
+    report_pdf_cmd,
     report_multi_cmd,
     report_today_cmd,
     raw_movement_cmd,
@@ -155,6 +156,7 @@ def _build_application() -> Application:
     app.add_handler(CommandHandler("sync_kobo", sync_kobo_cmd))
     app.add_handler(CommandHandler("debug_kobo", debug_kobo_cmd))
     app.add_handler(CommandHandler("report", report_cmd))
+    app.add_handler(CommandHandler("report_pdf", report_pdf_cmd))
     app.add_handler(CommandHandler("report_multi", report_multi_cmd))
     app.add_handler(CommandHandler("report5", report_multi_cmd))
     app.add_handler(CommandHandler("report_today", report_today_cmd))

@@ -87,8 +87,8 @@ PRODUCT_LOOKUP_ALIASES = {
         "CAMBODIA Sport 300mL",
         "CAMBODIA Sport 300ml",
     ),
-    "EXPREZ Can 330ml": (
-        "EXPREZ Can 330ml",
+    "EXPREZ Can 500ml": (
+        "EXPREZ Can 500ml",
     ),
 }
 
@@ -228,7 +228,7 @@ def _product_metric(aggregate: dict[str, Any], product: str) -> dict[str, Any] |
     candidates.extend(PRODUCT_LOOKUP_ALIASES.get(product, ()))
 
     # Own-product values take priority for cross-over products such as
-    # CB Original NCP, CAMBODIA Sport 300mL and EXPREZ Can 330ml.
+    # CB Original ORD, CAMBODIA Sport 300mL and EXPREZ Can 500ml.
     for bucket_name in ("products", "competitors"):
         bucket = aggregate.get(bucket_name) or {}
         for candidate in dict.fromkeys(candidates):

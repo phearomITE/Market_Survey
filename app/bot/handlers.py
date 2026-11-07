@@ -25,7 +25,7 @@ from app.services.report_service import (
     parse_multi_report_command_args,
     parse_report_command_args,
 )
-from app.services.render_service import excel_to_png
+from app.services.render_service import excel_to_png, excel_to_pdf
 from app.services.export_status_service import format_export_status
 from app.services.submission_alert_service import format_submission_alert, local_today
 
@@ -38,6 +38,7 @@ Commands:
 /debug_kobo
 /status
 /report CA3 GT 2026-07-18
+/report_pdf KRG7 GT 2026-11-07
 /report CA3 HORECA 2026-07-18
 /report_multi CPH2 CA2 KDL1 CA1 CA7 2026-07-14
 /report_today
@@ -589,3 +590,27 @@ async def summary_volume_date_cmd(update: Update, context: ContextTypes.DEFAULT_
         await wait.edit_text(f"✅ {text}")
     except Exception as exc:
         await wait.edit_text(f"❌ Volume summary failed: {exc}")
+
+
+async def report_pdf_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        dealer, day, report_type = parse_report_command_args(context.args)
+    except ValueError as exc:
+        await update.effective_message.reply_text(f"❌ {exc}")
+        return
+    wait = await update.effective_message.reply_text(
+        f"📄 Generating CMFB {dealer} {report_type} PDF for {day}...")
+    try:
+        path, text = await _run_fast(generate_dealer_report, dealer, day, report_type, timeout_seconds=42)
+        if not path:
+            await wait.edit_text(f"⚠️ {text}")
+            return
+        pdf = await _run_fast(excel_to_pdf, path, timeout_seconds=30)
+        if not pdf:
+            await wait.edit_text("❌ PDF conversion unavailable. Check LibreOffice in the deployed service. The Excel /report command is still available.")
+            return
+        with pdf.open("rb") as handle:
+            await update.effective_message.reply_document(document=InputFile(handle, filename=pdf.name))
+        await wait.edit_text(f"✅ {text} | PDF uploaded.")
+    except Exception as exc:
+        await wait.edit_text(f"❌ PDF report failed: {exc}")

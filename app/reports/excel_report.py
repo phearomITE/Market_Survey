@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 import unicodedata
 from copy import copy
@@ -65,6 +65,14 @@ SUMMARY_FONT_SIZE = 17
 
 # Template label differences -> aggregation product names.
 PRODUCT_NAME_MAP = {
+    'CBC 4.4 NCP': 'CBC 4.4 ORD',
+    'CB Original NCP': 'CB Original ORD',
+    'GB Original NCP': 'GB Original ORD',
+    'CB BLACK NCP': 'CB BLACK ORD',
+    'Hanuman Black NCP': 'Hanuman Black ORD',
+    'EXPREZ Can 330ml ORD': 'EXPREZ Can 500ml ORD',
+    'EXPREZ Can 330ml NCP': 'EXPREZ Can 500ml NCP',
+
     "BACCHUSE ORD": "BACCHUSE",
     "BACCHUSE SUGAR FREE ORD": "BACCHUSE Sugar Free",
     "BACCHUSE ORD SUGAR FREE": "BACCHUSE Sugar Free",
@@ -72,17 +80,17 @@ PRODUCT_NAME_MAP = {
     "Dragon": "Dragon ORD",
     "CBC LITE ORD": "CB LITE ORD",
     "CB LITE ORD": "CB LITE ORD",
-    "CBC 4.4": "CBC 4.4 NCP",
-    "CBC 4.4 ORD": "CBC 4.4 NCP",
-    "CBC 4.4 NCP": "CBC 4.4 NCP",
-    "CB Original": "CB Original NCP",
-    "CB Original ORD": "CB Original NCP",
-    "CB Original NCP": "CB Original NCP",
+    "CBC 4.4": "CBC 4.4 ORD",
+    "CBC 4.4 ORD": "CBC 4.4 ORD",
+    "CBC 4.4 ORD": "CBC 4.4 ORD",
+    "CB Original": "CB Original ORD",
+    "CB Original ORD": "CB Original ORD",
+    "CB Original ORD": "CB Original ORD",
     "CB LITE": "CB LITE NCP",
     "CB LITE NCP": "CB LITE NCP",
-    "CB BLACK": "CB BLACK NCP",
-    "CB BLACK ORD": "CB BLACK NCP",
-    "CB BLACK NCP": "CB BLACK NCP",
+    "CB BLACK": "CB BLACK ORD",
+    "CB BLACK ORD": "CB BLACK ORD",
+    "CB BLACK ORD": "CB BLACK ORD",
     "CAMBODIA COLA 330ml": "CAMBODIA COLA",
     "CAMBODIA COLA 330ML": "CAMBODIA COLA",
     "CAMBODIA ED": "CAMBODIA ED ORD",
@@ -91,8 +99,8 @@ PRODUCT_NAME_MAP = {
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
     "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
-    "EXPREZ Can 330ml ORD": "EXPREZ Can 330ml ORD",
-    "EXPREZ Can 330ml NCP": "EXPREZ Can 330ml NCP",
+    "EXPREZ Can 500ml ORD": "EXPREZ Can 500ml ORD",
+    "EXPREZ Can 500ml NCP": "EXPREZ Can 500ml NCP",
     "WURKZ NCP": "WURKZ NCP",
     "DAZZ NCP": "DAZZ NCP",
     "IZE COLA 500ml": "IZE COLA 500ml ORD",
@@ -102,16 +110,16 @@ PRODUCT_NAME_MAP = {
     "CAMBODIA Sport 500ML": "CAMBODIA Sport 500mL ORD",
     "CAMBODIA SPORT 500ML ORD": "CAMBODIA Sport 500mL ORD",
     "CAMBODIA SPORT 500ML": "CAMBODIA Sport 500mL ORD",
-    "GB Original": "GB Original NCP",
-    "GB  Original": "GB Original NCP",
-    "GB Original NCP": "GB Original NCP",
+    "GB Original": "GB Original ORD",
+    "GB  Original": "GB Original ORD",
+    "GB Original ORD": "GB Original ORD",
     "GB SNOW": "GB SNOW NCP",
     "Hanuman Lite": "Hanuman LITE NCP",
     "Krud": "Krud NCP",
     "Krud Lite": "Krud LITE NCP",
     "Greet Lite": "Greet LITE NCP",
     "Great Lite": "Greet LITE NCP",
-    "Hanuman Black": "Hanuman Black NCP",
+    "Hanuman Black": "Hanuman Black ORD",
     "Ganzberg  500ml": "Ganzberg 500ml",
     "CBC, CBL Can and CBB Can": "CBL NCP 6 Can",
     "Wurkz NCP 5 USD": "CBL NCP 5 USD",
@@ -421,7 +429,7 @@ def _lookup_competitor_metrics(agg: dict, template_name: str) -> dict | None:
             candidates.append(val)
 
     # 3) Fuzzy contains match for renamed/legacy GB Original keys.
-    if target in {"gboriginal", "gboriginalncp"}:
+    if target in {"gboriginal", "gboriginalord"}:
         for key, val in competitors.items():
             if not isinstance(val, dict):
                 continue
@@ -624,7 +632,7 @@ def _normalize_exprez_freshness_rows(ws: Worksheet, agg: dict) -> None:
     if _is_channel_specialist_report(agg):
         return
 
-    expected = {19: "EXPREZ Melon ORD", 20: "EXPREZ Can 330ml ORD"}
+    expected = {19: "EXPREZ Melon ORD", 20: "EXPREZ Can 500ml ORD"}
     merge_columns = ((3, 7), (8, 11), (12, 15), (16, 19), (20, 22), (23, 25), (26, 27))
     source_row = 18
 
@@ -905,7 +913,7 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
     # Example: "Dealer : CA1                              Report Date: 02/07/2026 14:55:10"
     ws["A1"] = ""
     ws["B1"] = ""
-    report_date_time = f"{rdate_txt} {datetime.now().strftime('%H:%M:%S')}"
+    report_date_time = f"{rdate_txt} {datetime.now(timezone(timedelta(hours=7))).strftime('%H:%M:%S')}"
     if _is_channel_specialist_report(agg):
         ws["A3"] = f"Dealer : {dealer}    HORECA                         Report Date: {report_date_time}"
     else:
@@ -980,17 +988,17 @@ def fill_template_sheet(ws: Worksheet, agg: dict) -> None:
 
     # Final safety pass: remove stale values from competitor blocks.
     _force_rewrite_competitor_blocks(ws, agg)
-    _force_specific_competitor_value(ws, agg, "GB Original NCP")
+    _force_specific_competitor_value(ws, agg, "GB Original ORD")
 
     # Hard production guard for GB Original. If aggregator contains any GB Original
     # alias with final movement 10, force the Excel movement cell to that value.
     # This prevents copied template cells from keeping a stale value like 2.
-    gb_metrics = _lookup_competitor_metrics(agg, "GB Original NCP")
+    gb_metrics = _lookup_competitor_metrics(agg, "GB Original ORD")
     if gb_metrics:
         gb_mov = _final_movement_from_metrics(gb_metrics)
         for rr in range(layout["movement_start"], movement_end + 1):
             for cc in [8, 13, 18, 23]:
-                if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalncp"}:
+                if _norm_lookup_key(ws.cell(rr, cc).value) in {"gboriginal", "gboriginalord"}:
                     ws.cell(rr, cc + 1).value = _blank_if_none(gb_mov)
 
     # Bottom summary text. The old fixed Ring Pull block was removed and is

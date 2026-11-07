@@ -22,7 +22,7 @@ for product in [
     'CB LITE NCP',
     'WURKZ NCP',
     'DAZZ NCP',
-    'EXPREZ Can 330ml NCP',
+    'EXPREZ Can 500ml NCP',
     'IZE COLA 500ml NCP',
     'IZE COLA 500ml ORD',
 ]:
@@ -30,9 +30,9 @@ for product in [
 
 excel = (ROOT / 'app/reports/excel_report.py').read_text(encoding='utf-8')
 for mapping in [
-    '"CBC 4.4 ORD": "CBC 4.4 NCP"',
-    '"CB Original ORD": "CB Original NCP"',
-    '"CB BLACK ORD": "CB BLACK NCP"',
+    '"CBC 4.4 ORD": "CBC 4.4 ORD"',
+    '"CB Original ORD": "CB Original ORD"',
+    '"CB BLACK ORD": "CB BLACK ORD"',
     '"IZE COLA 500ml": "IZE COLA 500ml ORD"',
 ]:
     assert mapping in excel, f'Missing report template alias: {mapping}'
@@ -75,7 +75,7 @@ for forbidden in [
 report = xlsx_text(ROOT / 'templates/template_general.xlsx')
 for label in [
     'CB LITE NCP', 'WURKZ NCP', 'DAZZ NCP',
-    'EXPREZ Can 330ml NCP', 'IZE COLA 500ml NCP', 'IZE COLA 500ml ORD',
+    'EXPREZ Can 500ml NCP', 'IZE COLA 500ml NCP', 'IZE COLA 500ml ORD',
 ]:
     assert label in report, f'Missing report-template product: {label}'
 
