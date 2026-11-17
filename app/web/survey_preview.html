@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CMFB Survey Pro - Interactive Preview</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(150, 150, 150, 0.3); border-radius: 4px; }
+    .tma-shadow { box-shadow: 0 10px 30px -5px rgba(0,0,0,0.25); }
+    .badge-press:active { transform: scale(0.96); }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased min-h-screen p-2 sm:p-4 md:p-6 flex flex-col items-center">
+
+  <!-- Top Bar Controls (Preview Switcher) -->
+  <header class="w-full max-w-5xl mb-4 flex flex-wrap items-center justify-between gap-3 bg-slate-800/80 backdrop-blur border border-slate-700/60 rounded-xl px-4 py-2.5 shadow-sm text-xs">
+    <div class="flex items-center gap-2">
+      <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+      <span class="font-bold tracking-wide uppercase text-slate-200">CMFB Survey Pro</span>
+      <span class="bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded font-mono text-[11px]">Preview Build</span>
+    </div>
+
+    <!-- Mode & Device Switcher -->
+    <div class="flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-lg border border-slate-700/70">
+      <button onclick="setDeviceView('mobile')" id="btn-device-mobile" class="px-2.5 py-1 rounded-md text-xs font-medium transition-all bg-indigo-600 text-white shadow-sm flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" stroke-width="2"/><path d="M12 18h.01" stroke-width="2"/></svg>
+        <span>Telegram Mini App</span>
+      </button>
+      <button onclick="setDeviceView('desktop')" id="btn-device-desktop" class="px-2.5 py-1 rounded-md text-xs font-medium transition-all text-slate-400 hover:text-slate-200 flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2" stroke-width="2"/><line x1="8" x2="16" y1="21" y2="21" stroke-width="2"/><line x1="12" x2="12" y1="17" y2="21" stroke-width="2"/></svg>
+        <span>Web / Tablet</span>
+      </button>
+      <button onclick="toggleTab('builder')" id="btn-mode-builder" class="px-2.5 py-1 rounded-md text-xs font-medium transition-all text-amber-400 hover:text-amber-300 flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke-width="2"/></svg>
+        <span>Form Builder</span>
+      </button>
+      <button onclick="toggleTab('queue')" id="btn-mode-queue" class="px-2.5 py-1 rounded-md text-xs font-medium transition-all text-slate-400 hover:text-slate-200 flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4" stroke-width="2"/><path d="M14 2v4a2 2 0 0 0 2 2h4" stroke-width="2"/><path d="m3 15 2 2 4-4" stroke-width="2"/></svg>
+        <span>Offline Queue (<span id="queue-count">0</span>)</span>
+      </button>
+    </div>
+
+    <!-- Online / Offline Toggle Simulation -->
+    <div class="flex items-center gap-2">
+      <button onclick="toggleNetwork()" id="network-toggle-btn" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all hover:bg-emerald-500/30">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="network-status-text">Online Mode</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed top-5 right-5 z-50 bg-slate-800 text-white border border-slate-700 px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transform translate-y-[-120%] opacity-0 transition-all duration-300">
+    <span id="toast-icon" class="text-emerald-400 text-lg">✓</span>
+    <span id="toast-msg" class="text-sm font-medium">Notification</span>
+  </div>
+
+  <!-- MAIN CONTAINER (Simulates Mobile / TMA or Desktop) -->
+  <main id="app-viewport" class="w-full max-w-md transition-all duration-300">
+
+    <!-- ==================== VIEW 1: SURVEY FORM ==================== -->
+    <div id="view-survey" class="bg-slate-900 border border-slate-800 rounded-3xl tma-shadow overflow-hidden flex flex-col">
+
+      <!-- Telegram Mini App Header Bar -->
+      <div class="bg-slate-800/90 border-b border-slate-700/60 px-4 py-3 flex items-center justify-between text-xs text-slate-300">
+        <div class="flex items-center gap-2">
+          <span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">✈</span>
+          <div>
+            <div class="font-semibold text-white">CMFB Market Survey</div>
+            <div class="text-[10px] text-slate-400 flex items-center gap-1">
+              <span id="conn-indicator" class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span id="conn-label">Synchronized</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="autoFillSyntheticData()" title="Quick fill synthetic test data" class="px-2 py-1 bg-slate-700/70 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-medium border border-slate-600">
+            ⚡ Autofill
+          </button>
+        </div>
+      </div>
+
+      <!-- Stepper Progress Header -->
+      <div class="bg-slate-850 px-4 py-2 border-b border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold" id="step-number">1</span>
+          <span class="font-medium text-slate-200" id="step-title">Outlet Information</span>
+        </div>
+        <div class="flex items-center gap-1" id="step-dots">
+          <div class="w-5 h-1.5 rounded-full bg-indigo-500"></div>
+          <div class="w-1.5 h-1.5 rounded-full bg-slate-700"></div>
+          <div class="w-1.5 h-1.5 rounded-full bg-slate-700"></div>
+          <div class="w-1.5 h-1.5 rounded-full bg-slate-700"></div>
+        </div>
+      </div>
+
+      <!-- FORM BODY -->
+      <form id="survey-form" onsubmit="event.preventDefault(); submitSurvey();" class="p-4 sm:p-5 space-y-4 max-h-[78vh] overflow-y-auto">
+
+        <!-- ===== STEP 1: OUTLET & HEADER INFO ===== -->
+        <div id="step-1" class="space-y-4">
+          <div class="p-3 bg-indigo-950/30 border border-indigo-800/40 rounded-xl text-xs text-indigo-300">
+            <strong>📋 1 Kobo Submission = 1 Outlet Visit</strong><br>
+            Please select the target dealer and trade channel accurately.
+          </div>
+
+          <!-- Region & Dealer Row -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Region / តំបន់ *</label>
+              <select id="field-region" onchange="onRegionChange()" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <option value="R1">R1 (Phnom Penh Central)</option>
+                <option value="R2">R2 (Kandal / Takeo / Svay Rieng)</option>
+                <option value="R3">R3 (Kampong Speu / Sihanoukville)</option>
+                <option value="R4">R4 (Battambang / Pursat / Pailin)</option>
+                <option value="R5">R5 (Siem Reap / Banteay Meanchey)</option>
+                <option value="R6">R6 (Kampong Cham / Tboung Khmum)</option>
+                <option value="R7">R7 (Kratie / Stung Treng / Ratanakiri)</option>
+                <option value="R8" selected>R8 (Preah Vihear / Oddar Meanchey)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Dealer / ដេប៉ូ *</label>
+              <select id="field-dealer" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <!-- Dynamically filled -->
+              </select>
+            </div>
+          </div>
+
+          <!-- Trade Channel & Date -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Trade Channel *</label>
+              <select id="field-report-type" onchange="onTradeChannelChange()" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <option value="GT" selected>General Trade (GT)</option>
+                <option value="HORECA">HORECA / Specialist (CS)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Survey Date *</label>
+              <input type="date" id="field-date" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            </div>
+          </div>
+
+          <!-- Outlet Name (with Summary Marker suggestions) -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-xs font-semibold text-slate-300">Outlet Name / ឈ្មោះហាង *</label>
+              <button type="button" onclick="setSummaryMarker()" class="text-[11px] text-amber-400 hover:text-amber-300 underline">
+                Use Final Summary Marker
+              </button>
+            </div>
+            <input type="text" id="field-outlet-name" placeholder="Enter outlet name (e.g. ហាង សុខា លក់ភេសជ្ជៈ)" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+
+          <!-- Outlet Type -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Outlet Type / ប្រភេទហាង *</label>
+            <select id="field-outlet-type" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+              <optgroup label="General Trade" id="optgroup-gt">
+                <option value="Wholesale">Wholesale / ដេប៉ូលក់ដុំ</option>
+                <option value="Drink Shop" selected>Drink Shop / តូបលក់ភេសជ្ជៈ</option>
+                <option value="Wet Market">Wet Market / ផ្សារ</option>
+                <option value="Trolley">Trolley / រទេះរុញ</option>
+              </optgroup>
+              <optgroup label="HORECA / Channel Specialist" id="optgroup-cs">
+                <option value="Local Eat">Local Eat / អាហារដ្ឋាន</option>
+                <option value="Coffee,Bakery">Coffee, Bakery / ហាងកាហ្វេ</option>
+                <option value="Canteen">Canteen / អាហារដ្ឋានសាលា/រោងចក្រ</option>
+                <option value="Sport Club">Sport Club / ក្លឹបកីឡា</option>
+                <option value="Motor Shop">Motor Shop / យានដ្ឋាន</option>
+                <option value="Local Drink">Local Drink / ហាងស្រាបៀរ</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <!-- GPS Location -->
+          <div class="p-3 bg-slate-800/80 border border-slate-700 rounded-xl space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke-width="2"/></svg>
+                GPS Coordinates
+              </span>
+              <button type="button" onclick="detectGPS()" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-medium transition-all flex items-center gap-1">
+                <span>📍 Get GPS</span>
+              </button>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400 font-mono">
+              <input type="text" id="field-lat" placeholder="Latitude (11.5564)" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs">
+              <input type="text" id="field-lng" placeholder="Longitude (104.9282)" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs">
+            </div>
+            <input type="text" id="field-location-text" placeholder="Village / Commune / Landmark text" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 text-xs">
+          </div>
+
+          <!-- Submitter Details -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Submitter / អ្នកចុះ *</label>
+              <input type="text" id="field-submitter" placeholder="Name" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Phone / លេខទូរស័ព្ទ</label>
+              <input type="text" id="field-phone" placeholder="012 345 678" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-3 py-2 text-xs">
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== STEP 2: OWN PRODUCTS (CMFB) ===== -->
+        <div id="step-2" class="space-y-4 hidden">
+          <div class="p-3 bg-emerald-950/30 border border-emerald-800/40 rounded-xl text-xs text-emerald-300">
+            <strong>⭐ CMFB Core Products</strong><br>
+            Featuring the updated <strong>EXPREZ Can ORD</strong> & <strong>EXPREZ Can NCP</strong>.
+          </div>
+
+          <!-- Products Accordion / List -->
+          <div id="own-products-container" class="space-y-3">
+            <!-- Dynamically Rendered Products -->
+          </div>
+        </div>
+
+        <!-- ===== STEP 3: COMPETITORS ===== -->
+        <div id="step-3" class="space-y-4 hidden">
+          <div class="p-3 bg-rose-950/30 border border-rose-800/40 rounded-xl text-xs text-rose-300">
+            <strong>⚔️ Competitor Benchmark</strong><br>
+            Assess competitor movement, availability, and pricing in this outlet.
+          </div>
+
+          <div id="competitor-products-container" class="space-y-3">
+            <!-- Dynamically Rendered Competitors -->
+          </div>
+        </div>
+
+        <!-- ===== STEP 4: MARKET ISSUES & SUBMISSION ===== -->
+        <div id="step-4" class="space-y-4 hidden">
+          <div class="p-3 bg-amber-950/30 border border-amber-800/40 rounded-xl text-xs text-amber-300">
+            <strong>💡 Market Insights (V166 Rule)</strong><br>
+            Written market issues & suggestions are preserved and prioritized for report cells I50 & S50.
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">
+              Key Market Issues / បញ្ហាទីផ្សារ (Cell I50)
+            </label>
+            <textarea id="field-key-issues" rows="3" placeholder="e.g. 1. ម៉ូយខ្វះស្តុក EXPREZ Can ORD និង Wurkz&#10;2. គូប្រជែងចុះថ្លៃប្រូម៉ូសិន" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">
+              Initiatives & Solutions / ដំណោះស្រាយ (Cell S50)
+            </label>
+            <textarea id="field-suggestions" rows="3" placeholder="e.g. 1. ត្រូវបន្ថែមស្តុក EXPREZ Can ORD ជូនម៉ូយទាន់ពេល&#10;2. ពង្រឹងការតាំង POSM" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-3 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+          </div>
+
+          <!-- Summary Review Card -->
+          <div class="bg-slate-800 border border-slate-700 rounded-xl p-3 space-y-2 text-xs">
+            <div class="font-semibold text-slate-200 border-b border-slate-700 pb-1">Submission Summary</div>
+            <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+              <div>Region: <span class="text-white" id="summary-region">R8</span></div>
+              <div>Dealer: <span class="text-white" id="summary-dealer">SMR5</span></div>
+              <div>Channel: <span class="text-white" id="summary-channel">GT</span></div>
+              <div>Outlet: <span class="text-white" id="summary-outlet">Drink Shop</span></div>
+              <div>Products Evaluated: <span class="text-emerald-400 font-semibold" id="summary-eval-count">0</span></div>
+              <div>Network Target: <span class="text-indigo-400 font-semibold" id="summary-target">Direct PostgreSQL / IndexedDB</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FORM NAVIGATION CONTROLS -->
+        <div class="pt-2 border-t border-slate-800 flex items-center justify-between gap-3">
+          <button type="button" id="btn-prev" onclick="changeStep(-1)" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+            ← Back
+          </button>
+
+          <button type="button" id="btn-next" onclick="changeStep(1)" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-indigo-600/30">
+            Next Step →
+          </button>
+
+          <button type="submit" id="btn-submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-emerald-600/30 hidden flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-width="2.5"/></svg>
+            <span>Save & Submit</span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- ==================== VIEW 2: OFFLINE QUEUE ==================== -->
+    <div id="view-queue" class="bg-slate-900 border border-slate-800 rounded-3xl tma-shadow overflow-hidden p-5 space-y-4 hidden">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>📦 Local Storage / IndexedDB Queue</span>
+          </h2>
+          <p class="text-[11px] text-slate-400">Stores survey data when surveyor is offline in rural communes</p>
+        </div>
+        <button onclick="toggleTab('survey')" class="text-xs text-indigo-400 hover:underline">← Back to Form</button>
+      </div>
+
+      <div class="flex items-center justify-between bg-slate-800/80 p-3 rounded-xl border border-slate-700 text-xs">
+        <div>
+          <span class="text-slate-400">Pending submissions:</span>
+          <span id="queue-badge" class="font-bold text-white ml-1">0</span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="syncAllOfflineQueue()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-all shadow-sm">
+            Sync All Now
+          </button>
+          <button onclick="clearQueue()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium transition-all">
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div id="queue-list" class="space-y-2 max-h-[50vh] overflow-y-auto">
+        <!-- Rendered queued items -->
+        <div class="text-center py-8 text-xs text-slate-500">
+          No offline submissions pending. Try submitting while in Offline mode!
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== VIEW 3: FORM BUILDER SCHEMA ==================== -->
+    <div id="view-builder" class="bg-slate-900 border border-slate-800 rounded-3xl tma-shadow overflow-hidden p-5 space-y-4 hidden">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>🛠️ Form Builder & Dynamic Zod Schema</span>
+          </h2>
+          <p class="text-[11px] text-slate-400">Powered by React Hook Form + Zod + TanStack Table Architecture</p>
+        </div>
+        <button onclick="toggleTab('survey')" class="text-xs text-indigo-400 hover:underline">← Back to Form</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="p-3 bg-slate-800 rounded-xl border border-slate-700">
+          <div class="font-semibold text-slate-200 mb-1">Dynamic Field Order (@dnd-kit drag-and-drop)</div>
+          <div class="space-y-1.5 text-[11px]">
+            <div class="p-2 bg-slate-900 rounded border border-slate-700/60 flex items-center justify-between cursor-move">
+              <span>⠿ 1. Header (Region, Dealer, Channel, Date)</span>
+              <span class="text-emerald-400 font-mono">required</span>
+            </div>
+            <div class="p-2 bg-slate-900 rounded border border-slate-700/60 flex items-center justify-between cursor-move">
+              <span>⠿ 2. Outlet & GPS Location Details</span>
+              <span class="text-emerald-400 font-mono">required</span>
+            </div>
+            <div class="p-2 bg-slate-900 rounded border border-slate-700/60 flex items-center justify-between cursor-move">
+              <span>⠿ 3. CMFB Products (EXPREZ Can ORD / NCP, CB LITE, WURKZ)</span>
+              <span class="text-indigo-400 font-mono">dynamic loop</span>
+            </div>
+            <div class="p-2 bg-slate-900 rounded border border-slate-700/60 flex items-center justify-between cursor-move">
+              <span>⠿ 4. Competitor Pricing & Offtake Benchmark</span>
+              <span class="text-indigo-400 font-mono">dynamic loop</span>
+            </div>
+            <div class="p-2 bg-slate-900 rounded border border-slate-700/60 flex items-center justify-between cursor-move">
+              <span>⠿ 5. Final Key Issues & Initiatives (I50/S50)</span>
+              <span class="text-amber-400 font-mono">report sync</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-semibold text-slate-300">Live JSON Schema (Exportable to FastAPI / Postgres)</span>
+            <button onclick="copySchema()" class="text-indigo-400 hover:underline text-[11px]">Copy JSON</button>
+          </div>
+          <pre id="json-schema-box" class="p-3 bg-slate-950 text-slate-300 rounded-xl border border-slate-800 font-mono text-[10px] overflow-x-auto max-h-48"></pre>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // --- Master Data & Dealers Definition ---
+    const REGION_DEALERS = {
+      "R1": ["CA1", "CA8", "CA3", "CA6", "CA4", "CA7", "CA9", "CA2", "CA5", "PTM6"],
+      "R2": ["KDL1", "KHT3", "KSV5", "TAK2", "BTI6", "PKB4", "SVA7", "PMR5", "SVR4", "CPH2", "KRV5", "KTB1"],
+      "R3": ["KSP3", "KPS7", "KSM1", "PNP6", "KPT2", "CUK7", "KKG3", "SRA5", "KTR4", "KTL6", "KCG4", "TPG2"],
+      "R4": ["VVG1", "PUS5", "BTB1", "BVL6", "PLN4", "PPT3", "KRG7", "MRS5"],
+      "R5": ["BMC2", "PPR8", "KTH2", "KTM8", "SRP1", "CHK6", "PUK7"],
+      "R6": ["KCM1", "BTY8", "STT4", "TKM2", "MMT3"],
+      "R7": ["KRT1", "SNL6", "STR3", "MDK2", "KSA5", "RTK4", "BKE7"],
+      "R8": ["PVH3", "CKS1", "AVG4", "SMR5"],
+    };
+
+    // Product Catalog (Updated with EXPREZ Can ORD and EXPREZ Can NCP)
+    const OWN_PRODUCTS = [
+      { id: "cb_lite_ord", name: "CB LITE ORD", category: "Beer", isNcp: false },
+      { id: "cb_lite_ncp", name: "CB LITE NCP", category: "Beer", isNcp: true },
+      { id: "exprez_can_ord", name: "EXPREZ Can ORD", category: "Beverage", isNcp: false, highlight: true },
+      { id: "exprez_can_ncp", name: "EXPREZ Can NCP", category: "Beverage", isNcp: true, highlight: true },
+      { id: "exprez_melon_ord", name: "EXPREZ Melon ORD", category: "Beverage", isNcp: false },
+      { id: "wurkz_ord", name: "WURKZ ORD", category: "Energy Drink", isNcp: false },
+      { id: "wurkz_ncp", name: "WURKZ NCP", category: "Energy Drink", isNcp: true },
+      { id: "dazz_ord", name: "DAZZ ORD", category: "Energy Drink", isNcp: false },
+      { id: "dazz_ncp", name: "DAZZ NCP", category: "Energy Drink", isNcp: true },
+      { id: "ize_cola_500_ord", name: "IZE COLA 500ml ORD", category: "Beverage", isNcp: false },
+      { id: "ize_cola_500_ncp", name: "IZE COLA 500ml NCP", category: "Beverage", isNcp: true },
+      { id: "cambodia_ed_ord", name: "CAMBODIA ED ORD", category: "Energy Drink", isNcp: false },
+    ];
+
+    const COMPETITOR_PRODUCTS = [
+      { id: "gb_snow_ord", name: "GB SNOW ORD", category: "Beer" },
+      { id: "hanuman_lite_ord", name: "HANUMAN LITE ORD", category: "Beer" },
+      { id: "krud_lite_ord", name: "Krud LITE ORD", category: "Beer" },
+      { id: "coca_650", name: "Coca 650ml", category: "Beverage" },
+      { id: "sting_can_330", name: "Sting Can 330ml", category: "Energy Drink" },
+      { id: "ganzberg_500", name: "Ganzberg 500ml", category: "Water" }
+    ];
+
+    // State Variables
+    let currentStep = 1;
+    let isOnline = true;
+    let offlineSubmissions = [];
+    const productValues = {};
+
+    // Initialize UI on Load
+    window.addEventListener("DOMContentLoaded", () => {
+      // Set default date to today
+      document.getElementById("field-date").value = new Date().toISOString().split("T")[0];
+      onRegionChange();
+      renderOwnProducts();
+      renderCompetitorProducts();
+      loadOfflineQueue();
+      updateJsonSchemaPreview();
+    });
+
+    // Populate Dealer Dropdown based on Region
+    function onRegionChange() {
+      const region = document.getElementById("field-region").value;
+      const dealerSelect = document.getElementById("field-dealer");
+      dealerSelect.innerHTML = "";
+      const dealers = REGION_DEALERS[region] || [];
+      dealers.forEach(d => {
+        const opt = document.createElement("option");
+        opt.value = d;
+        opt.textContent = `${d} (${region})`;
+        dealerSelect.appendChild(opt);
+      });
+      document.getElementById("summary-region").textContent = region;
+      document.getElementById("summary-dealer").textContent = dealerSelect.value;
+    }
+
+    // Trade Channel Change
+    function onTradeChannelChange() {
+      const type = document.getElementById("field-report-type").value;
+      document.getElementById("summary-channel").textContent = type;
+      const gtGroup = document.getElementById("optgroup-gt");
+      const csGroup = document.getElementById("optgroup-cs");
+      const outletTypeSelect = document.getElementById("field-outlet-type");
+      if (type === "GT") {
+        outletTypeSelect.value = "Drink Shop";
+      } else {
+        outletTypeSelect.value = "Local Eat";
+      }
+    }
+
+    // Helper: Fill Summary Marker
+    function setSummaryMarker() {
+      document.getElementById("field-outlet-name").value = "សរុបរួម,";
+      showToast("Marker set: Classified as Final Summary Control Row");
+    }
+
+    // Detect GPS Simulation
+    function detectGPS() {
+      const lat = (11.5200 + Math.random() * 0.05).toFixed(6);
+      const lng = (104.9100 + Math.random() * 0.05).toFixed(6);
+      document.getElementById("field-lat").value = lat;
+      document.getElementById("field-lng").value = lng;
+      document.getElementById("field-location-text").value = "ភូមិព្រែកតាពៅ ឃុំព្រែកហូរ ស្រុកតាខ្មៅ";
+      showToast(`📍 GPS captured: ${lat}, ${lng} (±4m)`);
+    }
+
+    // Render Own Products list with status, score, and volume
+    function renderOwnProducts() {
+      const container = document.getElementById("own-products-container");
+      container.innerHTML = "";
+
+      OWN_PRODUCTS.forEach((prod) => {
+        productValues[prod.id] = productValues[prod.id] || {
+          status: "sale",
+          movement: 10,
+          volume: prod.isNcp ? 5 : null,
+          stock: "គ្រប់គ្រាន់",
+          bbe: "10.2026",
+          buyPrice: 10.5,
+          sellPrice: 11.5
+        };
+
+        const item = document.createElement("div");
+        item.className = `p-3.5 rounded-2xl border transition-all ${
+          prod.highlight 
+            ? "bg-slate-800/90 border-indigo-500/50 shadow-sm" 
+            : "bg-slate-800/60 border-slate-700/60"
+        }`;
+
+        item.innerHTML = `
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>${prod.name}</span>
+                ${prod.highlight ? '<span class="px-1.5 py-0.2 bg-indigo-500/20 text-indigo-400 text-[10px] rounded font-medium border border-indigo-500/30">Target Update</span>' : ''}
+                ${prod.isNcp ? '<span class="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-400 text-[10px] rounded font-medium">NCP</span>' : '<span class="px-1.5 py-0.2 bg-slate-700 text-slate-300 text-[10px] rounded font-mono">ORD</span>'}
+              </div>
+              <div class="text-[10px] text-slate-400">${prod.category}</div>
+            </div>
+
+            <!-- Status Choice Badges -->
+            <div class="flex gap-1 text-[10px]" id="status-group-${prod.id}">
+              <button type="button" onclick="setProductStatus('${prod.id}', 'sale')" class="badge-press px-2 py-0.5 rounded font-medium ${productValues[prod.id].status === 'sale' ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-300'}">មានលក់</button>
+              <button type="button" onclick="setProductStatus('${prod.id}', 'fast_sale')" class="badge-press px-2 py-0.5 rounded font-medium ${productValues[prod.id].status === 'fast_sale' ? 'bg-amber-600 text-white' : 'bg-slate-700 text-slate-300'}">លក់ដាច់</button>
+              <button type="button" onclick="setProductStatus('${prod.id}', 'out_stock')" class="badge-press px-2 py-0.5 rounded font-medium ${productValues[prod.id].status === 'out_stock' ? 'bg-rose-700 text-white' : 'bg-slate-700 text-slate-300'}">ដាច់ស្តុក</button>
+              <button type="button" onclick="setProductStatus('${prod.id}', 'no_sale')" class="badge-press px-2 py-0.5 rounded font-medium ${productValues[prod.id].status === 'no_sale' ? 'bg-slate-600 text-white' : 'bg-slate-700 text-slate-300'}">អត់លក់</button>
+            </div>
+          </div>
+
+          <!-- Conditional Detail Metrics -->
+          <div id="details-${prod.id}" class="mt-2 pt-2 border-t border-slate-700/50 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] ${productValues[prod.id].status === 'no_sale' ? 'hidden' : ''}">
+            ${!prod.isNcp ? `
+              <div>
+                <label class="block text-slate-400 text-[10px] mb-0.5">Movement Score (0-10)</label>
+                <div class="flex items-center gap-1.5">
+                  <input type="range" min="0" max="10" value="${productValues[prod.id].movement}" oninput="updateScore('${prod.id}', this.value)" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg">
+                  <span id="score-val-${prod.id}" class="font-bold text-indigo-400 font-mono w-4 text-center">${productValues[prod.id].movement}</span>
+                </div>
+              </div>
+            ` : ''}
+
+            ${prod.isNcp ? `
+              <div>
+                <label class="block text-slate-400 text-[10px] mb-0.5">NCP Volume (ctn) *</label>
+                <input type="number" min="0" step="0.5" value="${productValues[prod.id].volume || 5}" onchange="productValues['${prod.id}'].volume=parseFloat(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs">
+              </div>
+            ` : ''}
+
+            <div>
+              <label class="block text-slate-400 text-[10px] mb-0.5">Stock Status</label>
+              <select onchange="productValues['${prod.id}'].stock=this.value" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-1.5 py-1 text-slate-200 text-xs">
+                <option value="គ្រប់គ្រាន់">គ្រប់គ្រាន់</option>
+                <option value="ខ្វះស្តុក">ខ្វះស្តុក</option>
+                <option value="លើសស្តុក">លើសស្តុក</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-slate-400 text-[10px] mb-0.5">BBE / Freshness</label>
+              <input type="text" value="10.2026" onchange="productValues['${prod.id}'].bbe=this.value" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs font-mono">
+            </div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // Render Competitors List
+    function renderCompetitorProducts() {
+      const container = document.getElementById("competitor-products-container");
+      container.innerHTML = "";
+
+      COMPETITOR_PRODUCTS.forEach(comp => {
+        const item = document.createElement("div");
+        item.className = "p-3 bg-slate-800/60 border border-slate-700/60 rounded-xl space-y-2 text-xs";
+        item.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-white">${comp.name}</span>
+            <span class="text-[10px] text-slate-400">${comp.category}</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-[11px]">
+            <div>
+              <label class="text-[10px] text-slate-400">Status</label>
+              <select class="w-full bg-slate-900 border border-slate-700 rounded-lg px-1 py-1 text-slate-200 text-xs">
+                <option value="sale">មានលក់</option>
+                <option value="no_sale">អត់លក់</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-400">Movement (0-10)</label>
+              <input type="number" min="0" max="10" value="5" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs">
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-400">Sell Out ($)</label>
+              <input type="number" step="0.5" value="12.0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs">
+            </div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function setProductStatus(prodId, status) {
+      productValues[prodId].status = status;
+      const details = document.getElementById(`details-${prodId}`);
+      if (status === 'no_sale') {
+        details.classList.add('hidden');
+      } else {
+        details.classList.remove('hidden');
+      }
+      renderOwnProducts();
+    }
+
+    function updateScore(prodId, val) {
+      productValues[prodId].movement = parseInt(val);
+      const span = document.getElementById(`score-val-${prodId}`);
+      if (span) span.textContent = val;
+    }
+
+    // Step Navigation
+    function changeStep(delta) {
+      const newStep = currentStep + delta;
+      if (newStep < 1 || newStep > 4) return;
+
+      document.getElementById(`step-${currentStep}`).classList.add("hidden");
+      document.getElementById(`step-${newStep}`).classList.remove("hidden");
+      currentStep = newStep;
+
+      // Update stepper header
+      document.getElementById("step-number").textContent = currentStep;
+      const titles = [
+        "Outlet & Submitter Information",
+        "CMFB Core Products Evaluation",
+        "Competitor Market Benchmark",
+        "Market Issues & Action Plan (I50/S50)"
+      ];
+      document.getElementById("step-title").textContent = titles[currentStep - 1];
+
+      // Update Dots
+      const dots = document.getElementById("step-dots").children;
+      for (let i = 0; i < dots.length; i++) {
+        if (i === currentStep - 1) {
+          dots[i].className = "w-5 h-1.5 rounded-full bg-indigo-500";
+        } else {
+          dots[i].className = "w-1.5 h-1.5 rounded-full bg-slate-700";
+        }
+      }
+
+      // Back / Next / Submit buttons
+      document.getElementById("btn-prev").disabled = (currentStep === 1);
+      if (currentStep === 4) {
+        document.getElementById("btn-next").classList.add("hidden");
+        document.getElementById("btn-submit").classList.remove("hidden");
+        updateReviewSummary();
+      } else {
+        document.getElementById("btn-next").classList.remove("hidden");
+        document.getElementById("btn-submit").classList.add("hidden");
+      }
+    }
+
+    function updateReviewSummary() {
+      document.getElementById("summary-outlet").textContent = document.getElementById("field-outlet-name").value || "Unnamed Outlet";
+      document.getElementById("summary-eval-count").textContent = Object.keys(productValues).length;
+      document.getElementById("summary-target").textContent = isOnline ? "PostgreSQL / Railway API" : "Offline IndexedDB Queue";
+    }
+
+    // Submit Survey Handler
+    function submitSurvey() {
+      const payload = {
+        id: "sub_" + Date.now(),
+        submitted_at: new Date().toISOString(),
+        region: document.getElementById("field-region").value,
+        dealer: document.getElementById("field-dealer").value,
+        report_type: document.getElementById("field-report-type").value,
+        report_date: document.getElementById("field-date").value,
+        outlet_name: document.getElementById("field-outlet-name").value || "សរុបរួម,",
+        outlet_type: document.getElementById("field-outlet-type").value,
+        location_text: document.getElementById("field-location-text").value,
+        gps_latitude: parseFloat(document.getElementById("field-lat").value) || 11.5564,
+        gps_longitude: parseFloat(document.getElementById("field-lng").value) || 104.9282,
+        submitter_name: document.getElementById("field-submitter").value || "Phearom Surveyor",
+        phone_number: document.getElementById("field-phone").value,
+        key_issues: document.getElementById("field-key-issues").value,
+        suggestions: document.getElementById("field-suggestions").value,
+        product_metrics: productValues
+      };
+
+      if (isOnline) {
+        showToast("✅ Submitted directly to CMFB PostgreSQL Server!", "emerald");
+      } else {
+        offlineSubmissions.push(payload);
+        saveOfflineQueue();
+        showToast("📦 Offline: Saved to IndexedDB Queue!", "amber");
+      }
+
+      // Reset form step to 1
+      changeStep(-3);
+      updateJsonSchemaPreview();
+    }
+
+    // Toggle Online / Offline Simulation
+    function toggleNetwork() {
+      isOnline = !isOnline;
+      const btn = document.getElementById("network-toggle-btn");
+      const text = document.getElementById("network-status-text");
+      const indicator = document.getElementById("conn-indicator");
+      const label = document.getElementById("conn-label");
+
+      if (isOnline) {
+        btn.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+        text.textContent = "Online Mode";
+        indicator.className = "inline-block w-1.5 h-1.5 rounded-full bg-emerald-400";
+        label.textContent = "Synchronized";
+        showToast("🌐 Connection Restored: Online Mode");
+        if (offlineSubmissions.length > 0) {
+          setTimeout(syncAllOfflineQueue, 800);
+        }
+      } else {
+        btn.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30";
+        text.textContent = "Offline Mode";
+        indicator.className = "inline-block w-1.5 h-1.5 rounded-full bg-rose-400";
+        label.textContent = "Offline Queue Active";
+        showToast("⚡ Switched to Offline Storage Simulation", "rose");
+      }
+    }
+
+    // Offline Queue Management
+    function saveOfflineQueue() {
+      try {
+        localStorage.setItem("cmfb_offline_queue", JSON.stringify(offlineSubmissions));
+      } catch (e) {}
+      updateQueueCount();
+      renderQueueList();
+    }
+
+    function loadOfflineQueue() {
+      try {
+        const raw = localStorage.getItem("cmfb_offline_queue");
+        if (raw) offlineSubmissions = JSON.parse(raw);
+      } catch (e) {}
+      updateQueueCount();
+    }
+
+    function updateQueueCount() {
+      const count = offlineSubmissions.length;
+      document.getElementById("queue-count").textContent = count;
+      document.getElementById("queue-badge").textContent = count;
+    }
+
+    function renderQueueList() {
+      const container = document.getElementById("queue-list");
+      if (offlineSubmissions.length === 0) {
+        container.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No offline submissions pending. Try submitting while in Offline mode!</div>`;
+        return;
+      }
+      container.innerHTML = "";
+      offlineSubmissions.forEach((sub, i) => {
+        const div = document.createElement("div");
+        div.className = "p-3 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-between text-xs";
+        div.innerHTML = `
+          <div>
+            <div class="font-bold text-white">${sub.outlet_name} (${sub.dealer})</div>
+            <div class="text-[10px] text-slate-400">${sub.report_type} • ${sub.report_date} • ${sub.submitter_name}</div>
+          </div>
+          <span class="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[10px] font-mono">Pending Sync</span>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function syncAllOfflineQueue() {
+      if (offlineSubmissions.length === 0) {
+        showToast("Queue is empty.");
+        return;
+      }
+      const count = offlineSubmissions.length;
+      offlineSubmissions = [];
+      saveOfflineQueue();
+      showToast(`🚀 Successfully synced ${count} submissions to PostgreSQL!`);
+    }
+
+    function clearQueue() {
+      offlineSubmissions = [];
+      saveOfflineQueue();
+      showToast("Cleared offline queue.");
+    }
+
+    // Device View Switcher
+    function setDeviceView(mode) {
+      const vp = document.getElementById("app-viewport");
+      const btnMob = document.getElementById("btn-device-mobile");
+      const btnDesk = document.getElementById("btn-device-desktop");
+
+      if (mode === "mobile") {
+        vp.className = "w-full max-w-md transition-all duration-300";
+        btnMob.className = "px-2.5 py-1 rounded-md text-xs font-medium transition-all bg-indigo-600 text-white shadow-sm flex items-center gap-1.5";
+        btnDesk.className = "px-2.5 py-1 rounded-md text-xs font-medium transition-all text-slate-400 hover:text-slate-200 flex items-center gap-1.5";
+      } else {
+        vp.className = "w-full max-w-4xl transition-all duration-300";
+        btnDesk.className = "px-2.5 py-1 rounded-md text-xs font-medium transition-all bg-indigo-600 text-white shadow-sm flex items-center gap-1.5";
+        btnMob.className = "px-2.5 py-1 rounded-md text-xs font-medium transition-all text-slate-400 hover:text-slate-200 flex items-center gap-1.5";
+      }
+    }
+
+    // Tab Switcher (Form / Queue / Builder)
+    function toggleTab(tab) {
+      document.getElementById("view-survey").classList.add("hidden");
+      document.getElementById("view-queue").classList.add("hidden");
+      document.getElementById("view-builder").classList.add("hidden");
+
+      if (tab === "survey") {
+        document.getElementById("view-survey").classList.remove("hidden");
+      } else if (tab === "queue") {
+        document.getElementById("view-queue").classList.remove("hidden");
+        renderQueueList();
+      } else if (tab === "builder") {
+        document.getElementById("view-builder").classList.remove("hidden");
+        updateJsonSchemaPreview();
+      }
+    }
+
+    // Quick Autofill for Testing
+    function autoFillSyntheticData() {
+      document.getElementById("field-region").value = "R8";
+      onRegionChange();
+      document.getElementById("field-dealer").value = "SMR5";
+      document.getElementById("field-outlet-name").value = "ហាងលក់ភេសជ្ជៈ សុខ សាន្ត";
+      document.getElementById("field-location-text").value = "ភូមិត្រពាំងត្រែង ស្រុកស្វាយលើ";
+      document.getElementById("field-submitter").value = "Mr. Phearom";
+      document.getElementById("field-phone").value = "098 765 432";
+      document.getElementById("field-key-issues").value = "1. ម៉ូយខ្វះស្តុក EXPREZ Can ORD និង Wurkz\n2. គូប្រជែងចុះថ្លៃប្រូម៉ូសិន";
+      document.getElementById("field-suggestions").value = "1. ត្រូវបន្ថែមស្តុក EXPREZ Can ORD ជូនម៉ូយទាន់ពេល\n2. ជួយរៀបចំការតាំង POSM";
+      detectGPS();
+      showToast("⚡ Synthetic test data filled into form.");
+    }
+
+    // Toast Notification helper
+    function showToast(msg, type = "emerald") {
+      const toast = document.getElementById("toast");
+      document.getElementById("toast-msg").textContent = msg;
+      toast.classList.remove("translate-y-[-120%]", "opacity-0");
+      setTimeout(() => {
+        toast.classList.add("translate-y-[-120%]", "opacity-0");
+      }, 3000);
+    }
+
+    function updateJsonSchemaPreview() {
+      const schema = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "CMFBSurveySubmission",
+        "type": "object",
+        "required": ["region", "dealer", "report_type", "report_date", "outlet_name"],
+        "properties": {
+          "region": { "type": "string", "enum": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"] },
+          "dealer": { "type": "string", "description": "One of 65 authorized dealers" },
+          "report_type": { "type": "string", "enum": ["GT", "HORECA"] },
+          "outlet_name": { "type": "string" },
+          "products": {
+            "type": "object",
+            "properties": {
+              "EXPREZ Can ORD": {
+                "type": "object",
+                "properties": {
+                  "status": { "enum": ["sale", "fast_sale", "out_stock", "no_sale"] },
+                  "movement": { "type": "integer", "minimum": 0, "maximum": 10 },
+                  "stock": { "type": "string" }
+                }
+              },
+              "EXPREZ Can NCP": {
+                "type": "object",
+                "properties": {
+                  "status": { "enum": ["sale", "fast_sale", "out_stock", "no_sale"] },
+                  "volume_ctn": { "type": "number", "minimum": 0 }
+                }
+              }
+            }
+          },
+          "market_issues": { "type": "string", "description": "Maps to report cell I50" },
+          "initiatives": { "type": "string", "description": "Maps to report cell S50" }
+        }
+      };
+      document.getElementById("json-schema-box").textContent = JSON.stringify(schema, null, 2);
+    }
+
+    function copySchema() {
+      const text = document.getElementById("json-schema-box").textContent;
+      navigator.clipboard.writeText(text);
+      showToast("Schema copied to clipboard!");
+    }
+  </script>
+</body>
+</html>

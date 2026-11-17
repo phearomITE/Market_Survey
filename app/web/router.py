@@ -86,6 +86,12 @@ def map_page():
     return FileResponse(WEB_DIR / "map.html")
 
 
+@router.get("/survey")
+def survey_page():
+    return FileResponse(WEB_DIR / "survey_preview.html")
+
+
+
 @router.get("/web/map.css")
 def map_css():
     return FileResponse(WEB_DIR / "map.css", media_type="text/css", headers={"Cache-Control": "public, max-age=3600"})
