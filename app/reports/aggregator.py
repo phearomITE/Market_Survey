@@ -33,8 +33,8 @@ OWN_PRODUCTS = [
     "IZE COLA 500ml ORD",
     "IZE COLA 500ml NCP",
     "EXPREZ Melon ORD",
-    "EXPREZ Can 500ml ORD",
-    "EXPREZ Can 500ml NCP",
+    "EXPREZ Can ORD",
+    "EXPREZ Can NCP",
     "Wurkz Ice ORD",
     "CAMBODIA Sport 500mL ORD",
     "CAMBODIA WATER 500mL",
@@ -66,7 +66,7 @@ COMPETITOR_PRODUCTS = [
     "Coca 1.5L",
     "Big Cola 3L",
     "Coca 650ml",
-    "EXPREZ Can 500ml ORD",
+    "EXPREZ Can ORD",
     "Sting Can 330ml",
     "Idol Can 330ml ORD",
     "Pocari Sweat",
@@ -117,7 +117,7 @@ OFFTAKE_COMPARE_GROUPS = [
     ["IZE PET 300ml Flavour", "POP Z Flavour", "V Cola 350ml"],
     ["IZE COLA PET 1.5L All SKUs", "Coca 1.5L", "Big Cola 3L"],
     ["IZE COLA 500ml ORD", "Coca 650ml"],
-    ["EXPREZ Melon ORD", "EXPREZ Can 500ml ORD", "Sting Can 330ml", "Idol Can 330ml ORD"],
+    ["EXPREZ Melon ORD", "EXPREZ Can ORD", "Sting Can 330ml", "Idol Can 330ml ORD"],
     ["CAMBODIA Sport 500mL ORD", "Pocari Sweat", "V-Active Sport"],
     ["CAMBODIA WATER 500mL", "Vital 500mL", "Provida 500mL", "Ganzberg 500ml", "Hitech 500mL"],
     ["CAMBODIA WATER 1500mL", "Vital 1500mL", "Provida 1500mL", "Ganzberg 1500ml", "Hitech 1500mL"],
@@ -145,8 +145,8 @@ PRODUCT_CODES = {
     "IZE COLA 500ml ORD": ["ize_cola_500_ord", "ize_cola_500"],
     "IZE COLA 500ml NCP": ["ize_cola_500_ncp", "ize_500_ncp"],
     "EXPREZ Melon ORD": ["exprez_melon", "exprez_cucumber", "exprez"],
-    "EXPREZ Can 500ml ORD": ["exprez_can_330", "exprez_can_500"],
-    "EXPREZ Can 500ml NCP": ["exprez_can_330_ncp", "exprez_can_500_ncp"],
+    "EXPREZ Can ORD": ["exprez_can_330", "exprez_can_500", "exprez_can"],
+    "EXPREZ Can NCP": ["exprez_can_330_ncp", "exprez_can_500_ncp", "exprez_can_ncp"],
     "Wurkz Ice ORD": ["wurkz_ice"],
     "CAMBODIA Sport 500mL ORD": ["cambodia_sport_500"],
     "CAMBODIA WATER 500mL": ["cambodia_water_500"],
@@ -191,7 +191,7 @@ COMPETITOR_CODES = {
     "V Cola 350ml": ["v_cola_350"],
     "Coca 1.5L": ["coca_1500", "coca_15l", "coca_1_5l"],
     "Big Cola 3L": ["big_cola_3l"],
-    "EXPREZ Can 500ml ORD": ["exprez_can_330", "exprez_can_500"],
+    "EXPREZ Can ORD": ["exprez_can_330", "exprez_can_500", "exprez_can"],
     "Sting Can 330ml": ["sting_can_330"],
     "Idol Can 330ml ORD": ["idol_can_330"],
     "Pocari Sweat": ["pocari_sweat"],
@@ -222,7 +222,8 @@ PRODUCT_LABEL_ALIASES = {
     "IZE COLA 500ml ORD": ["IZE COLA 500ml ORD", "IZE COLA 500ml"],
     "IZE COLA 500ml NCP": ["IZE COLA 500ml NCP", "IZE 500ml NCP"],
     "EXPREZ Melon ORD": ["EXPREZ Melon ORD", "EXPREZ ត្រសក់ផ្អែម"],
-    "EXPREZ Can 500ml NCP": ["EXPREZ Can 500ml NCP"],
+    "EXPREZ Can ORD": ["EXPREZ Can ORD", "EXPREZ Can 500ml ORD", "EXPREZ Can 330ml ORD", "EXPREZ Can 500ml", "EXPREZ Can 330ml", "EXPREZ Can"],
+    "EXPREZ Can NCP": ["EXPREZ Can NCP", "EXPREZ Can 500ml NCP", "EXPREZ Can 330ml NCP"],
     "CAMBODIA Sport 500mL ORD": ["CAMBODIA Sport 500mL ORD", "CAMBODIA Sport 500ml"],
     "GB Original ORD": ["GB Original ORD", "GB Original", "GB  Original"],
     "GB SNOW NCP": ["GB SNOW NCP", "GB SNOW"],
@@ -467,6 +468,7 @@ def _get_movement_bucket(result: dict, product: str) -> tuple[str, dict[str, Any
     # competitor bucket that Excel actually reads.
     if product in {
         "CB Original ORD",
+        "EXPREZ Can ORD",
         "EXPREZ Can 500ml ORD",
     } and product in competitors:
         return "competitors", competitors[product]
@@ -762,8 +764,21 @@ def stock_summary(values: list[Any]) -> str | None:
 
 # Compatibility: corrected display names retain historic Kobo machine IDs.
 PRODUCT_LABEL_ALIASES["Coca 650ml"] = ["Coca 650ml", "Coca Cola 650ml"]
-PRODUCT_LABEL_ALIASES["EXPREZ Can 500ml ORD"] = ["EXPREZ Can 500ml ORD", "EXPREZ Can 330ml ORD", "EXPREZ Can 330ml"]
-PRODUCT_LABEL_ALIASES["EXPREZ Can 500ml NCP"] = ["EXPREZ Can 500ml NCP", "EXPREZ Can 330ml NCP"]
+PRODUCT_LABEL_ALIASES["EXPREZ Can ORD"] = [
+    "EXPREZ Can ORD",
+    "EXPREZ Can 500ml ORD",
+    "EXPREZ Can 330ml ORD",
+    "EXPREZ Can 500ml",
+    "EXPREZ Can 330ml",
+    "EXPREZ Can",
+]
+PRODUCT_LABEL_ALIASES["EXPREZ Can NCP"] = [
+    "EXPREZ Can NCP",
+    "EXPREZ Can 500ml NCP",
+    "EXPREZ Can 330ml NCP",
+]
+PRODUCT_LABEL_ALIASES["EXPREZ Can 500ml ORD"] = PRODUCT_LABEL_ALIASES["EXPREZ Can ORD"]
+PRODUCT_LABEL_ALIASES["EXPREZ Can 500ml NCP"] = PRODUCT_LABEL_ALIASES["EXPREZ Can NCP"]
 PRODUCT_LABEL_ALIASES['CBC 4.4 ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('CBC 4.4 ORD', ['CBC 4.4 ORD']), 'CBC 4.4 NCP']))
 PRODUCT_LABEL_ALIASES['CB Original ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('CB Original ORD', ['CB Original ORD']), 'CB Original NCP']))
 PRODUCT_LABEL_ALIASES['GB Original ORD'] = list(dict.fromkeys([*PRODUCT_LABEL_ALIASES.get('GB Original ORD', ['GB Original ORD']), 'GB Original NCP']))
@@ -1022,9 +1037,21 @@ def _canonical_product_name(name: Any) -> str:
     """Canonical product name used for current template and legacy DB rows."""
     value = " ".join(str(name or "").replace("\u200b", "").split()).strip()
     # Translate historical metric labels to the corrected active product names.
-    legacy_names = {'CBC 4.4 NCP': 'CBC 4.4 ORD', 'CB Original NCP': 'CB Original ORD', 'GB Original NCP': 'GB Original ORD', 'CB BLACK NCP': 'CB BLACK ORD', 'Hanuman Black NCP': 'Hanuman Black ORD'}
+    legacy_names = {
+        'CBC 4.4 NCP': 'CBC 4.4 ORD',
+        'CB Original NCP': 'CB Original ORD',
+        'GB Original NCP': 'GB Original ORD',
+        'CB BLACK NCP': 'CB BLACK ORD',
+        'Hanuman Black NCP': 'Hanuman Black ORD',
+        'EXPREZ Can 500ml ORD': 'EXPREZ Can ORD',
+        'EXPREZ Can 500ml NCP': 'EXPREZ Can NCP',
+        'EXPREZ Can 330ml ORD': 'EXPREZ Can ORD',
+        'EXPREZ Can 330ml NCP': 'EXPREZ Can NCP',
+    }
     value = next((v for k,v in legacy_names.items() if k.casefold() == value.casefold()), value)
-    value = re.sub(r"(?i)EXPREZ\s+Can\s+330ml", "EXPREZ Can 500ml", value)
+    value = re.sub(r"(?i)EXPREZ\s+Can\s+(500ml|330ml)\s+ORD", "EXPREZ Can ORD", value)
+    value = re.sub(r"(?i)EXPREZ\s+Can\s+(500ml|330ml)\s+NCP", "EXPREZ Can NCP", value)
+    value = re.sub(r"(?i)EXPREZ\s+Can\s+(500ml|330ml)", "EXPREZ Can", value)
     bacchuse_aliases = {
         "bacchuse ord": "BACCHUSE",
         "bacchuse sugar free ord": "BACCHUSE Sugar Free",
@@ -1047,6 +1074,13 @@ def _canonical_product_name(name: Any) -> str:
         "ភេសជ្ជៈប៉ូវកម្លាំង​កម្ពុជា": "CAMBODIA ED ORD",
         "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
         "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
+        "EXPREZ Can 500ml ORD": "EXPREZ Can ORD",
+        "EXPREZ Can 500ml NCP": "EXPREZ Can NCP",
+        "EXPREZ Can 330ml ORD": "EXPREZ Can ORD",
+        "EXPREZ Can 330ml NCP": "EXPREZ Can NCP",
+        "EXPREZ Can 500ml": "EXPREZ Can ORD",
+        "EXPREZ Can 330ml": "EXPREZ Can ORD",
+        "EXPREZ Can": "EXPREZ Can ORD",
         "GB Original": "GB Original ORD",
         "GB  Original": "GB Original ORD",
         "GB SNOW": "GB SNOW NCP",
@@ -1627,3 +1661,16 @@ def aggregate_submissions(
     while len(result["suggestions"]) < 4:
         result["suggestions"].append("")
     return result
+
+
+def build_bulk_dealer_aggregates(submissions: Any) -> tuple[dict[str, dict[str, Any]], bool]:
+    """Build one aggregate dictionary per dealer."""
+    from collections import defaultdict
+    by_dealer: dict[str, list[Any]] = defaultdict(list)
+    for s in submissions or []:
+        dealer = getattr(s, "dealer", None)
+        if dealer:
+            by_dealer[str(dealer).strip().upper()].append(s)
+    aggs = {dealer: aggregate_submissions(rows, wide_map={}) for dealer, rows in by_dealer.items()}
+    return aggs, False
+

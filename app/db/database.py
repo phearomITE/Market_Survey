@@ -101,7 +101,12 @@ def _ensure_light_migrations() -> None:
             "DAZZ": "DAZZ ORD",
             "DAZZ Zero Sugar": "DAZZ Zero Sugar ORD",
             "EXPREZ Melon": "EXPREZ Melon ORD",
-            "EXPREZ Can 500ml": "EXPREZ Can 500ml ORD",
+            "EXPREZ Can 500ml": "EXPREZ Can ORD",
+            "EXPREZ Can 500ml ORD": "EXPREZ Can ORD",
+            "EXPREZ Can 500ml NCP": "EXPREZ Can NCP",
+            "EXPREZ Can 330ml ORD": "EXPREZ Can ORD",
+            "EXPREZ Can 330ml NCP": "EXPREZ Can NCP",
+            "EXPREZ Can 330ml": "EXPREZ Can ORD",
             "Wurkz Ice": "Wurkz Ice ORD",
             "CAMBODIA Sport 500mL": "CAMBODIA Sport 500mL ORD",
             "WURKZ": "WURKZ ORD",
@@ -126,6 +131,10 @@ def _ensure_light_migrations() -> None:
             "King Kong": "King Kong ORD",
             "Idol Can 330ml": "Idol Can 330ml ORD",
             "Dragon": "Dragon ORD",
+            "EXPREZ Can 500ml ORD": "EXPREZ Can ORD",
+            "EXPREZ Can 500ml": "EXPREZ Can ORD",
+            "EXPREZ Can 330ml ORD": "EXPREZ Can ORD",
+            "EXPREZ Can 330ml": "EXPREZ Can ORD",
         }
         for old_name, new_name in product_renames.items():
             if old_name == new_name:

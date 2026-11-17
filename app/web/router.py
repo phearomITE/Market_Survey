@@ -32,6 +32,8 @@ PRODUCT_CATEGORIES = {
     "DAZZ ORD": "Energy Drink",
     "DAZZ NCP": "Energy Drink",
     "DAZZ Zero Sugar ORD": "Energy Drink",
+    "EXPREZ Can ORD": "Beverage",
+    "EXPREZ Can NCP": "Beverage",
     "EXPREZ Can 500ml ORD": "Beverage",
     "EXPREZ Can 500ml NCP": "Beverage",
     "IZE PET 300ml Flavour": "Beverage",

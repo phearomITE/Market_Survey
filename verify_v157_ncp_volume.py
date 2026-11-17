@@ -75,7 +75,7 @@ for forbidden in [
 report = xlsx_text(ROOT / 'templates/template_general.xlsx')
 for label in [
     'CB LITE NCP', 'WURKZ NCP', 'DAZZ NCP',
-    'EXPREZ Can 500ml NCP', 'IZE COLA 500ml NCP', 'IZE COLA 500ml ORD',
+    'EXPREZ Can NCP', 'IZE COLA 500ml NCP', 'IZE COLA 500ml ORD',
 ]:
     assert label in report, f'Missing report-template product: {label}'
 

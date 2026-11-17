@@ -427,7 +427,7 @@ def _build_report_submissions(
             # CB LITE NCP is also present in the HORECA form. Keep all five
             # volume products in the shared fast cache for volume exports.
             ncp_volume = ["CB LITE NCP", "WURKZ NCP", "DAZZ NCP",
-                          "EXPREZ Can 500ml NCP", "IZE COLA 500ml NCP"]
+                          "EXPREZ Can NCP", "IZE COLA 500ml NCP"]
             own_products = list(dict.fromkeys([*HORECA_OWN_PRODUCTS, *ncp_volume]))
             competitor_products = HORECA_COMPETITOR_PRODUCTS
         else:

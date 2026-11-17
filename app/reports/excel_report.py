@@ -70,8 +70,12 @@ PRODUCT_NAME_MAP = {
     'GB Original NCP': 'GB Original ORD',
     'CB BLACK NCP': 'CB BLACK ORD',
     'Hanuman Black NCP': 'Hanuman Black ORD',
-    'EXPREZ Can 330ml ORD': 'EXPREZ Can 500ml ORD',
-    'EXPREZ Can 330ml NCP': 'EXPREZ Can 500ml NCP',
+    'EXPREZ Can 330ml ORD': 'EXPREZ Can ORD',
+    'EXPREZ Can 330ml NCP': 'EXPREZ Can NCP',
+    'EXPREZ Can 500ml ORD': 'EXPREZ Can ORD',
+    'EXPREZ Can 500ml NCP': 'EXPREZ Can NCP',
+    'EXPREZ Can ORD': 'EXPREZ Can ORD',
+    'EXPREZ Can NCP': 'EXPREZ Can NCP',
 
     "BACCHUSE ORD": "BACCHUSE",
     "BACCHUSE SUGAR FREE ORD": "BACCHUSE Sugar Free",
@@ -99,8 +103,10 @@ PRODUCT_NAME_MAP = {
     "IZE PET 300ml All SKUs": "IZE PET 300ml Flavour",
     "IZE PET 300ML ALL SKUS": "IZE PET 300ml Flavour",
     "EXPREZ ត្រសក់ផ្អែម": "EXPREZ Melon ORD",
-    "EXPREZ Can 500ml ORD": "EXPREZ Can 500ml ORD",
-    "EXPREZ Can 500ml NCP": "EXPREZ Can 500ml NCP",
+    "EXPREZ Can 500ml ORD": "EXPREZ Can ORD",
+    "EXPREZ Can 500ml NCP": "EXPREZ Can NCP",
+    "EXPREZ Can ORD": "EXPREZ Can ORD",
+    "EXPREZ Can NCP": "EXPREZ Can NCP",
     "WURKZ NCP": "WURKZ NCP",
     "DAZZ NCP": "DAZZ NCP",
     "IZE COLA 500ml": "IZE COLA 500ml ORD",
@@ -632,7 +638,7 @@ def _normalize_exprez_freshness_rows(ws: Worksheet, agg: dict) -> None:
     if _is_channel_specialist_report(agg):
         return
 
-    expected = {19: "EXPREZ Melon ORD", 20: "EXPREZ Can 500ml ORD"}
+    expected = {19: "EXPREZ Melon ORD", 20: "EXPREZ Can ORD"}
     merge_columns = ((3, 7), (8, 11), (12, 15), (16, 19), (20, 22), (23, 25), (26, 27))
     source_row = 18
 

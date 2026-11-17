@@ -87,8 +87,23 @@ PRODUCT_LOOKUP_ALIASES = {
         "CAMBODIA Sport 300mL",
         "CAMBODIA Sport 300ml",
     ),
-    "EXPREZ Can 500ml": (
+    "EXPREZ Can ORD": (
+        "EXPREZ Can ORD",
+        "EXPREZ Can 500ml ORD",
+        "EXPREZ Can 330ml ORD",
         "EXPREZ Can 500ml",
+        "EXPREZ Can 330ml",
+        "EXPREZ Can",
+    ),
+    "EXPREZ Can NCP": (
+        "EXPREZ Can NCP",
+        "EXPREZ Can 500ml NCP",
+        "EXPREZ Can 330ml NCP",
+    ),
+    "EXPREZ Can 500ml": (
+        "EXPREZ Can ORD",
+        "EXPREZ Can 500ml",
+        "EXPREZ Can 500ml ORD",
     ),
 }
 
