@@ -91,6 +91,16 @@ def survey_page():
     return FileResponse(WEB_DIR / "survey_preview.html")
 
 
+@router.get("/dashboard")
+def dashboard_page():
+    return FileResponse(WEB_DIR / "modern_dashboard.html")
+
+
+@router.get("/cmfb_logo.png")
+def cmfb_logo():
+    return FileResponse(WEB_DIR / "cmfb_logo.png", media_type="image/png")
+
+
 
 @router.get("/web/map.css")
 def map_css():
