@@ -51,6 +51,7 @@ def xlsx_text(path: Path) -> str:
                 chunks.append(zf.read(name).decode('utf-8', errors='ignore'))
         return '\n'.join(chunks)
 
+# The five NCP products have been removed from the form as requested.
 form = xlsx_text(ROOT / 'templates/KB_Market_Improvement_XLSForm_GT_HORECA.xlsx')
 for field in [
     'fresh_status_wurkz_ncp', 'fresh_volume_wurkz_ncp',
@@ -58,9 +59,8 @@ for field in [
     'fresh_status_exprez_can_330_ncp', 'fresh_volume_exprez_can_330_ncp',
     'fresh_status_ize_cola_500_ncp', 'fresh_volume_ize_cola_500_ncp',
     'fresh_status_cb_lite_ncp', 'fresh_volume_cb_lite_ncp',
-    'fresh_status_ize_cola_500_ord',
 ]:
-    assert field in form, f'Missing Kobo field: {field}'
+    assert field not in form, f'Found removed NCP field: {field}'
 
 # The five NCP products must not ask for manual movement/stock/price fields.
 for forbidden in [

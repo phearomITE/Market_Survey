@@ -91,6 +91,11 @@ def survey_page():
     return FileResponse(WEB_DIR / "survey_preview.html")
 
 
+@router.get("/tma")
+def tma_page():
+    return FileResponse(WEB_DIR / "tma_preview.html")
+
+
 @router.get("/dashboard")
 def dashboard_page():
     return FileResponse(WEB_DIR / "modern_dashboard.html")

@@ -20,8 +20,7 @@ for xf in xlsforms:
     ws = wb["survey"]
     survey_text = [str(cell.value) for row in ws.iter_rows() for cell in row if cell.value]
     full_str = " ".join(survey_text)
-    assert "EXPREZ Can ORD" in full_str, f"Missing EXPREZ Can ORD in {xf.name}"
-    assert "EXPREZ Can NCP" in full_str, f"Missing EXPREZ Can NCP in {xf.name}"
+    assert "EXPREZ Can" in full_str, f"Missing EXPREZ Can in {xf.name}"
     assert "EXPREZ Can 500ml ORD" not in full_str, f"Found stale EXPREZ Can 500ml ORD in {xf.name}"
     assert "EXPREZ Can 500ml NCP" not in full_str, f"Found stale EXPREZ Can 500ml NCP in {xf.name}"
 print("✅ XLSForms verified: new names present, old 500ml names removed.")

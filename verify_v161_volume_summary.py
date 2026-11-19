@@ -143,7 +143,8 @@ for p in (ROOT/'app').rglob('*.py'):ast.parse(p.read_text(encoding='utf-8'), fil
 for p in ROOT.glob('templates/*XLSForm*.xlsx'):
     form=load_workbook(p);assert 'CMFB' in str(form['settings'].cell(2,1).value)
     data=list(form['survey'].values)
+    # The five NCP products were removed from the form by user request
     for key in ['cb_lite_ncp','wurkz_ncp','dazz_ncp','exprez_can_330_ncp','ize_cola_500_ncp']:
         for prefix in ['fresh_status_','fresh_volume_']:
-            r=next(r for r in data if r[1]==prefix+key);assert r[3]=='yes'
+            assert not any(r[1]==prefix+key for r in data if len(r)>1)
 print('V161 OK: command routing/date filters, 65 dealers, subtotal reconciliation, 5 volumes, detail/map/phone fields, blank/zero/hidden/summary exclusion, 2 logos, CMFB forms.')
